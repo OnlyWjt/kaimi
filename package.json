@@ -1,0 +1,20 @@
+{
+  "name": "kaimi",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.28.2",
+  "scripts": {
+    "dev": "pnpm --filter @kaimi/web dev",
+    "build": "pnpm -r build",
+    "db:generate": "pnpm --filter @kaimi/web db:generate",
+    "db:migrate": "pnpm --filter @kaimi/web db:migrate",
+    "lint": "pnpm --filter @kaimi/web lint"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp",
+      "unrs-resolver"
+    ]
+  }
+}

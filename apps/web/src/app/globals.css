@@ -1,0 +1,552 @@
+@import "tailwindcss";
+@import "@kaimi/themes/css/tokens.css";
+
+@theme inline {
+  --font-sans: var(--km-font-body);
+  --font-display: var(--km-font-display);
+  --color-km-bg: var(--km-bg);
+  --color-km-elevated: var(--km-bg-elevated);
+  --color-km-muted: var(--km-bg-muted);
+  --color-km-fg: var(--km-fg);
+  --color-km-fg-muted: var(--km-fg-muted);
+  --color-km-border: var(--km-border);
+  --color-km-accent: var(--km-accent);
+  --color-km-accent-fg: var(--km-accent-fg);
+  --color-km-success: var(--km-success);
+  --color-km-danger: var(--km-danger);
+  --color-km-warning: var(--km-warning);
+}
+
+html,
+body {
+  min-height: 100%;
+  background: var(--km-bg);
+  color: var(--km-fg);
+  font-family: var(--km-font-body);
+}
+
+html {
+  scroll-padding-top: 5.5rem;
+}
+
+body {
+  background-image: var(--km-hero-glow);
+  background-attachment: fixed;
+  background-size: 140% 140%, 130% 130%, 150% 150%;
+  animation: km-mesh 28s ease-in-out infinite;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.km-shell {
+  width: min(1120px, calc(100% - 2.5rem));
+  margin-inline: auto;
+}
+
+.km-shell-narrow {
+  width: min(520px, calc(100% - 2.5rem));
+  margin-inline: auto;
+}
+
+.km-shell-wide {
+  width: min(1200px, calc(100% - 2.5rem));
+  margin-inline: auto;
+}
+
+/* —— Header —— */
+.km-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  border-bottom: 1px solid color-mix(in oklab, var(--km-border) 80%, transparent);
+  background: color-mix(in oklab, var(--km-bg) 72%, transparent);
+  backdrop-filter: blur(18px) saturate(1.15);
+}
+
+.km-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 3.5rem;
+  padding-block: 0.55rem;
+}
+
+.km-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.km-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.85rem;
+  background: var(--km-accent);
+  color: var(--km-accent-fg);
+  font-family: var(--font-sora), var(--km-font-display);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  flex-shrink: 0;
+}
+
+.km-brand-name {
+  font-family: var(--font-sora), var(--km-font-display);
+  font-size: 1.02rem;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.km-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.15rem;
+}
+
+.km-nav-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.42rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--km-fg-muted);
+  transition: color 180ms ease, background 180ms ease;
+}
+
+.km-nav-link:hover {
+  color: var(--km-fg);
+  background: color-mix(in oklab, var(--km-bg-muted) 70%, transparent);
+}
+
+.km-nav-link-active {
+  color: var(--km-fg);
+  background: color-mix(in oklab, var(--km-bg-elevated) 88%, transparent);
+}
+
+.km-nav-link:focus-visible {
+  outline: 2px solid var(--km-fg);
+  outline-offset: 2px;
+}
+
+/* —— Buttons —— */
+.km-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  padding: 0.78rem 1.3rem;
+  background: var(--km-accent);
+  color: var(--km-accent-fg);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  border: 0;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    opacity 160ms ease,
+    box-shadow 180ms ease,
+    background 160ms ease;
+}
+
+.km-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 28px color-mix(in oklab, var(--km-accent) 22%, transparent);
+}
+
+.km-btn:active {
+  transform: scale(0.98);
+}
+
+.km-btn:focus-visible {
+  outline: 2px solid var(--km-fg);
+  outline-offset: 3px;
+}
+
+.km-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.km-btn-ghost {
+  background: color-mix(in oklab, var(--km-bg-elevated) 80%, transparent);
+  color: var(--km-fg);
+  border: 1px solid var(--km-border);
+  box-shadow: none;
+}
+
+.km-btn-pair {
+  min-width: 8.75rem;
+}
+
+.km-btn-ghost:hover {
+  background: var(--km-bg-elevated);
+  box-shadow: none;
+}
+
+.km-btn-muted {
+  background: var(--km-bg-muted);
+  color: var(--km-fg-muted);
+  cursor: default;
+}
+
+.km-btn-muted:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.km-btn-sm {
+  padding: 0.5rem 0.95rem;
+  font-size: 0.8125rem;
+}
+
+.km-admin .km-btn {
+  min-width: 0;
+  padding: 0.5rem 0.85rem;
+  font-size: 0.8125rem;
+}
+
+.km-admin .km-panel {
+  padding: 1.15rem 1.25rem;
+}
+
+.km-stat {
+  border: 1px solid color-mix(in oklab, var(--km-border) 88%, transparent);
+  background: color-mix(in oklab, var(--km-bg-elevated) 94%, transparent);
+  border-radius: 16px;
+  padding: 1rem 1.15rem;
+}
+
+.km-stat-value {
+  margin: 0.2rem 0 0;
+  font-family: var(--font-sora), var(--km-font-display);
+  font-size: 1.7rem;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+}
+
+.km-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  padding-bottom: 1rem;
+  margin-bottom: 0.15rem;
+  border-bottom: 1px solid var(--km-border);
+}
+
+/* —— Form controls —— */
+.km-input {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid var(--km-border);
+  background: var(--km-bg-elevated);
+  color: var(--km-fg);
+  padding: 0.82rem 1rem;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.km-input:hover {
+  border-color: color-mix(in oklab, var(--km-fg-muted) 28%, var(--km-border));
+}
+
+.km-input:focus {
+  border-color: color-mix(in oklab, var(--km-fg) 45%, var(--km-border));
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--km-fg) 8%, transparent);
+}
+
+.km-input::placeholder {
+  color: color-mix(in oklab, var(--km-fg-muted) 70%, transparent);
+}
+
+/* —— Panels —— */
+.km-panel {
+  border: 1px solid color-mix(in oklab, var(--km-border) 88%, transparent);
+  background: color-mix(in oklab, var(--km-bg-elevated) 94%, transparent);
+  border-radius: var(--km-radius);
+  padding: 1.45rem 1.5rem;
+  backdrop-filter: blur(16px);
+  box-shadow: var(--km-shadow);
+  transition: transform 220ms ease, box-shadow 220ms ease;
+}
+
+.km-panel-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 26px 60px -30px rgb(23 23 23 / 32%);
+}
+
+.km-page-hero {
+  display: grid;
+  gap: 0.7rem;
+  padding-block: 2.4rem 0.75rem;
+  justify-items: center;
+  text-align: center;
+}
+
+.km-eyebrow {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--km-label, var(--km-fg-muted));
+}
+
+.km-page-title {
+  margin: 0;
+  font-family: var(--font-sora), var(--km-font-display);
+  font-size: clamp(2rem, 4.4vw, 3.15rem);
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 1.08;
+}
+
+.km-lead {
+  margin: 0;
+  max-width: 34rem;
+  font-size: 1.02rem;
+  line-height: 1.65;
+  color: var(--km-fg-muted);
+}
+
+.km-form-stack {
+  display: grid;
+  gap: 0.95rem;
+}
+
+.km-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+  padding-top: 0.15rem;
+}
+
+.km-result {
+  border-radius: 16px;
+  border: 1px solid var(--km-border);
+  background: var(--km-bg-muted);
+  padding: 1rem 1.1rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.km-session-pass {
+  border-color: color-mix(in oklab, var(--km-success) 40%, var(--km-border));
+  background: color-mix(in oklab, var(--km-success) 10%, var(--km-bg-elevated));
+}
+
+.km-session-fail {
+  border-color: color-mix(in oklab, var(--km-danger) 40%, var(--km-border));
+  background: color-mix(in oklab, var(--km-danger) 8%, var(--km-bg-elevated));
+}
+
+.km-submit-reveal {
+  animation: km-rise 380ms ease both;
+}
+
+.km-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.km-tab {
+  border-radius: 999px;
+  padding: 0.5rem 0.95rem;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--km-fg-muted);
+  font-weight: 500;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 240ms ease, color 240ms ease, border-color 240ms ease;
+}
+
+.km-tab:hover {
+  color: var(--km-fg);
+  background: color-mix(in oklab, var(--km-bg-muted) 70%, transparent);
+}
+
+.km-tab-active {
+  background: var(--km-accent);
+  color: var(--km-accent-fg);
+}
+
+.km-table {
+  width: 100%;
+  table-layout: fixed;
+  text-align: left;
+  border-collapse: collapse;
+}
+
+.km-table th,
+.km-table td {
+  padding: 0.72rem 0.7rem;
+  vertical-align: middle;
+}
+
+.km-table th:first-child,
+.km-table td:first-child {
+  padding-left: 0;
+}
+
+.km-table th:last-child,
+.km-table td:last-child {
+  padding-right: 0;
+  text-align: right;
+}
+
+.km-table th {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--km-fg-muted);
+}
+
+.km-table td {
+  border-top: 1px solid var(--km-border);
+  font-size: 0.8125rem;
+}
+
+.km-clip {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.km-guide-steps {
+  counter-reset: km-guide;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.km-guide-steps li {
+  display: grid;
+  grid-template-columns: 1.5rem 1fr;
+  gap: 0.7rem;
+  align-items: start;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.km-guide-steps li::before {
+  counter-increment: km-guide;
+  content: counter(km-guide);
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  background: var(--km-accent);
+  color: var(--km-accent-fg);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+
+.km-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--km-bg-muted);
+  color: var(--km-fg-muted);
+}
+
+.km-badge-ok {
+  background: color-mix(in oklab, var(--km-success) 16%, var(--km-bg-elevated));
+  color: var(--km-success);
+}
+
+.km-badge-bad {
+  background: color-mix(in oklab, var(--km-danger) 14%, var(--km-bg-elevated));
+  color: var(--km-danger);
+}
+
+.km-badge-wait {
+  background: color-mix(in oklab, var(--km-warning) 16%, var(--km-bg-elevated));
+  color: var(--km-warning);
+}
+
+@keyframes km-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes km-mesh {
+  0%,
+  100% {
+    background-position: 0% 0%, 100% 0%, 50% 100%;
+  }
+  50% {
+    background-position: 8% 6%, 92% 10%, 46% 92%;
+  }
+}
+
+.km-rise {
+  animation: km-rise 420ms ease both;
+}
+
+.km-rise-delay {
+  animation-delay: 90ms;
+}
+
+@media (max-width: 640px) {
+  .km-header-inner {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.35rem;
+    padding-block: 0.7rem;
+  }
+
+  .km-nav {
+    justify-content: flex-start;
+    margin-inline: -0.35rem;
+  }
+
+  .km-nav-link {
+    padding: 0.38rem 0.55rem;
+    font-size: 0.8125rem;
+  }
+
+  body {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

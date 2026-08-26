@@ -1,0 +1,5 @@
+{$DOMAIN:localhost}
+
+{$DOMAIN} {
+  reverse_proxy kaimi:3100
+}

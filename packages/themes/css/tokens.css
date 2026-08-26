@@ -1,0 +1,81 @@
+:root,
+[data-theme="snow"] {
+  --km-bg: #f5f3ef;
+  --km-bg-elevated: #fffdfb;
+  --km-bg-muted: #ece7e0;
+  --km-fg: #171717;
+  --km-fg-muted: #6b6560;
+  --km-border: #e4ded6;
+  --km-accent: #171717;
+  --km-accent-fg: #fffdfb;
+  --km-success: #5c7a5e;
+  --km-danger: #b85c4a;
+  --km-warning: #b8863a;
+  --km-label: #c17a5a;
+  --km-radius: 22px;
+  --km-shadow: 0 18px 50px -28px rgb(23 23 23 / 28%);
+  --km-font-display: "Sora", "Segoe UI", sans-serif;
+  --km-font-body: "IBM Plex Sans", "Segoe UI", "PingFang SC", sans-serif;
+  --km-hero-glow:
+    radial-gradient(920px 520px at 12% -10%, #f3c9b870, transparent 58%),
+    radial-gradient(860px 460px at 90% -4%, #d7c6f070, transparent 56%),
+    radial-gradient(760px 420px at 50% 108%, #f0dc9a55, transparent 52%);
+}
+
+[data-theme="aurora"] {
+  --km-bg: #0b0d12;
+  --km-bg-elevated: #141821;
+  --km-bg-muted: #1b2130;
+  --km-fg: #f3f1ec;
+  --km-fg-muted: #9aa1b0;
+  --km-border: #2a3142;
+  --km-accent: #f3f1ec;
+  --km-accent-fg: #111318;
+  --km-success: #8aaa8c;
+  --km-danger: #d08a7a;
+  --km-warning: #d4b06a;
+  --km-label: #e0b8a4;
+  --km-radius: 22px;
+  --km-shadow: 0 20px 50px -24px rgb(0 0 0 / 55%);
+  --km-hero-glow:
+    radial-gradient(1000px 480px at 16% -12%, #3b2a4d66, transparent 58%),
+    radial-gradient(820px 400px at 92% 0%, #2a3d5c66, transparent 55%);
+}
+
+[data-theme="ink"] {
+  --km-bg: #0a0a0a;
+  --km-bg-elevated: #141414;
+  --km-bg-muted: #1c1c1c;
+  --km-fg: #f5f5f5;
+  --km-fg-muted: #a3a3a3;
+  --km-border: #2a2a2a;
+  --km-accent: #f5f5f5;
+  --km-accent-fg: #0a0a0a;
+  --km-success: #a3a3a3;
+  --km-danger: #d08a7a;
+  --km-warning: #d4b06a;
+  --km-label: #c4c4c4;
+  --km-radius: 22px;
+  --km-shadow: 0 20px 50px -24px rgb(0 0 0 / 60%);
+  --km-hero-glow: radial-gradient(900px 420px at 50% -20%, #2a2a2a, transparent 60%);
+}
+
+[data-theme="sakura"] {
+  --km-bg: #f7f1f3;
+  --km-bg-elevated: #fffafb;
+  --km-bg-muted: #f0e2e6;
+  --km-fg: #1a1215;
+  --km-fg-muted: #7a5d66;
+  --km-border: #ead5db;
+  --km-accent: #1a1215;
+  --km-accent-fg: #fffafb;
+  --km-success: #5c7a5e;
+  --km-danger: #b85c4a;
+  --km-warning: #b8863a;
+  --km-label: #c17a5a;
+  --km-radius: 22px;
+  --km-shadow: 0 18px 50px -28px rgb(26 18 21 / 24%);
+  --km-hero-glow:
+    radial-gradient(900px 480px at 18% -8%, #f4b8c466, transparent 58%),
+    radial-gradient(760px 400px at 88% 0%, #f3d6a866, transparent 55%);
+}
