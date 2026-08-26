@@ -4,6 +4,15 @@
 
 内部 `/shop` 发卡网默认关闭，只作调试。日常卖卡用「外观」里配置的购买外链。
 
+## 相关推荐
+
+| 项目 | 地址 |
+| --- | --- |
+| CDK 兑换系统 | https://cdk.danew.cc |
+| 卡网 | https://card.danew.cc |
+| 中转站 | https://claude.ai |
+| 卡台 | https://www.avanfinity.com/invite/DC12B3E5DF |
+
 ## 功能
 
 - 前台：首页、兑换、卡密查询、订单进度
