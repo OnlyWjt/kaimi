@@ -53,6 +53,12 @@ const STATUS_LABEL: Record<string, string> = {
   fulfilled: "已完成",
   paid: "已支付",
   unpaid: "未支付",
+  pending_pay: "待支付",
+  delivered: "已发货",
+  paid_undelivered: "已付未发",
+  issuing: "发货中",
+  expired: "已过期",
+  cancelled: "已取消",
   manual: "已持码",
   skipped: "已跳过",
 };
@@ -100,6 +106,12 @@ export default function AdminPage() {
   const [purchasePlan, setPurchasePlan] = useState("");
   const [purchaseCount, setPurchaseCount] = useState(1);
   const [purchasePayType, setPurchasePayType] = useState<"alipay" | "wxpay">("alipay");
+  const [purchaseLastImport, setPurchaseLastImport] = useState<{
+    at?: string;
+    imported?: number;
+    restored?: number;
+    orders?: string[];
+  } | null>(null);
   const [deliveries, setDeliveries] = useState<Array<Record<string, unknown>>>([]);
   const [records, setRecords] = useState<Array<Record<string, unknown>>>([]);
   const [recordQ, setRecordQ] = useState("");
@@ -197,6 +209,7 @@ export default function AdminPage() {
         const data = await loadSection("purchase");
         setPurchaseOrders(data?.list || []);
         setPurchasePlans(data?.plans || []);
+        setPurchaseLastImport(data?.lastImport || null);
         if (!purchasePlan && data?.plans?.[0]?.key) setPurchasePlan(String(data.plans[0].key));
       }
       if (tab === "appearance") {
@@ -880,8 +893,18 @@ export default function AdminPage() {
             <div className="km-panel space-y-3">
               <h3 className="font-semibold">向主站进货</h3>
               <p className="text-sm text-[var(--km-fg-muted)]">
-                走 danewcdk Agent 下单（支付宝 / 微信）。支付成功后主站会把卡密分配给你，再点「同步库存」入库。
+                走 danewcdk Agent 下单（支付宝 / 微信）。付完后主站发码，本站每 30 秒拉已发货订单按单号入库。主站补上
+                order.delivered 回调后会更快，拉单兜底会保留。
               </p>
+              {purchaseLastImport?.at ? (
+                <p className="text-xs text-[var(--km-fg-muted)]">
+                  最近自动入库 {formatWhen(purchaseLastImport.at)}
+                  {typeof purchaseLastImport.imported === "number"
+                    ? ` · 新增 ${purchaseLastImport.imported}`
+                    : ""}
+                  {purchaseLastImport.restored ? ` · 恢复 ${purchaseLastImport.restored}` : ""}
+                </p>
+              ) : null}
               <label className="block space-y-1 text-sm">
                 <span>套餐</span>
                 <select className="km-input" value={purchasePlan} onChange={(e) => setPurchasePlan(e.target.value)}>
@@ -930,6 +953,7 @@ export default function AdminPage() {
                   if (data?.pay_url) window.open(String(data.pay_url), "_blank", "noopener");
                   const next = await loadSection("purchase");
                   setPurchaseOrders(next?.list || []);
+                  setPurchaseLastImport(next?.lastImport || null);
                 }}
               >
                 下单进货
@@ -944,6 +968,7 @@ export default function AdminPage() {
                     const data = await loadSection("purchase");
                     setPurchaseOrders(data?.list || []);
                     setPurchasePlans(data?.plans || []);
+                    setPurchaseLastImport(data?.lastImport || null);
                   }}
                 >
                   刷新

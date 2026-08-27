@@ -5,6 +5,8 @@ import { bootDb } from "@/lib/config";
 import { maskCode } from "@/lib/crypto";
 import { getUpstreamClient } from "@/lib/upstream";
 
+const PURCHASE_RECONCILE_GRACE_MS = 5 * 60_000;
+
 /** 与主站 normalizeCDKCode 对齐：trim + 大写，避免对账误伤 */
 export function normalizeCdkCode(code: string) {
   return code.trim().toUpperCase();
@@ -92,12 +94,26 @@ export async function syncCdksFromUpstream() {
   if (!incomplete) {
     // 只对账 unused：sold 是客户已购码，上游 unused 列表本来就不会再出现
     const localUnused = await db
-      .select({ id: cdkPool.id, code: cdkPool.code })
+      .select({
+        id: cdkPool.id,
+        code: cdkPool.code,
+        source: cdkPool.source,
+        updatedAt: cdkPool.updatedAt,
+      })
       .from(cdkPool)
       .where(eq(cdkPool.status, "unused"));
     const now = new Date().toISOString();
+    const nowMs = Date.now();
     for (const row of localUnused) {
       if (upstreamUnused.has(normalizeCdkCode(row.code))) continue;
+      // Payment fulfillment and /agent/cdks can become visible a few seconds
+      // apart. Give directly imported purchase codes a short consistency grace.
+      if (row.source === "purchase") {
+        const updatedMs = Date.parse(row.updatedAt);
+        if (Number.isFinite(updatedMs) && nowMs - updatedMs < PURCHASE_RECONCILE_GRACE_MS) {
+          continue;
+        }
+      }
       await db
         .update(cdkPool)
         .set({ status: "disabled", updatedAt: now })

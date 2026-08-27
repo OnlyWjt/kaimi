@@ -123,6 +123,19 @@ CREATE TABLE IF NOT EXISTS order_status_history (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS order_status_history_order_idx ON order_status_history(order_id);
+
+CREATE TABLE IF NOT EXISTS purchase_imports (
+  order_no TEXT PRIMARY KEY,
+  plan TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT '',
+  expected_count INTEGER NOT NULL DEFAULT 0,
+  imported_count INTEGER NOT NULL DEFAULT 0,
+  complete INTEGER NOT NULL DEFAULT 0,
+  codes_json TEXT NOT NULL DEFAULT '[]',
+  source TEXT NOT NULL DEFAULT 'poll',
+  imported_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `;
 
 export async function ensureSchema() {

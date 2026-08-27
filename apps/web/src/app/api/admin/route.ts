@@ -22,6 +22,7 @@ import {
   pollRechargeIfNeeded,
   reconcileStuckLocks,
 } from "@/lib/orders";
+import { watchPurchaseOrder } from "@/lib/purchase-sync";
 import { getUpstreamClient } from "@/lib/upstream";
 import { UpstreamError } from "@kaimi/upstream";
 
@@ -259,12 +260,14 @@ export async function GET(req: Request) {
       const page = Math.max(1, Number(searchParams.get("page") || "1") || 1);
       const data = await client.listOrders({ page, page_size: 20 });
       const plans = await client.fetchPlans().catch(() => []);
+      const { getPurchaseImportLast } = await import("@/lib/purchase-sync");
       return NextResponse.json({
         ok: true,
         list: data.list || [],
         total: data.total || 0,
         page: data.page || page,
         plans,
+        lastImport: await getPurchaseImportLast(),
       });
     } catch (err) {
       return NextResponse.json(
@@ -512,6 +515,7 @@ export async function POST(req: Request) {
       const payType = body.payType === "wxpay" ? "wxpay" : "alipay";
       if (!plan) return NextResponse.json({ error: "请选择套餐" }, { status: 400 });
       const data = await client.createOrder({ plan, count, pay_type: payType });
+      if (data.order?.order_no) await watchPurchaseOrder(data.order.order_no);
       return NextResponse.json({
         ok: true,
         order: data.order,
@@ -532,6 +536,7 @@ export async function POST(req: Request) {
       const orderNo = String(body.orderNo || "").trim();
       if (!orderNo) return NextResponse.json({ error: "缺少进货单号" }, { status: 400 });
       const data = await client.repayOrder(orderNo);
+      await watchPurchaseOrder(orderNo);
       return NextResponse.json({
         ok: true,
         order: data.order,

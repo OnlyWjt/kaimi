@@ -61,7 +61,7 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
               在「接入 danewcdk」填主站地址、API Key、Webhook 签名，再填本站公网地址。
             </li>
             <li>把页面上的 Webhook 回调复制到主站代理设置，然后点连通检测。</li>
-            <li>同步套餐和库存。没有库存就去「进货」向主站下单，付完再同步。</li>
+            <li>同步套餐。没有库存就去「进货」向主站下单，付完后本站会按单号自动入库。</li>
             <li>
               到「外观」改站点名、主题，填购买卡密外链。兑换页公告和页脚说明也可在这里改。
             </li>
@@ -112,7 +112,7 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
               默认脱敏，点「显示」后再复制。可核销、禁用、启用，或从主站同步。
             </GuideJump>
             <GuideJump title="进货" onClick={() => onGo("purchase")}>
-              向主站下单补货，支付宝或微信。付完后回来同步库存。
+              向主站下单补货，支付宝或微信。付完后按进货单号自动入库，不必再点同步。
             </GuideJump>
           </div>
           <p className="text-sm text-[var(--km-fg-muted)]">

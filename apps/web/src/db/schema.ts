@@ -149,6 +149,23 @@ export const orderStatusHistory = sqliteTable(
   }),
 );
 
+export const purchaseImports = sqliteTable("purchase_imports", {
+  orderNo: text("order_no").primaryKey(),
+  plan: text("plan").notNull().default(""),
+  status: text("status").notNull().default(""),
+  expectedCount: integer("expected_count").notNull().default(0),
+  importedCount: integer("imported_count").notNull().default(0),
+  complete: integer("complete", { mode: "boolean" }).notNull().default(false),
+  codesJson: text("codes_json").notNull().default("[]"),
+  source: text("source").notNull().default("poll"),
+  importedAt: text("imported_at")
+    .notNull()
+    .default(sql`(datetime('now'))`),
+  updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`(datetime('now'))`),
+});
+
 export const webhookEvents = sqliteTable(
   "webhook_events",
   {
