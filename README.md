@@ -10,7 +10,7 @@
 | --- | --- |
 | CDK 兑换系统 | https://cdk.danew.cc |
 | 卡网 | https://card.danew.cc |
-| 中转站 | https://claude.ai |
+| 中转站 | https://claudec.ai |
 | 卡台 | https://www.avanfinity.com/invite/DC12B3E5DF |
 
 ## 功能
