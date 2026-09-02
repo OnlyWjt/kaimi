@@ -7,7 +7,8 @@ import { maskCode } from "@/lib/crypto";
 import { findCdkByCode, releaseLockedCode, markCodeUsed } from "@/lib/inventory";
 import { pollRechargeIfNeeded } from "@/lib/orders";
 import { enforceRateLimit } from "@/lib/rate-limit";
-import { isTerminalStatus } from "@kaimi/upstream";
+import { isTerminalStatus } from "@/lib/recharge-types";
+import { findIssuedCdkByCode } from "@/lib/cardplatform/issued-redemption";
 
 export async function GET(req: Request) {
   const limited = enforceRateLimit(req, "cdk-lookup", 30);
@@ -16,6 +17,43 @@ export async function GET(req: Request) {
   const code = new URL(req.url).searchParams.get("code")?.trim() || "";
   if (!code || code.length < 6) {
     return NextResponse.json({ error: "请输入完整卡密" }, { status: 400 });
+  }
+
+  const issued = await findIssuedCdkByCode(code);
+  if (issued) {
+    let orderNo: string | null = null;
+    let message = "";
+    let fulfillStatus: string | null = null;
+    if (issued.redemptionOrderId) {
+      const order = await db.query.orders.findFirst({
+        where: eq(orders.id, issued.redemptionOrderId),
+      });
+      if (order?.orderNo && !isTerminalStatus(order.fulfillStatus)) {
+        await pollRechargeIfNeeded(order.orderNo).catch(() => null);
+      }
+      const fresh = order
+        ? await db.query.orders.findFirst({ where: eq(orders.id, issued.redemptionOrderId) })
+        : null;
+      orderNo = fresh?.orderNo ?? order?.orderNo ?? null;
+      message = fresh?.message || order?.message || "";
+      fulfillStatus = fresh?.fulfillStatus ?? order?.fulfillStatus ?? null;
+    }
+    const issuedLabel: Record<string, string> = {
+      unused: "未使用",
+      locked: "占用中",
+      redeeming: "兑换中",
+      used: "已核销/已使用",
+      disabled: "已禁用",
+    };
+    return NextResponse.json({
+      found: true,
+      codeMasked: maskCode(issued.code),
+      status: issuedLabel[issued.status] || issued.status,
+      planKey: issued.planKey,
+      orderNo,
+      fulfillStatus,
+      message,
+    });
   }
 
   let row = await findCdkByCode(code);

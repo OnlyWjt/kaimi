@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Sans, Sora } from "next/font/google";
+import { ToastHost } from "@/components/toast";
 import { getSiteAppearance } from "@/lib/storefront";
 import "./globals.css";
 
@@ -30,6 +31,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="zh-CN" data-theme={themeId} className={`${sora.variable} ${plex.variable}`}>
       <body style={{ fontFamily: "var(--font-plex), var(--km-font-body), 'PingFang SC', 'Microsoft YaHei', sans-serif" }}>
         {children}
+        <ToastHost />
       </body>
     </html>
   );

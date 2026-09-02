@@ -3,7 +3,6 @@ import { z } from "zod";
 import { createRechargeOrder } from "@/lib/orders";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { verifySessionForRedeem } from "@/lib/session-check";
-import { UpstreamError } from "@kaimi/upstream";
 
 const schema = z
   .object({
@@ -56,7 +55,7 @@ export async function POST(req: Request) {
       });
     }
 
-    const sessionCheck = await verifySessionForRedeem(body.session);
+    const sessionCheck = await verifySessionForRedeem(body.session, body.code);
     if (!sessionCheck.ok) {
       return NextResponse.json(
         {
@@ -93,13 +92,6 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "提交失败";
-    const status = err instanceof UpstreamError ? err.status : 400;
-    return NextResponse.json(
-      {
-        error: message,
-        error_code: err instanceof UpstreamError ? err.errorCode : undefined,
-      },
-      { status },
-    );
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }

@@ -490,6 +490,65 @@ a {
   color: var(--km-warning);
 }
 
+.km-toast-stack {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 80;
+  display: grid;
+  gap: 0.6rem;
+  width: min(24rem, calc(100vw - 2rem));
+  pointer-events: none;
+}
+
+.km-toast {
+  pointer-events: auto;
+  display: grid;
+  gap: 0.2rem;
+  width: 100%;
+  text-align: left;
+  border-radius: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--km-border);
+  background: var(--km-bg-elevated);
+  box-shadow: var(--km-shadow);
+  color: var(--km-fg);
+  cursor: pointer;
+}
+
+.km-toast-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.km-toast-text {
+  font-size: 0.9rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.km-toast-ok {
+  border-color: color-mix(in oklab, var(--km-success) 40%, var(--km-border));
+}
+
+.km-toast-ok .km-toast-label {
+  color: var(--km-success);
+}
+
+.km-toast-err {
+  border-color: color-mix(in oklab, var(--km-danger) 45%, var(--km-border));
+}
+
+.km-toast-err .km-toast-label {
+  color: var(--km-danger);
+}
+
+.km-toast-info .km-toast-label {
+  color: var(--km-fg-muted);
+}
+
 @keyframes km-rise {
   from {
     opacity: 0;

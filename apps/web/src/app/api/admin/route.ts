@@ -10,8 +10,6 @@ import {
   countUnused,
   disableCode,
   enableCode,
-  syncCdksFromUpstream,
-  syncPlansFromUpstream,
   voidCode,
 } from "@/lib/inventory";
 import {
@@ -22,9 +20,7 @@ import {
   pollRechargeIfNeeded,
   reconcileStuckLocks,
 } from "@/lib/orders";
-import { watchPurchaseOrder } from "@/lib/purchase-sync";
-import { getUpstreamClient } from "@/lib/upstream";
-import { UpstreamError } from "@kaimi/upstream";
+import { getDefaultCardplatformAccount } from "@/lib/cardplatform/config";
 
 async function guard() {
   try {
@@ -70,12 +66,12 @@ export async function GET(req: Request) {
       limit: 12,
     });
     const inflightCount = await countInFlightRecharges();
+    const cardAccount = await getDefaultCardplatformAccount();
     return NextResponse.json({
       setupCompleted: cfg.setupCompleted,
       paymentMode: cfg.paymentMode,
-      upstreamBaseUrl: cfg.upstreamBaseUrl,
-      hasUpstreamKey: Boolean(cfg.upstreamApiKey),
-      hasWebhookSecret: Boolean(cfg.webhookSecret),
+      hasCardplatform: Boolean(cardAccount),
+      cardplatformSiteBase: cardAccount?.siteBase || "",
       unusedStock: stock.unused ?? 0,
       lockedCount: stock.locked ?? 0,
       inflightCount,
@@ -231,19 +227,13 @@ export async function GET(req: Request) {
     } catch {
       syncLastResult = "";
     }
+    const cardAccount = await getDefaultCardplatformAccount();
     return NextResponse.json({
-      upstreamBaseUrl: cfg.upstreamBaseUrl,
-      apiKeyHint: maskKey(cfg.upstreamApiKey),
-      apiKeyConfigured: Boolean(cfg.upstreamApiKey),
-      webhookSecretHint: maskKey(cfg.webhookSecret),
-      webhookSecretConfigured: Boolean(cfg.webhookSecret),
       publicBaseUrl: publicBase.replace(/\/+$/, ""),
-      webhookCallbackUrl: `${publicBase.replace(/\/+$/, "")}/api/webhook`,
-      agentApiBase: cfg.upstreamBaseUrl
-        ? `${cfg.upstreamBaseUrl.replace(/\/+$/, "")}/api/v1/agent`
-        : "",
       setupCompleted: cfg.setupCompleted,
       paymentMode: "manual",
+      hasCardplatform: Boolean(cardAccount),
+      cardplatformSiteBase: cardAccount?.siteBase || "",
       syncIntervalMinutes,
       syncLastAt,
       syncLastResult,
@@ -252,61 +242,6 @@ export async function GET(req: Request) {
       telegramBotTokenConfigured: Boolean(await getSetting("telegram_bot_token", "")),
       telegramChatId: await getSetting("telegram_chat_id", ""),
     });
-  }
-
-  if (section === "purchase") {
-    try {
-      const client = await getUpstreamClient();
-      const page = Math.max(1, Number(searchParams.get("page") || "1") || 1);
-      const data = await client.listOrders({ page, page_size: 20 });
-      const plans = await client.fetchPlans().catch(() => []);
-      const { getPurchaseImportLast } = await import("@/lib/purchase-sync");
-      return NextResponse.json({
-        ok: true,
-        list: data.list || [],
-        total: data.total || 0,
-        page: data.page || page,
-        plans,
-        lastImport: await getPurchaseImportLast(),
-      });
-    } catch (err) {
-      return NextResponse.json(
-        { ok: false, error: err instanceof Error ? err.message : "拉取进货订单失败", list: [], plans: [] },
-        { status: 502 },
-      );
-    }
-  }
-
-  if (section === "deliveries") {
-    try {
-      const client = await getUpstreamClient();
-      const data = await client.listWebhookDeliveries({ page: 1, page_size: 30 });
-      return NextResponse.json({ ok: true, list: data.list || [], total: data.total || 0 });
-    } catch (err) {
-      return NextResponse.json(
-        { ok: false, error: err instanceof Error ? err.message : "拉取投递失败", list: [] },
-        { status: 502 },
-      );
-    }
-  }
-
-  if (section === "records") {
-    try {
-      const client = await getUpstreamClient();
-      const q = searchParams.get("q")?.trim() || "";
-      const data = await client.listRecords({
-        email: q.includes("@") ? q : undefined,
-        cdk: q && !q.includes("@") ? q : undefined,
-        page: 1,
-        page_size: 30,
-      });
-      return NextResponse.json({ ok: true, list: data.list || [], total: data.total || 0 });
-    } catch (err) {
-      return NextResponse.json(
-        { ok: false, error: err instanceof Error ? err.message : "拉取 records 失败", list: [] },
-        { status: 502 },
-      );
-    }
   }
 
   if (section === "appearance" || section === "storefronts") {
@@ -319,15 +254,10 @@ export async function GET(req: Request) {
   }
 
   if (section === "plans") {
-    try {
-      const client = await getUpstreamClient();
-      const list = await client.fetchPlans();
-      return NextResponse.json({ list, ok: true });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "拉取套餐失败";
-      const code = err instanceof UpstreamError ? err.errorCode : undefined;
-      return NextResponse.json({ error: message, error_code: code, ok: false }, { status: 502 });
-    }
+    return NextResponse.json(
+      { error: "请到「接入卡台」同步卡台套餐", ok: false },
+      { status: 410 },
+    );
   }
 
   return NextResponse.json({ error: "unknown section" }, { status: 400 });
@@ -342,15 +272,6 @@ export async function POST(req: Request) {
   const action = String(body.action || "");
 
   if (action === "save_integration" || action === "save_settings") {
-    if (body.upstreamBaseUrl) {
-      await setSetting("upstream_base_url", String(body.upstreamBaseUrl).replace(/\/+$/, ""));
-    }
-    if (body.upstreamApiKey) {
-      await setSetting("upstream_api_key", encryptSecret(String(body.upstreamApiKey).trim()));
-    }
-    if (body.webhookSecret) {
-      await setSetting("webhook_secret", encryptSecret(String(body.webhookSecret).trim()));
-    }
     if (body.publicBaseUrl) {
       await setSetting("public_base_url", String(body.publicBaseUrl).replace(/\/+$/, ""));
     }
@@ -374,42 +295,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  if (action === "test_connection" || action === "ping") {
-    try {
-      const client = await getUpstreamClient();
-      const list = await client.fetchPlans();
-      return NextResponse.json({
-        ok: true,
-        message: `连通成功，可售套餐 ${list.length} 个`,
-        plans: list.map((p) => ({
-          key: p.key,
-          name: p.label || p.name || p.key,
-          price_yuan: p.price_yuan,
-        })),
-      });
-    } catch (err) {
-      return NextResponse.json(
-        {
-          ok: false,
-          message: err instanceof Error ? err.message : "连通失败",
-          error_code: err instanceof UpstreamError ? err.errorCode : undefined,
-        },
-        { status: 502 },
-      );
-    }
-  }
-
-  if (action === "sync_stock") {
-    try {
-      const result = await syncCdksFromUpstream();
-      const locks = await reconcileStuckLocks();
-      return NextResponse.json({ ok: true, ...result, locks });
-    } catch (err) {
-      return NextResponse.json(
-        { ok: false, error: err instanceof Error ? err.message : "同步失败" },
-        { status: 502 },
-      );
-    }
+  if (action === "test_connection" || action === "ping" || action === "sync_stock") {
+    return NextResponse.json(
+      { ok: false, error: "旧 danewcdk 上游已移除，请到「接入卡台」测试连接并同步套餐" },
+      { status: 410 },
+    );
   }
 
   if (action === "reconcile_locks") {
@@ -425,15 +315,10 @@ export async function POST(req: Request) {
   }
 
   if (action === "sync_plans") {
-    try {
-      const result = await syncPlansFromUpstream();
-      return NextResponse.json({ ok: true, ...result });
-    } catch (err) {
-      return NextResponse.json(
-        { ok: false, error: err instanceof Error ? err.message : "同步失败" },
-        { status: 502 },
-      );
-    }
+    return NextResponse.json(
+      { ok: false, error: "请使用「接入卡台」里的测试连接并同步套餐" },
+      { status: 410 },
+    );
   }
 
   if (action === "void_cdk") {
@@ -507,49 +392,13 @@ export async function POST(req: Request) {
     }
   }
 
-  if (action === "create_purchase") {
-    try {
-      const client = await getUpstreamClient();
-      const plan = String(body.plan || "").trim();
-      const count = Math.max(1, Math.min(200, Math.floor(Number(body.count) || 1)));
-      const payType = body.payType === "wxpay" ? "wxpay" : "alipay";
-      if (!plan) return NextResponse.json({ error: "请选择套餐" }, { status: 400 });
-      const data = await client.createOrder({ plan, count, pay_type: payType });
-      if (data.order?.order_no) await watchPurchaseOrder(data.order.order_no);
-      return NextResponse.json({
-        ok: true,
-        order: data.order,
-        pay_url: data.pay_url,
-        message: `进货单 ${data.order?.order_no || ""} 已创建`,
-      });
-    } catch (err) {
-      return NextResponse.json(
-        { ok: false, error: err instanceof Error ? err.message : "进货下单失败" },
-        { status: 502 },
-      );
-    }
+  if (action === "create_purchase" || action === "repay_purchase") {
+    return NextResponse.json(
+      { error: "即时发卡模式已关闭主站进货，请到商务配置使用卡台即时发码" },
+      { status: 409 },
+    );
   }
 
-  if (action === "repay_purchase") {
-    try {
-      const client = await getUpstreamClient();
-      const orderNo = String(body.orderNo || "").trim();
-      if (!orderNo) return NextResponse.json({ error: "缺少进货单号" }, { status: 400 });
-      const data = await client.repayOrder(orderNo);
-      await watchPurchaseOrder(orderNo);
-      return NextResponse.json({
-        ok: true,
-        order: data.order,
-        pay_url: data.pay_url,
-        message: "已重新拉起支付",
-      });
-    } catch (err) {
-      return NextResponse.json(
-        { ok: false, error: err instanceof Error ? err.message : "重新支付失败" },
-        { status: 502 },
-      );
-    }
-  }
 
   if (action === "enable_cdk") {
     try {

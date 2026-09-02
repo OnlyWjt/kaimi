@@ -5,16 +5,17 @@ import { verifySessionForRedeem } from "@/lib/session-check";
 
 const schema = z.object({
   session: z.string().min(1),
+  code: z.string().min(6).optional(),
   planKey: z.string().optional(),
 });
 
-/** 预检 Session：本地格式 + 主站 POST /agent/session/check，通过后才能兑换 */
+/** 预检 Session：本地格式 + 卡台 preflight，通过后才能兑换 */
 export async function POST(req: Request) {
   const limited = enforceRateLimit(req, "session-check", 15);
   if (limited) return limited;
   try {
     const body = schema.parse(await req.json());
-    const checked = await verifySessionForRedeem(body.session);
+    const checked = await verifySessionForRedeem(body.session, body.code);
 
     return NextResponse.json(
       {

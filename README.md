@@ -1,8 +1,6 @@
 # Kaimi
 
-二级代理自托管的卡密兑换门户。客户在外部发卡店买码，回到本站校验卡密、提交 Session 或邮箱密码开通；你在后台对接上游 [danewcdk](https://cdk.danew.cc) Agent API、管库存和订单。
-
-内部 `/shop` 发卡网默认关闭，只作调试。日常卖卡用「外观」里配置的购买外链。
+多代理即时发卡门户。客户在代理店铺付款后，平台按 [danew_card_cdk](https://cdk.danew.cc) 同一套卡台 OpenAPI 即时发码；客户回到本站兑换时，走卡台 public CDK 接口（preview / preflight / redeem / result）。不再对接 danewcdk Agent API。
 
 ## 相关推荐
 
@@ -15,22 +13,20 @@
 
 ## 功能
 
-- 前台：首页、兑换、卡密查询、订单进度
-- 兑换：先校验卡密识别套餐；Session 须预检通过才提交，也支持邮箱密码
-- 后台：总览、订单、卡密、进货、接入上游、外观、使用说明
-- 库存：未使用 / 占用中 / 已售出 / 已核销 / 已禁用；对账只动「未使用」，不误伤已售出
-- 开通：Webhook 强制验签；服务端每分钟轮询未结束订单，并修复卡住的锁
-- 可选：订单终态通知到 Webhook 或 Telegram
+- 前台：代理店铺、兑换、卡密查询、订单进度
+- 兑换：卡台 preview 识别套餐；Session 须卡台 preflight 通过才提交，也支持邮箱密码
+- 后台：总览、订单、卡密、接入卡台、商务配置、外观、使用说明
+- 发码：支付成功后调用卡台 OpenAPI 即时出码
+- 开通：服务端轮询卡台 result；可选终态通知到 Webhook 或 Telegram
 
 ## 目录
 
 ```
-apps/web              Next.js 15（前台 / 后台 / API / webhook）
-packages/upstream     上游 Agent API 客户端
+apps/web              Next.js 15（前台 / 后台 / API）
 packages/themes       snow / aurora / ink / sakura
 deploy/               Docker Compose + Caddy
 .env.example          环境变量模板
-方案.md               早期设计文档（部分已过时，以本 README 为准）
+docs/多代理即时发卡系统详细设计.md
 ```
 
 ## 环境要求
@@ -56,11 +52,9 @@ pnpm dev
 | 卡密查询 | http://localhost:3100/cdk |
 | 订单进度 | http://localhost:3100/lookup |
 | 后台 | http://localhost:3100/admin |
-| Webhook | `POST /api/webhook` |
-
 后台默认账号：`admin` / `kaimi-change-me`。上线前务必改掉 `KAIMI_ADMIN_PASSWORD` 和 `KAIMI_SECRET_KEY`。
 
-第一次开店的步骤写在后台「使用说明」里：接入上游 → 填 Webhook 回调 → 同步库存 → 进货 → 改外观和外链。
+第一次开店：后台「接入卡台」加主台/备台、协议、Webhook 和选卡策略，再去商务配置设易支付、代理成本和可售套餐。
 
 ## 环境变量
 
@@ -68,22 +62,20 @@ pnpm dev
 
 | 变量 | 说明 |
 | --- | --- |
-| `KAIMI_UPSTREAM_BASE_URL` | 主站根地址，例如 `https://cdk.danew.cc` |
-| `KAIMI_UPSTREAM_API_KEY` | 代理 Key，`ak_live_…` |
-| `KAIMI_WEBHOOK_SECRET` | 主站下发的签名密钥，`whsec_…`。空值会拒绝回调 |
-| `KAIMI_PUBLIC_BASE_URL` | 本站公网地址，用来生成 Webhook 回调 URL |
+| `KAIMI_PUBLIC_BASE_URL` | 本站公网地址 |
 | `KAIMI_SECRET_KEY` | 本地加密用，请改成足够长的随机串 |
+| `KAIMI_CRON_SECRET` | 后台任务 Cron 的 Bearer 密钥（至少 24 位）；外部调度器每分钟 `POST /api/internal/jobs` |
 | `KAIMI_DATABASE_URL` | 默认 `file:./data/kaimi.db`（SQLite） |
 | `KAIMI_ADMIN_USER` / `KAIMI_ADMIN_PASSWORD` | 后台登录 |
-| `KAIMI_ALLOW_INSECURE_WEBHOOK` | 仅本地调试。设为 `1` 才允许空签名，生产不要开 |
+| `CARD_API_BASE` / `CARD_API_KEY` | 可选。没有后台卡台账户时的环境变量兜底，和 danew_card_cdk 同名 |
 
-上游配置也可以在后台「接入 danewcdk」里填写，会加密写入数据库。
+卡台地址、协议、OpenAPI Key 和 Webhook Secret 在后台「接入卡台」填写，会加密写入数据库。回调路径为 `/api/v1/webhooks/cardplatform/{账户ID}`。
 
 ## Docker
 
 ```bash
 cp .env.example .env
-# 填写上游与管理员密码
+# 填写管理员密码，卡台在后台「接入卡台」配置
 docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
@@ -91,17 +83,30 @@ docker compose -f deploy/docker-compose.yml up -d --build
 
 ## 客户怎么用
 
-1. 在你配置的外部发卡店付款，拿到完整卡密
-2. 打开本站「开始兑换」，校验卡密
-3. 粘贴 ChatGPT Session 整页 JSON 并预检，或改填邮箱密码
+1. 打开代理店铺链接付款，支付成功后即时拿到卡密
+2. 打开本站「开始兑换」，校验卡密（卡台 preview）
+3. 粘贴 ChatGPT Session 整页 JSON 并预检（卡台 preflight），或改填邮箱密码
 4. 提交后用订单号在「订单进度」查看开通结果
 
 Session 预检地址：<https://chatgpt.com/api/auth/session>
 
+## 数据库备份
+
+本地 SQLite 文件默认在 `apps/web/data/kaimi.db`。上线前先演练一次复制恢复：
+
+```bash
+# 备份
+cp apps/web/data/kaimi.db apps/web/data/kaimi.db.bak
+
+# 恢复（停服务后）
+cp apps/web/data/kaimi.db.bak apps/web/data/kaimi.db
+```
+
+生产环境应把该文件纳入定时备份，并至少恢复一次确认可用。
+
 ## 安全
 
-- API Key 和 Webhook Secret 只存在服务端，不进浏览器
-- Webhook 用原始字节 HMAC 验签，带时间窗和 `event_id` 幂等
+- 卡台 API Key 只存在服务端，不进浏览器
 - 卡密后台默认脱敏，点「显示」后才能复制
 - 不要提交 `.env`、`.env.local`、`data/*.db`
 - localtunnel 这类临时公网地址只适合自己测回调，不要当正式站点

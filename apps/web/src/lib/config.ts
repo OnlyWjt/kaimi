@@ -1,15 +1,22 @@
 import { eq } from "drizzle-orm";
-import { db } from "@/db";
+import { client, db } from "@/db";
 import { settings } from "@/db/schema";
-import { ensureSchema } from "@/db/migrate-lib";
+import { ensureCardOpsTables, ensureSchema } from "@/db/migrate-lib";
+import { assertRuntimeSecrets } from "@/lib/crypto";
+import "./network/prefer-ipv4";
 
 let booted = false;
 let bootPromise: Promise<void> | null = null;
 
 export async function bootDb() {
-  if (booted) return;
+  if (booted) {
+    await ensureCardOpsTables();
+    return;
+  }
+  assertRuntimeSecrets();
   if (!bootPromise) {
     bootPromise = (async () => {
+      await client.execute("PRAGMA foreign_keys = ON");
       await ensureSchema();
       booted = true;
       // Lazy import avoids circular dependency with sync-scheduler
@@ -45,8 +52,6 @@ export async function setSetting(key: string, value: string) {
 }
 
 export type AppConfig = {
-  upstreamBaseUrl: string;
-  upstreamApiKey: string;
   webhookSecret: string;
   setupCompleted: boolean;
   paymentMode: "manual";
@@ -54,23 +59,12 @@ export type AppConfig = {
 
 export async function getAppConfig(): Promise<AppConfig> {
   await bootDb();
-  const [
-    upstreamBaseUrl,
-    upstreamApiKey,
-    webhookSecret,
-    setupCompleted,
-    paymentMode,
-  ] = await Promise.all([
-    getSetting("upstream_base_url", process.env.KAIMI_UPSTREAM_BASE_URL || ""),
-    getSetting("upstream_api_key", process.env.KAIMI_UPSTREAM_API_KEY || ""),
+  const [webhookSecret, setupCompleted] = await Promise.all([
     getSetting("webhook_secret", process.env.KAIMI_WEBHOOK_SECRET || ""),
     getSetting("setup_completed", "0"),
-    getSetting("payment_mode", "manual"),
   ]);
 
   return {
-    upstreamBaseUrl,
-    upstreamApiKey,
     webhookSecret,
     setupCompleted: setupCompleted === "1",
     paymentMode: "manual",

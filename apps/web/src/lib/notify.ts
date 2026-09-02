@@ -1,4 +1,5 @@
 import { getSetting } from "@/lib/config";
+import { sanitizeLog } from "@/lib/log";
 
 type NotifyPayload = {
   orderNo: string;
@@ -31,7 +32,7 @@ export async function notifyOrderTerminal(payload: NotifyPayload) {
         }),
       });
     } catch (err) {
-      console.warn("[kaimi-notify] webhook failed", err);
+      console.warn("[kaimi-notify] webhook failed", sanitizeLog(err));
     }
   }
 
@@ -45,7 +46,15 @@ export async function notifyOrderTerminal(payload: NotifyPayload) {
         body: JSON.stringify({ chat_id: chatId, text }),
       });
     } catch (err) {
-      console.warn("[kaimi-notify] telegram failed", err);
+      console.warn("[kaimi-notify] telegram failed", sanitizeLog(err));
     }
   }
+}
+
+export async function notifyOpsAlert(message: string) {
+  await notifyOrderTerminal({
+    orderNo: "OPS",
+    status: "alert",
+    message,
+  });
 }

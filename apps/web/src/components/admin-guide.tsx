@@ -1,6 +1,12 @@
 "use client";
 
-type GuideTab = "overview" | "orders" | "cdks" | "purchase" | "integration" | "appearance";
+type GuideTab =
+  | "overview"
+  | "orders"
+  | "cdks"
+  | "integration"
+  | "selection"
+  | "appearance";
 
 const SECTIONS = [
   { id: "flow", title: "怎么跑起来" },
@@ -35,15 +41,15 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
             怎么跑起来
           </h2>
           <p className="text-sm leading-relaxed text-[var(--km-fg-muted)]">
-            Kaimi 是你自己的兑换门户。货和开通在主站 danewcdk，本站负责收卡密、提交开通、给客户查进度。
+            Kaimi 现在是多代理即时发卡门户：客户在代理店铺付款，平台向卡台即时生成卡密，再回本站兑换开通。
           </p>
           <ol className="km-guide-steps">
-            <li>客户在外部发卡店买到卡密</li>
-            <li>回到本站「开始兑换」，校验卡密后提交 Session 或邮箱密码</li>
-            <li>本站把开通请求交给主站，客户用订单号查进度</li>
+            <li>在「商务配置」接好易支付和卡台，并给代理分配可售套餐</li>
+            <li>客户打开代理店铺链接付款，支付成功后即时拿到新卡密</li>
+            <li>客户回本站「开始兑换」，提交 Session 或邮箱密码完成开通</li>
           </ol>
           <p className="text-sm text-[var(--km-fg-muted)]">
-            内部发卡页默认关着，只作调试。日常卖卡用「外观」里的购买外链。
+            旧的主站进货入口已关闭。新订单一律走卡台即时发码。
           </p>
         </section>
 
@@ -58,16 +64,16 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
           </div>
           <ol className="km-guide-steps">
             <li>
-              在「接入 danewcdk」填主站地址、API Key、Webhook 签名，再填本站公网地址。
+              在「接入卡台」加主台/备台、填协议和 Key，把出口 IP 加进卡台白名单；再到「选卡配置」设优先级和兑换策略。
             </li>
-            <li>把页面上的 Webhook 回调复制到主站代理设置，然后点连通检测。</li>
-            <li>同步套餐。没有库存就去「进货」向主站下单，付完后本站会按单号自动入库。</li>
+            <li>到「即时发卡」设置易支付手续费、代理成本价，并给代理分配可售套餐。</li>
+            <li>兑换页会按卡台 public CDK 接口做 preview / preflight / redeem，不再对接 danewcdk Agent。</li>
             <li>
               到「外观」改站点名、主题，填购买卡密外链。兑换页公告和页脚说明也可在这里改。
             </li>
           </ol>
           <p className="text-sm text-[var(--km-fg-muted)]">
-            Webhook 签名必须填。空签名会被拒绝，开通结果就只能靠本站轮询。
+            卡台账户配好后，付款发码会带选卡偏好，兑换会注入 no_auto_card_switch 和坏卡排除。
           </p>
         </section>
 
@@ -78,7 +84,7 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm">
               <p className="font-medium">购买卡密</p>
-              <p className="mt-1 text-[var(--km-fg-muted)]">跳转你配置的外链付款，拿到完整卡密后再回本站。</p>
+              <p className="mt-1 text-[var(--km-fg-muted)]">打开代理店铺链接付款，支付成功后即时拿到卡密。</p>
             </div>
             <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm">
               <p className="font-medium">开始兑换</p>
@@ -109,10 +115,13 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
               按订单号、邮箱、卡密后四位筛。未结束的单可「重拉」，也可导出 CSV。
             </GuideJump>
             <GuideJump title="卡密查询" onClick={() => onGo("cdks")}>
-              默认脱敏，点「显示」后再复制。可核销、禁用、启用，或从主站同步。
+              默认脱敏，点「显示」后再复制。可核销、禁用、启用。新卡密由卡台即时发码。
             </GuideJump>
-            <GuideJump title="进货" onClick={() => onGo("purchase")}>
-              向主站下单补货，支付宝或微信。付完后按进货单号自动入库，不必再点同步。
+            <GuideJump title="接入卡台" onClick={() => onGo("integration")}>
+              多账户、协议、Webhook 和出口 IP。客户付款后由卡台即时发码。
+            </GuideJump>
+            <GuideJump title="选卡配置" onClick={() => onGo("selection")}>
+              产品在线状态、自动选卡优先级、本站兑换策略和卡健康。
             </GuideJump>
           </div>
           <p className="text-sm text-[var(--km-fg-muted)]">
@@ -178,7 +187,7 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
                 <tbody>
                   <tr>
                     <td>排队中 / 处理中</td>
-                    <td>主站还在开通，等回调或轮询</td>
+                    <td>卡台还在开通，等轮询 result</td>
                   </tr>
                   <tr>
                     <td>成功 / 已完成</td>
@@ -212,7 +221,7 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
             <div>
               <dt className="font-medium">订单一直处理中</dt>
               <dd className="mt-1 text-[var(--km-fg-muted)]">
-                先确认 Webhook 回调已填到主站。再到订单页「重拉」或「轮询进行中」。总览有未结束单时也会提示。
+                到订单页「重拉」或「轮询进行中」，本站会向卡台拉兑换进度。总览有未结束单时也会提示。
               </dd>
             </div>
             <div>
@@ -224,7 +233,7 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
             <div>
               <dt className="font-medium">Session 预检过不了</dt>
               <dd className="mt-1 text-[var(--km-fg-muted)]">
-                让客户打开 chatgpt.com/api/auth/session，复制整页 JSON。预检必须走主站通过后才能提交。
+                让客户打开 chatgpt.com/api/auth/session，复制整页 JSON。预检必须走卡台 preflight 通过后才能提交。
               </dd>
             </div>
             <div>

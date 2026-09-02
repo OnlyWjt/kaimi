@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "pnpm --filter @kaimi/web dev",
     "build": "pnpm -r build",
+    "test": "pnpm --filter @kaimi/web test",
     "db:generate": "pnpm --filter @kaimi/web db:generate",
     "db:migrate": "pnpm --filter @kaimi/web db:migrate",
     "lint": "pnpm --filter @kaimi/web lint"

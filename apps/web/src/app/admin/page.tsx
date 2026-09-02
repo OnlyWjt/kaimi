@@ -3,15 +3,24 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AdminGuide } from "@/components/admin-guide";
+import { CardIntegration } from "@/components/card-integration";
+import { CardSelectionConfig } from "@/components/card-selection-config";
+import { toast } from "@/components/toast";
 
-type Tab = "overview" | "orders" | "cdks" | "purchase" | "integration" | "appearance" | "guide";
+type Tab =
+  | "overview"
+  | "orders"
+  | "cdks"
+  | "integration"
+  | "selection"
+  | "appearance"
+  | "guide";
 
 type Overview = {
   setupCompleted: boolean;
   paymentMode: string;
-  upstreamBaseUrl: string;
-  hasUpstreamKey: boolean;
-  hasWebhookSecret: boolean;
+  hasCardplatform?: boolean;
+  cardplatformSiteBase?: string;
   unusedStock: number;
   lockedCount?: number;
   inflightCount?: number;
@@ -21,18 +30,10 @@ type Overview = {
 };
 
 type Integration = {
-  upstreamBaseUrl: string;
-  apiKeyHint: string;
-  apiKeyConfigured: boolean;
-  webhookSecretHint: string;
-  webhookSecretConfigured: boolean;
   publicBaseUrl: string;
-  webhookCallbackUrl: string;
-  agentApiBase: string;
   paymentMode: string;
-  syncIntervalMinutes: number;
-  syncLastAt: string;
-  syncLastResult: string;
+  hasCardplatform?: boolean;
+  cardplatformSiteBase?: string;
   notifyWebhookUrl?: string;
   telegramBotTokenHint?: string;
   telegramBotTokenConfigured?: boolean;
@@ -101,20 +102,6 @@ export default function AdminPage() {
   const [siteName, setSiteName] = useState("Kaimi");
   const [buyCdkUrl, setBuyCdkUrl] = useState("");
   const [shopEnabled, setShopEnabled] = useState(false);
-  const [purchaseOrders, setPurchaseOrders] = useState<Array<Record<string, unknown>>>([]);
-  const [purchasePlans, setPurchasePlans] = useState<Array<{ key: string; name?: string; label?: string }>>([]);
-  const [purchasePlan, setPurchasePlan] = useState("");
-  const [purchaseCount, setPurchaseCount] = useState(1);
-  const [purchasePayType, setPurchasePayType] = useState<"alipay" | "wxpay">("alipay");
-  const [purchaseLastImport, setPurchaseLastImport] = useState<{
-    at?: string;
-    imported?: number;
-    restored?: number;
-    orders?: string[];
-  } | null>(null);
-  const [deliveries, setDeliveries] = useState<Array<Record<string, unknown>>>([]);
-  const [records, setRecords] = useState<Array<Record<string, unknown>>>([]);
-  const [recordQ, setRecordQ] = useState("");
   const [revealed, setRevealed] = useState<Record<number, string>>({});
   const [msg, setMsg] = useState("");
   const [loginForm, setLoginForm] = useState({ username: "admin", password: "" });
@@ -127,21 +114,11 @@ export default function AdminPage() {
   const [cdkTotal, setCdkTotal] = useState(0);
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [integForm, setIntegForm] = useState({
-    upstreamBaseUrl: "",
-    upstreamApiKey: "",
-    webhookSecret: "",
     publicBaseUrl: "",
-    paymentMode: "manual",
-    syncIntervalMinutes: 15,
     notifyWebhookUrl: "",
     telegramBotToken: "",
     telegramChatId: "",
   });
-  const [pingResult, setPingResult] = useState<{
-    ok?: boolean;
-    message?: string;
-    plans?: Array<{ key: string; name?: string; price_yuan?: string }>;
-  } | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function refreshBoot() {
@@ -160,6 +137,12 @@ export default function AdminPage() {
 
   useEffect(() => {
     void refreshBoot();
+    if (typeof window !== "undefined") {
+      if (window.location.hash === "#integration") setTab("integration");
+      if (window.location.hash === "#selection" || window.location.hash === "#card-selection") {
+        setTab("selection");
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -189,28 +172,12 @@ export default function AdminPage() {
         setIntegration(data);
         if (data) {
           setIntegForm({
-            upstreamBaseUrl: data.upstreamBaseUrl || "",
-            upstreamApiKey: "",
-            webhookSecret: "",
             publicBaseUrl: data.publicBaseUrl || "",
-            paymentMode: "manual",
-            syncIntervalMinutes: data.syncIntervalMinutes ?? 15,
             notifyWebhookUrl: data.notifyWebhookUrl || "",
             telegramBotToken: "",
             telegramChatId: data.telegramChatId || "",
           });
-          const deliveriesData = await loadSection("deliveries");
-          setDeliveries(deliveriesData?.list || []);
-          const recordsData = await loadSection("records");
-          setRecords(recordsData?.list || []);
         }
-      }
-      if (tab === "purchase") {
-        const data = await loadSection("purchase");
-        setPurchaseOrders(data?.list || []);
-        setPurchasePlans(data?.plans || []);
-        setPurchaseLastImport(data?.lastImport || null);
-        if (!purchasePlan && data?.plans?.[0]?.key) setPurchasePlan(String(data.plans[0].key));
       }
       if (tab === "appearance") {
         const data = await loadSection("appearance");
@@ -231,8 +198,8 @@ export default function AdminPage() {
         ["overview", "总览"],
         ["orders", "订单查询"],
         ["cdks", "卡密查询"],
-        ["purchase", "进货"],
-        ["integration", "接入 danewcdk"],
+        ["integration", "接入卡台"],
+        ["selection", "选卡配置"],
         ["appearance", "外观"],
         ["guide", "使用说明"],
       ] as const,
@@ -248,6 +215,7 @@ export default function AdminPage() {
     });
     const data = await res.json();
     if (!res.ok) {
+      toast(data.error || "登录失败", "err");
       setMsg(data.error || "登录失败");
       return;
     }
@@ -265,7 +233,6 @@ export default function AdminPage() {
 
   async function postAction(payload: Record<string, unknown>) {
     setBusy(true);
-    setMsg("");
     try {
       const res = await fetch("/api/admin", {
         method: "POST",
@@ -274,10 +241,10 @@ export default function AdminPage() {
       });
       const data = await res.json();
       if (!res.ok || data.ok === false) {
-        setMsg(data.error || data.message || "操作失败");
+        toast(data.error || data.message || "操作失败", "err");
         return data;
       }
-      setMsg(data.message || "已完成");
+      toast(data.message || "已完成");
       return data;
     } finally {
       setBusy(false);
@@ -287,22 +254,6 @@ export default function AdminPage() {
   async function saveIntegration() {
     await postAction({ action: "save_integration", ...integForm });
     setIntegration(await loadSection("integration"));
-  }
-
-  async function testConnection() {
-    const data = await postAction({ action: "test_connection" });
-    setPingResult(data);
-  }
-
-  async function syncStock() {
-    const data = await postAction({ action: "sync_stock" });
-    if (data?.ok) {
-      setMsg(
-        `同步完成：新增 ${data.imported ?? 0}，恢复 ${data.restored ?? 0}，收回禁用 ${data.disabled ?? 0}${
-          data.incomplete ? "（列表过大，未完整对账）" : ""
-        }`,
-      );
-    }
   }
 
   async function refreshCdks(page = cdkPage) {
@@ -323,7 +274,7 @@ export default function AdminPage() {
       setCopiedId(id);
       window.setTimeout(() => setCopiedId((cur) => (cur === id ? null : cur)), 1500);
     } catch {
-      setMsg("复制失败，请手动选择");
+      toast("复制失败，请手动选择", "err");
     }
   }
 
@@ -349,7 +300,7 @@ export default function AdminPage() {
     setSiteName(data?.siteName || siteName);
     setBuyCdkUrl(data?.buyCdkUrl || "");
     setShopEnabled(Boolean(data?.shopEnabled));
-    setMsg("整站外观已保存");
+    toast("整站外观已保存");
   }
 
   async function revealCdk(id: number) {
@@ -421,6 +372,15 @@ export default function AdminPage() {
               </div>
             </div>
             <div className="flex gap-2">
+              <Link href="/admin/card-selection" className="km-btn km-btn-ghost">
+                选卡配置
+              </Link>
+              <Link href="/admin/commerce" className="km-btn km-btn-ghost">
+                即时发卡
+              </Link>
+              <Link href="/admin/agents" className="km-btn km-btn-ghost">
+                代理管理
+              </Link>
               <Link href="/" className="km-btn km-btn-ghost">
                 前台
               </Link>
@@ -444,12 +404,6 @@ export default function AdminPage() {
       </header>
 
       <section className="km-shell-wide space-y-4 py-6 pb-16">
-        {msg ? (
-          <div className="km-stat text-sm">
-            {msg}
-          </div>
-        ) : null}
-
         {tab === "overview" && overview ? (
           <div className="space-y-4">
             {(overview.lockedCount || 0) > 0 || (overview.inflightCount || 0) > 0 ? (
@@ -461,7 +415,7 @@ export default function AdminPage() {
                 ) : null}
                 {(overview.inflightCount || 0) > 0 ? (
                   <p className="mt-1">
-                    有 <strong>{overview.inflightCount}</strong> 笔开通未结束。服务端每分钟会轮询主站；也可到订单页手动重拉。
+                    有 <strong>{overview.inflightCount}</strong> 笔开通未结束。服务端每分钟会轮询卡台；也可到订单页手动重拉。
                   </p>
                 ) : null}
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -499,9 +453,9 @@ export default function AdminPage() {
               <StatCard label="订单总数" value={String(overview.orderCount)} />
               <StatCard label="已核销" value={String(overview.stock?.used ?? 0)} />
               <StatCard
-                label="上游接入"
-                value={overview.hasUpstreamKey ? "已配置" : "未配置"}
-                hint={overview.upstreamBaseUrl || "去「接入 danewcdk」填写"}
+                label="卡台接入"
+                value={overview.hasCardplatform ? "已配置" : "未配置"}
+                hint={overview.cardplatformSiteBase || "去「接入卡台」填写"}
               />
             </div>
             <div className="km-panel">
@@ -602,7 +556,9 @@ export default function AdminPage() {
                 disabled={busy}
                 onClick={async () => {
                   const data = await postAction({ action: "reconcile_locks" });
-                  if (data?.ok) setMsg(`已修复锁：释放 ${data.released ?? 0}，核销 ${data.used ?? 0}`);
+                  if (data?.ok) {
+                    toast(`已修复锁：释放 ${data.released ?? 0}，核销 ${data.used ?? 0}`);
+                  }
                 }}
               >
                 修复卡住的锁
@@ -755,16 +711,6 @@ export default function AdminPage() {
               >
                 筛选
               </button>
-              <button
-                className="km-btn km-btn-ghost"
-                disabled={busy}
-                onClick={async () => {
-                  await syncStock();
-                  await refreshCdks(1);
-                }}
-              >
-                从 danewcdk 同步
-              </button>
               <span className="ml-auto text-xs text-[var(--km-fg-muted)]">
                 共 {cdkTotal} 条 · 默认脱敏，点「显示」后再复制
               </span>
@@ -888,192 +834,20 @@ export default function AdminPage() {
           </div>
         ) : null}
 
-        {tab === "purchase" ? (
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,22rem)_1fr]">
-            <div className="km-panel space-y-3">
-              <h3 className="font-semibold">向主站进货</h3>
-              <p className="text-sm text-[var(--km-fg-muted)]">
-                走 danewcdk Agent 下单（支付宝 / 微信）。付完后主站发码，本站每 30 秒拉已发货订单按单号入库。主站补上
-                order.delivered 回调后会更快，拉单兜底会保留。
-              </p>
-              {purchaseLastImport?.at ? (
-                <p className="text-xs text-[var(--km-fg-muted)]">
-                  最近自动入库 {formatWhen(purchaseLastImport.at)}
-                  {typeof purchaseLastImport.imported === "number"
-                    ? ` · 新增 ${purchaseLastImport.imported}`
-                    : ""}
-                  {purchaseLastImport.restored ? ` · 恢复 ${purchaseLastImport.restored}` : ""}
-                </p>
-              ) : null}
-              <label className="block space-y-1 text-sm">
-                <span>套餐</span>
-                <select className="km-input" value={purchasePlan} onChange={(e) => setPurchasePlan(e.target.value)}>
-                  <option value="">选择套餐</option>
-                  {purchasePlans.map((p) => (
-                    <option key={p.key} value={p.key}>
-                      {p.label || p.name || p.key}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block space-y-1 text-sm">
-                  <span>数量</span>
-                  <input
-                    className="km-input"
-                    type="number"
-                    min={1}
-                    max={200}
-                    value={purchaseCount}
-                    onChange={(e) => setPurchaseCount(Number(e.target.value || 1))}
-                  />
-                </label>
-                <label className="block space-y-1 text-sm">
-                  <span>支付方式</span>
-                  <select
-                    className="km-input"
-                    value={purchasePayType}
-                    onChange={(e) => setPurchasePayType(e.target.value === "wxpay" ? "wxpay" : "alipay")}
-                  >
-                    <option value="alipay">支付宝</option>
-                    <option value="wxpay">微信</option>
-                  </select>
-                </label>
-              </div>
-              <button
-                className="km-btn"
-                disabled={busy || !purchasePlan}
-                onClick={async () => {
-                  const data = await postAction({
-                    action: "create_purchase",
-                    plan: purchasePlan,
-                    count: purchaseCount,
-                    payType: purchasePayType,
-                  });
-                  if (data?.pay_url) window.open(String(data.pay_url), "_blank", "noopener");
-                  const next = await loadSection("purchase");
-                  setPurchaseOrders(next?.list || []);
-                  setPurchaseLastImport(next?.lastImport || null);
-                }}
-              >
-                下单进货
-              </button>
-            </div>
-            <div className="km-panel overflow-x-auto text-sm">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="font-semibold">主站进货单</h3>
-                <button
-                  className="km-btn km-btn-ghost text-sm"
-                  onClick={async () => {
-                    const data = await loadSection("purchase");
-                    setPurchaseOrders(data?.list || []);
-                    setPurchasePlans(data?.plans || []);
-                    setPurchaseLastImport(data?.lastImport || null);
-                  }}
-                >
-                  刷新
-                </button>
-              </div>
-              <table className="km-table">
-                <thead>
-                  <tr>
-                    <th>单号</th>
-                    <th>套餐</th>
-                    <th>数量</th>
-                    <th>状态</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {purchaseOrders.map((o) => (
-                    <tr key={String(o.order_no)}>
-                      <td className="font-mono text-xs">{String(o.order_no)}</td>
-                      <td>{String(o.plan || "—")}</td>
-                      <td>{String(o.count ?? "—")}</td>
-                      <td>
-                        <StatusBadge status={String(o.status || "—")} />
-                      </td>
-                      <td className="space-x-2">
-                        {o.pay_url ? (
-                          <a className="underline" href={String(o.pay_url)} target="_blank" rel="noreferrer">
-                            去支付
-                          </a>
-                        ) : null}
-                        <button
-                          className="km-btn km-btn-ghost !px-2 !py-1 text-xs"
-                          disabled={busy}
-                          onClick={async () => {
-                            const data = await postAction({ action: "repay_purchase", orderNo: o.order_no });
-                            if (data?.pay_url) window.open(String(data.pay_url), "_blank", "noopener");
-                          }}
-                        >
-                          重新支付
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!purchaseOrders.length ? <p className="py-4 text-[var(--km-fg-muted)]">暂无进货单</p> : null}
-            </div>
-          </div>
-        ) : null}
-
         {tab === "integration" && integration ? (
           <div className="space-y-4">
+            <CardIntegration publicBaseUrl={integForm.publicBaseUrl} />
+
             <div className="km-panel space-y-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-xl font-semibold" style={{ fontFamily: "var(--font-sora)" }}>
-                    接入上游
-                  </h2>
-                  <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-                    填写主站地址和代理 Key，路径会自动拼到 /api/v1/agent。
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <span className={`km-badge ${integration.apiKeyConfigured ? "km-badge-ok" : ""}`}>
-                    {integration.apiKeyConfigured ? `Key ${integration.apiKeyHint}` : "Key 未配置"}
-                  </span>
-                  <span className={`km-badge ${integration.webhookSecretConfigured ? "km-badge-ok" : ""}`}>
-                    {integration.webhookSecretConfigured ? `签名 ${integration.webhookSecretHint}` : "签名未配置"}
-                  </span>
-                </div>
+              <div>
+                <h2 className="text-xl font-semibold" style={{ fontFamily: "var(--font-sora)" }}>
+                  站点通知
+                </h2>
+                <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
+                  兑换开通到终态时，可选推送到 Webhook 或 Telegram。和卡台接入无关。
+                </p>
               </div>
-
               <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-2">
-                  <div className="text-xs text-[var(--km-fg-muted)]">Agent 接口</div>
-                  <code className="mt-1 block truncate text-sm" title={integration.agentApiBase}>
-                    {integration.agentApiBase || "保存地址后显示"}
-                  </code>
-                </div>
-                <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-2">
-                  <div className="flex items-center justify-between gap-2 text-xs text-[var(--km-fg-muted)]">
-                    <span>Webhook 回调</span>
-                    <button
-                      className="underline"
-                      onClick={() => void navigator.clipboard.writeText(integration.webhookCallbackUrl)}
-                    >
-                      复制
-                    </button>
-                  </div>
-                  <code className="mt-1 block truncate text-sm" title={integration.webhookCallbackUrl}>
-                    {integration.webhookCallbackUrl}
-                  </code>
-                </div>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block space-y-1 text-sm">
-                  <span>主站地址</span>
-                  <input
-                    className="km-input"
-                    placeholder="https://your-cdk.example.com"
-                    value={integForm.upstreamBaseUrl}
-                    onChange={(e) => setIntegForm((s) => ({ ...s, upstreamBaseUrl: e.target.value }))}
-                  />
-                </label>
                 <label className="block space-y-1 text-sm">
                   <span>本站公网地址</span>
                   <input
@@ -1084,50 +858,12 @@ export default function AdminPage() {
                   />
                 </label>
                 <label className="block space-y-1 text-sm">
-                  <span>API Key</span>
-                  <input
-                    className="km-input font-mono"
-                    type="password"
-                    placeholder={integration.apiKeyConfigured ? "留空则不修改" : "ak_live_…"}
-                    value={integForm.upstreamApiKey}
-                    onChange={(e) => setIntegForm((s) => ({ ...s, upstreamApiKey: e.target.value }))}
-                    autoComplete="off"
-                  />
-                </label>
-                <label className="block space-y-1 text-sm">
-                  <span>Webhook 签名</span>
-                  <input
-                    className="km-input font-mono"
-                    type="password"
-                    placeholder={integration.webhookSecretConfigured ? "留空则不修改" : "whsec_…"}
-                    value={integForm.webhookSecret}
-                    onChange={(e) => setIntegForm((s) => ({ ...s, webhookSecret: e.target.value }))}
-                    autoComplete="off"
-                  />
-                </label>
-                <label className="block space-y-1 text-sm">
                   <span>终态通知地址（可选）</span>
                   <input
                     className="km-input"
                     placeholder="https://example.com/notify"
                     value={integForm.notifyWebhookUrl}
                     onChange={(e) => setIntegForm((s) => ({ ...s, notifyWebhookUrl: e.target.value }))}
-                  />
-                </label>
-                <label className="block space-y-1 text-sm">
-                  <span>同步间隔（分钟）</span>
-                  <input
-                    className="km-input"
-                    type="number"
-                    min={0}
-                    max={1440}
-                    value={integForm.syncIntervalMinutes}
-                    onChange={(e) =>
-                      setIntegForm((s) => ({
-                        ...s,
-                        syncIntervalMinutes: Number(e.target.value || 0),
-                      }))
-                    }
                   />
                 </label>
                 <label className="block space-y-1 text-sm">
@@ -1150,141 +886,14 @@ export default function AdminPage() {
                   />
                 </label>
               </div>
-
-              {integration.syncLastAt ? (
-                <p className="text-xs text-[var(--km-fg-muted)]">
-                  上次同步 {formatWhen(integration.syncLastAt)}
-                  {integration.syncLastResult ? ` · ${integration.syncLastResult}` : ""}
-                </p>
-              ) : null}
-
-              <div className="flex flex-wrap gap-2">
-                <button className="km-btn" disabled={busy} onClick={() => void saveIntegration()}>
-                  保存
-                </button>
-                <button className="km-btn km-btn-ghost" disabled={busy} onClick={() => void testConnection()}>
-                  连通检测
-                </button>
-                <button className="km-btn km-btn-ghost" disabled={busy} onClick={() => void syncStock()}>
-                  同步库存
-                </button>
-                <button
-                  className="km-btn km-btn-ghost"
-                  disabled={busy}
-                  onClick={async () => {
-                    const data = await postAction({ action: "sync_plans" });
-                    if (data?.ok) {
-                      setMsg(
-                        `套餐已同步 ${data.upserted ?? 0} 条，代充商品已更新 ${data.productsUpserted ?? data.upserted ?? 0} 条`,
-                      );
-                    } else setMsg(data?.error || "同步套餐失败");
-                  }}
-                >
-                  同步套餐
-                </button>
-                <button
-                  className="km-btn km-btn-ghost"
-                  disabled={busy}
-                  onClick={async () => {
-                    const data = await postAction({ action: "reconcile_locks" });
-                    if (data?.ok) setMsg(`锁对账：释放 ${data.released ?? 0}，核销 ${data.used ?? 0}`);
-                  }}
-                >
-                  修复卡住的锁
-                </button>
-              </div>
+              <button className="km-btn" disabled={busy} onClick={() => void saveIntegration()}>
+                保存通知设置
+              </button>
             </div>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div className="km-panel space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="font-semibold">Webhook 投递</h3>
-                  <button
-                    className="km-btn km-btn-ghost"
-                    onClick={async () => {
-                      const data = await loadSection("deliveries");
-                      setDeliveries(data?.list || []);
-                      if (data?.error) setMsg(data.error);
-                    }}
-                  >
-                    刷新
-                  </button>
-                </div>
-                <ul className="max-h-56 space-y-2 overflow-y-auto text-sm">
-                  {deliveries.map((d, i) => (
-                    <li key={String(d.id || d.event_id || i)} className="rounded-lg bg-[var(--km-bg-muted)] px-3 py-2">
-                      <div className="km-clip font-mono text-xs">{String(d.event_type || d.event || "event")}</div>
-                      <div className="text-xs text-[var(--km-fg-muted)]">
-                        {STATUS_LABEL[String(d.status || d.result || "")] || String(d.status || d.result || "")} ·{" "}
-                        {formatWhen(d.created_at || d.updated_at)}
-                      </div>
-                    </li>
-                  ))}
-                  {!deliveries.length ? (
-                    <li className="py-6 text-center text-sm text-[var(--km-fg-muted)]">暂无投递</li>
-                  ) : null}
-                </ul>
-              </div>
-
-              <div className="km-panel space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="font-semibold">开通记录</h3>
-                  <input
-                    className="km-input max-w-[12rem]"
-                    placeholder="邮箱或卡密"
-                    value={recordQ}
-                    onChange={(e) => setRecordQ(e.target.value)}
-                  />
-                  <button
-                    className="km-btn km-btn-ghost"
-                    onClick={async () => {
-                      const data = await loadSection("records", recordQ ? `&q=${encodeURIComponent(recordQ)}` : "");
-                      setRecords(data?.list || []);
-                      if (data?.error) setMsg(data.error);
-                    }}
-                  >
-                    查询
-                  </button>
-                </div>
-                <ul className="max-h-56 space-y-2 overflow-y-auto text-sm">
-                  {records.map((r) => (
-                    <li key={String(r.request_id)} className="rounded-lg bg-[var(--km-bg-muted)] px-3 py-2">
-                      <div className="km-clip font-mono text-xs">{String(r.request_id)}</div>
-                      <div className="km-clip text-xs text-[var(--km-fg-muted)]">
-                        {STATUS_LABEL[String(r.status || "")] || String(r.status || "")} · {String(r.account_email || "")}
-                      </div>
-                    </li>
-                  ))}
-                  {!records.length ? (
-                    <li className="py-6 text-center text-sm text-[var(--km-fg-muted)]">暂无记录</li>
-                  ) : null}
-                </ul>
-              </div>
-            </div>
-
-            {pingResult ? (
-              <div className="km-panel space-y-2">
-                <div className={pingResult.ok ? "text-[var(--km-success)]" : "text-[var(--km-danger)]"}>
-                  {pingResult.ok ? "主站可达" : "探测失败"}
-                </div>
-                <p className="text-sm text-[var(--km-fg-muted)]">{pingResult.message}</p>
-                {pingResult.plans?.length ? (
-                  <ul className="grid gap-2 sm:grid-cols-3">
-                    {pingResult.plans.map((p) => (
-                      <li key={p.key} className="rounded-lg bg-[var(--km-bg-muted)] px-3 py-2 text-sm">
-                        <div className="font-medium">{p.name || p.key}</div>
-                        <div className="font-mono text-xs text-[var(--km-fg-muted)]">{p.key}</div>
-                        {"price_yuan" in p && p.price_yuan ? (
-                          <div className="text-xs text-[var(--km-fg-muted)]">¥{String(p.price_yuan)}</div>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-              </div>
-            ) : null}
           </div>
         ) : null}
+
+        {tab === "selection" ? <CardSelectionConfig /> : null}
 
         {tab === "appearance" ? (
           <div className="grid gap-4 lg:grid-cols-2">
@@ -1346,7 +955,7 @@ export default function AdminPage() {
                   });
                   const data = await loadSection("appearance");
                   setStorefronts(data?.list || []);
-                  setMsg("页面文案已保存");
+                  toast("页面文案已保存");
                 }}
               />
             ))}
