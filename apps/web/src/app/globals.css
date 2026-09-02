@@ -549,6 +549,28 @@ a {
   color: var(--km-fg-muted);
 }
 
+.km-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: color-mix(in oklab, #171717 42%, transparent);
+}
+
+.km-modal {
+  width: min(40rem, 100%);
+  max-height: min(90vh, 52rem);
+  overflow: auto;
+  border-radius: 1.25rem;
+  border: 1px solid var(--km-border);
+  background: var(--km-bg-elevated);
+  box-shadow: var(--km-shadow);
+  padding: 1.4rem 1.5rem;
+}
+
 @keyframes km-rise {
   from {
     opacity: 0;

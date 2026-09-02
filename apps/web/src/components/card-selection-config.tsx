@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { toast } from "@/components/toast";
 import { issuerChannelLabel } from "@/lib/cardplatform/issuer";
@@ -92,6 +91,56 @@ function isOnline(product: Pick<Product, "enabled" | "suspendedAt">) {
   return product.enabled && !product.suspendedAt;
 }
 
+function moveToIndex<T>(list: T[], from: number, to: number) {
+  if (from === to || from < 0 || from >= list.length) return list;
+  const next = [...list];
+  const [item] = next.splice(from, 1);
+  if (!item) return list;
+  next.splice(Math.max(0, Math.min(next.length, to)), 0, item);
+  return next;
+}
+
+function RankField({
+  index,
+  total,
+  onMove,
+}: {
+  index: number;
+  total: number;
+  onMove: (nextIndex: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(index + 1));
+
+  useEffect(() => {
+    setDraft(String(index + 1));
+  }, [index]);
+
+  function commit() {
+    const next = Number(draft.trim());
+    if (!Number.isInteger(next) || next < 1) {
+      setDraft(String(index + 1));
+      return;
+    }
+    onMove(Math.min(total, next) - 1);
+  }
+
+  return (
+    <label className="flex items-center gap-1">
+      <span className="text-xs text-[var(--km-fg-muted)]">优先级</span>
+      <input
+        className="km-input w-14"
+        inputMode="numeric"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") commit();
+        }}
+      />
+    </label>
+  );
+}
+
 export function CardSelectionConfig() {
   const [busy, setBusy] = useState("");
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -104,6 +153,12 @@ export function CardSelectionConfig() {
   const [resolvedPref, setResolvedPref] = useState("");
   const [health, setHealth] = useState<HealthPolicy>(emptyHealth);
   const [blocklist, setBlocklist] = useState<Block[]>([]);
+  const [countDraft, setCountDraft] = useState({
+    maxNewAccountsPerCard: String(emptyPolicy.maxNewAccountsPerCard),
+    maxCardsPerTask: String(emptyPolicy.maxCardsPerTask),
+    failCooldownHours: String(emptyPolicy.failCooldownHours),
+    failThreshold: String(emptyHealth.failThreshold),
+  });
 
   const selected = accounts.find((item) => item.id === selectedId) || null;
   const visibleProducts = showOffline
@@ -169,14 +224,30 @@ export function CardSelectionConfig() {
       })),
     );
     setLastSync(sel.lastSync || "");
-    if (pol.policy) setPolicy({ ...emptyPolicy, ...pol.policy });
+    if (pol.policy) {
+      const nextPolicy = { ...emptyPolicy, ...pol.policy };
+      setPolicy(nextPolicy);
+      setCountDraft((current) => ({
+        ...current,
+        maxNewAccountsPerCard: String(nextPolicy.maxNewAccountsPerCard),
+        maxCardsPerTask: String(nextPolicy.maxCardsPerTask),
+        failCooldownHours: String(nextPolicy.failCooldownHours),
+      }));
+    }
     const pref = pol.resolvedPref || sel.resolvedPref;
     setResolvedPref(
       pref?.segmentKey
         ? `${pref.issuer || "one"} / ${pref.segmentKey}`
         : "未指定（按选卡优先级第一条）",
     );
-    if (hlt.policy) setHealth({ ...emptyHealth, ...hlt.policy });
+    if (hlt.policy) {
+      const nextHealth = { ...emptyHealth, ...hlt.policy };
+      setHealth(nextHealth);
+      setCountDraft((current) => ({
+        ...current,
+        failThreshold: String(nextHealth.failThreshold),
+      }));
+    }
     setBlocklist(hlt.blocklist || []);
   }
 
@@ -198,6 +269,28 @@ export function CardSelectionConfig() {
     });
   }, [selectedId]);
 
+  function addProduct(product: Product) {
+    setRules((current) => {
+      if (current.some((rule) => rule.planKey === product.productCode)) return current;
+      return [
+        ...current,
+        {
+          planKey: product.productCode,
+          displayName: product.description || product.productCode,
+          binPrefix: product.bin,
+          channel: product.issuer,
+          enabled: true,
+          online: isOnline(product),
+        },
+      ];
+    });
+  }
+
+  function parseCount(value: string, fallback: number) {
+    const next = Number(value.trim());
+    return Number.isInteger(next) && next >= 0 ? next : fallback;
+  }
+
   return (
     <div className="space-y-4">
       <div className="km-panel space-y-3">
@@ -210,9 +303,9 @@ export function CardSelectionConfig() {
               产品、在线状态和选卡优先级按卡台账户独立保存；主台的产品码不会套到备台。
             </p>
           </div>
-          <Link href="/admin#integration" className="km-btn km-btn-ghost">
+          <a href="/admin#integration" className="km-btn km-btn-ghost">
             去接入卡台
-          </Link>
+          </a>
         </div>
         {accounts.length === 0 ? (
           <p className="text-sm text-[var(--km-warning)]">
@@ -308,6 +401,16 @@ export function CardSelectionConfig() {
                     <p className="text-xs text-[var(--km-fg-muted)]">
                       {product.issuingArea || "—"} · {product.scene || product.description || "—"}
                     </p>
+                    <button
+                      type="button"
+                      className="km-btn km-btn-ghost mt-2 w-full"
+                      disabled={rules.some((rule) => rule.planKey === product.productCode)}
+                      onClick={() => addProduct(product)}
+                    >
+                      {rules.some((rule) => rule.planKey === product.productCode)
+                        ? "已在优先级"
+                        : "加入优先级"}
+                    </button>
                   </div>
                 ))}
               </div>
@@ -335,7 +438,13 @@ export function CardSelectionConfig() {
                     key={`${rule.planKey}-${index}`}
                     className="flex flex-wrap items-center gap-2 rounded-xl bg-[var(--km-bg-muted)] px-3 py-2 text-sm"
                   >
-                    <span className="w-10 font-mono">{index + 1}</span>
+                    <RankField
+                      index={index}
+                      total={rules.length}
+                      onMove={(nextIndex) =>
+                        setRules((current) => moveToIndex(current, index, nextIndex))
+                      }
+                    />
                     <span className="font-mono">{rule.planKey}</span>
                     <span className="text-[var(--km-fg-muted)]">
                       {issuerChannelLabel(rule.channel)}
@@ -405,18 +514,7 @@ export function CardSelectionConfig() {
                   const code = e.target.value;
                   const product = products.find((item) => item.productCode === code);
                   e.target.value = "";
-                  if (!product || rules.some((rule) => rule.planKey === code)) return;
-                  setRules((current) => [
-                    ...current,
-                    {
-                      planKey: product.productCode,
-                      displayName: product.description || product.productCode,
-                      binPrefix: product.bin,
-                      channel: product.issuer,
-                      enabled: true,
-                      online: isOnline(product),
-                    },
-                  ]);
+                  if (product) addProduct(product);
                 }}
               >
                 <option value="">从产品加入优先级…</option>
@@ -479,12 +577,12 @@ export function CardSelectionConfig() {
                 <span>每卡新账号上限</span>
                 <input
                   className="km-input"
-                  type="number"
-                  value={policy.maxNewAccountsPerCard}
+                  inputMode="numeric"
+                  value={countDraft.maxNewAccountsPerCard}
                   onChange={(e) =>
-                    setPolicy((s) => ({
+                    setCountDraft((s) => ({
                       ...s,
-                      maxNewAccountsPerCard: Number(e.target.value) || 4,
+                      maxNewAccountsPerCard: e.target.value,
                     }))
                   }
                 />
@@ -493,12 +591,12 @@ export function CardSelectionConfig() {
                 <span>单任务最多卡数</span>
                 <input
                   className="km-input"
-                  type="number"
-                  value={policy.maxCardsPerTask}
+                  inputMode="numeric"
+                  value={countDraft.maxCardsPerTask}
                   onChange={(e) =>
-                    setPolicy((s) => ({
+                    setCountDraft((s) => ({
                       ...s,
-                      maxCardsPerTask: Number(e.target.value) || 3,
+                      maxCardsPerTask: e.target.value,
                     }))
                   }
                 />
@@ -507,12 +605,12 @@ export function CardSelectionConfig() {
                 <span>失败冷却（小时）</span>
                 <input
                   className="km-input"
-                  type="number"
-                  value={policy.failCooldownHours}
+                  inputMode="numeric"
+                  value={countDraft.failCooldownHours}
                   onChange={(e) =>
-                    setPolicy((s) => ({
+                    setCountDraft((s) => ({
                       ...s,
-                      failCooldownHours: Number(e.target.value) || 0,
+                      failCooldownHours: e.target.value,
                     }))
                   }
                 />
@@ -576,14 +674,38 @@ export function CardSelectionConfig() {
               disabled={Boolean(busy)}
               onClick={() =>
                 void run("policy", async () => {
+                  const payload = {
+                    ...policy,
+                    maxNewAccountsPerCard: parseCount(
+                      countDraft.maxNewAccountsPerCard,
+                      emptyPolicy.maxNewAccountsPerCard,
+                    ),
+                    maxCardsPerTask: parseCount(
+                      countDraft.maxCardsPerTask,
+                      emptyPolicy.maxCardsPerTask,
+                    ),
+                    failCooldownHours: parseCount(
+                      countDraft.failCooldownHours,
+                      emptyPolicy.failCooldownHours,
+                    ),
+                  };
                   const data = await readApiJson(
                     await fetch(`/api/admin/cardplatform/accounts/${selectedId}/policy`, {
                       method: "PUT",
                       headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify(policy),
+                      body: JSON.stringify(payload),
                     }),
                   );
-                  if (data.policy) setPolicy({ ...emptyPolicy, ...data.policy });
+                  if (data.policy) {
+                    const nextPolicy = { ...emptyPolicy, ...data.policy };
+                    setPolicy(nextPolicy);
+                    setCountDraft((current) => ({
+                      ...current,
+                      maxNewAccountsPerCard: String(nextPolicy.maxNewAccountsPerCard),
+                      maxCardsPerTask: String(nextPolicy.maxCardsPerTask),
+                      failCooldownHours: String(nextPolicy.failCooldownHours),
+                    }));
+                  }
                   const pref = data.resolvedPref;
                   setResolvedPref(
                     pref?.segmentKey
@@ -621,13 +743,12 @@ export function CardSelectionConfig() {
               <span>失败阈值</span>
               <input
                 className="km-input"
-                type="number"
-                min={1}
-                value={health.failThreshold}
+                inputMode="numeric"
+                value={countDraft.failThreshold}
                 onChange={(e) =>
-                  setHealth((s) => ({
+                  setCountDraft((s) => ({
                     ...s,
-                    failThreshold: Number(e.target.value) || 2,
+                    failThreshold: e.target.value,
                   }))
                 }
               />
@@ -657,14 +778,28 @@ export function CardSelectionConfig() {
               disabled={Boolean(busy)}
               onClick={() =>
                 void run("health", async () => {
+                  const payload = {
+                    ...health,
+                    failThreshold: Math.max(
+                      1,
+                      parseCount(countDraft.failThreshold, emptyHealth.failThreshold),
+                    ),
+                  };
                   const data = await readApiJson(
                     await fetch(`/api/admin/cardplatform/accounts/${selectedId}/health`, {
                       method: "PUT",
                       headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify(health),
+                      body: JSON.stringify(payload),
                     }),
                   );
-                  if (data.policy) setHealth({ ...emptyHealth, ...data.policy });
+                  if (data.policy) {
+                    const nextHealth = { ...emptyHealth, ...data.policy };
+                    setHealth(nextHealth);
+                    setCountDraft((current) => ({
+                      ...current,
+                      failThreshold: String(nextHealth.failThreshold),
+                    }));
+                  }
                   setBlocklist(data.blocklist || []);
                   notice("卡健康策略已保存");
                 })

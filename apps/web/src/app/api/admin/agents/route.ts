@@ -4,17 +4,23 @@ import { desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { db } from "@/db";
-import { agents, users } from "@/db/schema";
+import { agentPlanPrices, agents, platformPlans, users } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth";
 import { normalizeAgentSlug, validateAgentSlug } from "@/lib/agent-slug";
 import { bootDb } from "@/lib/config";
 
 const createSchema = z.object({
-  username: z.string().trim().min(3).max(32).regex(/^[a-zA-Z0-9_.-]+$/),
-  password: z.string().min(8).max(128),
-  displayName: z.string().trim().min(1).max(64),
+  username: z
+    .string()
+    .trim()
+    .min(3, "用户名至少 3 位")
+    .max(32)
+    .regex(/^[a-zA-Z0-9_.-]+$/, "用户名只能是字母、数字和 _.-"),
+  password: z.string().min(8, "密码至少 8 位").max(128),
+  displayName: z.string().trim().min(1, "请填写显示名").max(64),
   slug: z.string().trim().optional(),
   notes: z.string().trim().max(500).optional().default(""),
+  planKeys: z.array(z.string().trim().min(1)).optional().default([]),
 });
 
 async function authorize() {
@@ -51,8 +57,28 @@ export async function GET() {
     .from(agents)
     .innerJoin(users, eq(users.agentId, agents.id))
     .orderBy(desc(agents.id));
+  const assigned = await db
+    .select({
+      agentId: agentPlanPrices.agentId,
+      planKey: platformPlans.planKey,
+      name: platformPlans.name,
+    })
+    .from(agentPlanPrices)
+    .innerJoin(platformPlans, eq(platformPlans.id, agentPlanPrices.planId))
+    .where(eq(agentPlanPrices.enabled, true));
+  const plansByAgent = new Map<number, Array<{ planKey: string; name: string }>>();
+  for (const row of assigned) {
+    const current = plansByAgent.get(row.agentId) || [];
+    current.push({ planKey: row.planKey, name: row.name });
+    plansByAgent.set(row.agentId, current);
+  }
 
-  return NextResponse.json({ list });
+  return NextResponse.json({
+    list: list.map((row) => ({
+      ...row,
+      allowedPlans: plansByAgent.get(row.id) || [],
+    })),
+  });
 }
 
 export async function POST(req: Request) {
@@ -62,7 +88,10 @@ export async function POST(req: Request) {
 
   const parsed = createSchema.safeParse(await req.json());
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message || "参数无效" },
+      { status: 400 },
+    );
   }
   const data = parsed.data;
   const username = data.username.toLowerCase();
@@ -98,6 +127,21 @@ export async function POST(req: Request) {
         })
         .returning({ id: users.id, username: users.username });
       if (!user) throw new Error("代理登录账号创建失败");
+      if (data.planKeys.length) {
+        const catalog = await tx.query.platformPlans.findMany();
+        const now = new Date().toISOString();
+        for (const plan of catalog) {
+          if (!data.planKeys.includes(plan.planKey)) continue;
+          await tx.insert(agentPlanPrices).values({
+            agentId: agent.id,
+            planId: plan.id,
+            enabled: true,
+            costOverrideCents: null,
+            retailPriceCents: plan.globalCostPriceCents,
+            updatedAt: now,
+          });
+        }
+      }
       return { ...agent, username: user.username };
     });
     return NextResponse.json({ agent: created }, { status: 201 });

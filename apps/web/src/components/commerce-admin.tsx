@@ -9,15 +9,6 @@ type ChannelRule = {
   fixedFeeCents: number;
 };
 
-type Plan = {
-  planKey: string;
-  name: string;
-  enabled: boolean;
-  cardplatformSellable: boolean;
-  globalCostPriceCents: number;
-  sortOrder: number;
-};
-
 type AgentOption = { id: number; displayName: string };
 type Settlement = {
   id: number;
@@ -65,7 +56,30 @@ const emptyRule: ChannelRule = {
   fixedFeeCents: 0,
 };
 
-export function CommerceAdmin() {
+const STATUS_LABEL: Record<string, string> = {
+  pending: "排队中",
+  processing: "处理中",
+  success: "成功",
+  failed: "失败",
+  unknown: "未知",
+  fulfilled: "已完成",
+  paid: "已支付",
+  unpaid: "未支付",
+  pending_pay: "待支付",
+  delivered: "已发货",
+  paid_undelivered: "已付未发",
+  issuing: "发货中",
+  confirmed: "已确认",
+  unsupported: "不支持",
+  pending_payment: "待返佣",
+  retrying: "重试中",
+};
+
+function statusLabel(value: string) {
+  return STATUS_LABEL[value] || value || "—";
+}
+
+export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -79,7 +93,6 @@ export function CommerceAdmin() {
       wxpay: { ...emptyRule },
     },
   });
-  const [plans, setPlans] = useState<Plan[]>([]);
   const [agents, setAgents] = useState<AgentOption[]>([]);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [storeOrders, setStoreOrders] = useState<StoreOrder[]>([]);
@@ -95,18 +108,16 @@ export function CommerceAdmin() {
 
   async function load() {
     setLoaded(false);
-    const [paymentRes, plansRes, agentsRes, settlementsRes, ordersRes, jobsRes, healthRes] = await Promise.all([
+    const [paymentRes, agentsRes, settlementsRes, ordersRes, jobsRes, healthRes] = await Promise.all([
       fetch("/api/admin/payment", { cache: "no-store" }),
-      fetch("/api/admin/plans", { cache: "no-store" }),
       fetch("/api/admin/agents", { cache: "no-store" }),
       fetch("/api/admin/settlements", { cache: "no-store" }),
       fetch("/api/admin/store-orders?pageSize=100", { cache: "no-store" }),
       fetch("/api/admin/jobs", { cache: "no-store" }),
       fetch("/api/admin/ops-health", { cache: "no-store" }),
     ]);
-    const [paymentData, planData, agentData, settlementData, orderData, jobsData, healthData] = await Promise.all([
+    const [paymentData, agentData, settlementData, orderData, jobsData, healthData] = await Promise.all([
       paymentRes.json(),
-      plansRes.json(),
       agentsRes.json(),
       settlementsRes.json(),
       ordersRes.json(),
@@ -115,7 +126,6 @@ export function CommerceAdmin() {
     ]);
     if (
       !paymentRes.ok ||
-      !plansRes.ok ||
       !agentsRes.ok ||
       !settlementsRes.ok ||
       !ordersRes.ok ||
@@ -142,7 +152,6 @@ export function CommerceAdmin() {
         },
       }));
     }
-    if (plansRes.ok) setPlans(planData.list || []);
     if (agentsRes.ok) {
       const nextAgents = agentData.list || [];
       setAgents(nextAgents);
@@ -195,11 +204,6 @@ export function CommerceAdmin() {
       setPayment((current) => ({ ...current, key: "" }));
       await load();
     }
-  }
-
-  async function savePlan(plan: Plan) {
-    const data = await submit("/api/admin/plans", plan);
-    if (data) await load();
   }
 
   async function createSettlement() {
@@ -305,12 +309,14 @@ export function CommerceAdmin() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap gap-2">
-        <Link href="/admin" className="km-btn km-btn-ghost">
-          返回后台
-        </Link>
-        <Link href="/admin/agents" className="km-btn km-btn-ghost">
-          代理管理
-        </Link>
+        {embedded ? null : (
+          <Link href="/admin" className="km-btn km-btn-ghost">
+            返回后台
+          </Link>
+        )}
+        <a href="/admin#agents" className="km-btn km-btn-ghost">
+          去代理管理改默认价格
+        </a>
         <a href="/api/admin/earnings/export.xlsx" className="km-btn km-btn-ghost">
           导出全部收益
         </a>
@@ -466,7 +472,7 @@ export function CommerceAdmin() {
                 {backgroundJobs.map((job) => (
                   <tr key={job.id} className="border-b border-[var(--km-border)]">
                     <td className="py-2 pr-3">{job.type}</td>
-                    <td className="py-2 pr-3">{job.status}</td>
+                    <td className="py-2 pr-3">{statusLabel(job.status)}</td>
                     <td className="py-2 pr-3">
                       {job.attempts}/{job.maxAttempts}
                     </td>
@@ -527,11 +533,11 @@ export function CommerceAdmin() {
                   <td className="py-2 pr-3">
                     ¥{(order.retailPriceCents / 100).toFixed(2)}
                   </td>
-                  <td className="py-2 pr-3">{order.payStatus}</td>
+                  <td className="py-2 pr-3">{statusLabel(order.payStatus)}</td>
                   <td className="py-2 pr-3" title={order.lastErrorMessage}>
-                    {order.fulfillStatus}
+                    {statusLabel(order.fulfillStatus)}
                   </td>
-                  <td className="py-2 pr-3">{order.feeReconcileStatus}</td>
+                  <td className="py-2 pr-3">{statusLabel(order.feeReconcileStatus)}</td>
                   <td className="py-2">
                     <div className="flex flex-wrap gap-2">
                       {order.payStatus === "paid" &&
@@ -667,7 +673,7 @@ export function CommerceAdmin() {
                   <td className="py-2 pr-3">
                     ¥{(settlement.amountCents / 100).toFixed(2)}
                   </td>
-                  <td className="py-2 pr-3">{settlement.status}</td>
+                  <td className="py-2 pr-3">{statusLabel(settlement.status)}</td>
                   <td className="py-2">
                     {settlement.status === "pending_payment" ? (
                       <button
@@ -688,63 +694,14 @@ export function CommerceAdmin() {
         </div>
       </section>
 
-      <section className="km-panel space-y-4">
-        <h2 className="text-xl font-semibold">平台套餐成本</h2>
-        <div className="grid gap-4 md:grid-cols-3">
-          {plans.map((plan) => (
-            <div key={plan.planKey} className="space-y-3 rounded-xl border border-[var(--km-border)] p-4">
-              <div>
-                <p className="font-semibold">{plan.name}</p>
-                <p className="font-mono text-xs text-[var(--km-fg-muted)]">
-                  {plan.planKey} · 卡台{plan.cardplatformSellable ? "可售" : "不可售"}
-                </p>
-              </div>
-              <label className="block space-y-1 text-sm">
-                <span>平台成本（元）</span>
-                <input
-                  className="km-input w-full"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={(plan.globalCostPriceCents / 100).toFixed(2)}
-                  onChange={(event) =>
-                    setPlans((current) =>
-                      current.map((item) =>
-                        item.planKey === plan.planKey
-                          ? {
-                              ...item,
-                              globalCostPriceCents: Math.round(
-                                Number(event.target.value || 0) * 100,
-                              ),
-                            }
-                          : item,
-                      ),
-                    )
-                  }
-                />
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={plan.enabled}
-                  onChange={(event) =>
-                    setPlans((current) =>
-                      current.map((item) =>
-                        item.planKey === plan.planKey
-                          ? { ...item, enabled: event.target.checked }
-                          : item,
-                      ),
-                    )
-                  }
-                />
-                平台启用
-              </label>
-              <button className="km-btn km-btn-primary w-full" disabled={busy || !loaded} onClick={() => savePlan(plan)}>
-                保存套餐
-              </button>
-            </div>
-          ))}
-        </div>
+      <section className="km-panel space-y-3">
+        <h2 className="text-xl font-semibold">套餐默认价格</h2>
+        <p className="text-sm text-[var(--km-fg-muted)]">
+          平台成本和代理可售套餐已经挪到「代理管理」，在一张表里改，不再每个套餐单独保存。
+        </p>
+        <a href="/admin#agents" className="km-btn km-btn-ghost inline-flex">
+          打开代理管理
+        </a>
       </section>
     </div>
   );

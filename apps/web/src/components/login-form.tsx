@@ -34,9 +34,10 @@ export function LoginForm() {
   return (
     <form onSubmit={submit} className="km-panel mx-auto max-w-md space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold">登录 Kaimi</h1>
+        <h1 className="text-2xl font-semibold">登录</h1>
         <p className="mt-2 text-sm text-[var(--km-fg-muted)]">
-          超级管理员和代理使用各自账号登录。
+          代理用平台发给你的账号从这里进后台，登录后改店铺链接和商品零售价。
+          管理员账号会进入总后台。
         </p>
       </div>
       <label className="block space-y-2">

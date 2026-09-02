@@ -2,6 +2,8 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "@/components/toast";
+import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
 
 type AgentProfile = {
   username: string;
@@ -80,10 +82,7 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
     setPlans(next);
     setPrices(
       Object.fromEntries(
-        next.map((plan) => [
-          plan.planKey,
-          (plan.retailPriceCents / 100).toFixed(2),
-        ]),
+        next.map((plan) => [plan.planKey, yuanTextFromCents(plan.retailPriceCents)]),
       ),
     );
   }
@@ -151,9 +150,9 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
       if (!response.ok) throw new Error(data.error || "保存失败");
       setSlug(data.slug);
       setSavedSlug(data.slug);
-      setMessage("店铺链接已更新");
+      toast("店铺链接已更新");
     } catch (reason) {
-      setMessage(reason instanceof Error ? reason.message : "保存失败");
+      toast(reason instanceof Error ? reason.message : "保存失败", "err");
     } finally {
       setBusy(false);
     }
@@ -169,29 +168,40 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
     router.refresh();
   }
 
-  async function savePrice(plan: AgentPlan) {
-    const yuan = Number(prices[plan.planKey]);
-    if (!Number.isFinite(yuan)) {
-      setMessage("请输入有效零售价");
-      return;
-    }
+  async function savePrices() {
     setBusy(true);
     setMessage("");
     try {
-      const response = await fetch(
-        `/api/agent/plans/${encodeURIComponent(plan.planKey)}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ retailPriceCents: Math.round(yuan * 100) }),
-        },
-      );
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "价格保存失败");
+      for (const plan of plans) {
+        if (!plan.enabled) continue;
+        const cents = centsFromYuanText(prices[plan.planKey] ?? "");
+        if (cents == null || Number.isNaN(cents)) {
+          throw new Error(`${plan.name} 请填写零售价`);
+        }
+        if (cents < plan.costPriceCents) {
+          throw new Error(
+            `${plan.name} 不能低于成本 ¥${yuanTextFromCents(plan.costPriceCents)}`,
+          );
+        }
+        const response = await fetch(
+          `/api/agent/plans/${encodeURIComponent(plan.planKey)}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ retailPriceCents: cents }),
+          },
+        );
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(
+            typeof data.error === "string" ? data.error : `${plan.name} 保存失败`,
+          );
+        }
+      }
       await loadPlans();
-      setMessage(`${plan.name} 零售价已更新`);
+      toast("零售价已保存");
     } catch (reason) {
-      setMessage(reason instanceof Error ? reason.message : "价格保存失败");
+      toast(reason instanceof Error ? reason.message : "价格保存失败", "err");
     } finally {
       setBusy(false);
     }
@@ -215,10 +225,13 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
     <div className="space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="km-eyebrow">代理后台</p>
           <h1 className="km-page-title">{initialProfile.displayName}</h1>
           <p className="mt-2 text-sm text-[var(--km-fg-muted)]">
-            登录账号：{initialProfile.username}
+            登录账号 {initialProfile.username}。店铺零售价在下面改，客户从
+            <a className="mx-1 underline" href={`/s/${savedSlug}`} target="_blank" rel="noreferrer">
+              /s/{savedSlug}
+            </a>
+            下单。
           </p>
         </div>
         <button type="button" className="km-btn km-btn-ghost" onClick={logout}>
@@ -226,11 +239,82 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
         </button>
       </header>
 
+      <section className="km-panel space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold">店铺零售价</h2>
+          <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
+            这是你挂出去的售价，必须高于平台给你的成本。改完点一次保存即可。
+          </p>
+        </div>
+        {plans.length === 0 ? (
+          <p className="text-sm text-[var(--km-fg-muted)]">
+            还没有可售套餐。让管理员在「代理管理」里给你勾选套餐。
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-[var(--km-border)]">
+                  <th className="py-2 pr-3">套餐</th>
+                  <th className="py-2 pr-3">代理成本</th>
+                  <th className="py-2 pr-3">零售价（元）</th>
+                  <th className="py-2">状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                {plans.map((plan) => (
+                  <tr key={plan.planKey} className="border-b border-[var(--km-border)]">
+                    <td className="py-2 pr-3">
+                      <div className="font-medium">{plan.name}</div>
+                      <div className="font-mono text-xs text-[var(--km-fg-muted)]">
+                        {plan.planKey}
+                      </div>
+                    </td>
+                    <td className="py-2 pr-3">
+                      ¥{yuanTextFromCents(plan.costPriceCents)}
+                    </td>
+                    <td className="py-2 pr-3">
+                      <input
+                        className="km-input w-28"
+                        inputMode="decimal"
+                        value={prices[plan.planKey] ?? ""}
+                        disabled={!plan.enabled}
+                        onChange={(event) =>
+                          setPrices((current) => ({
+                            ...current,
+                            [plan.planKey]: event.target.value,
+                          }))
+                        }
+                      />
+                    </td>
+                    <td className="py-2">
+                      {!plan.enabled
+                        ? "未开放"
+                        : plan.cardplatformSellable
+                          ? "可售"
+                          : "卡台暂不可售"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <button
+          type="button"
+          className="km-btn"
+          disabled={busy || plans.length === 0}
+          onClick={() => void savePrices()}
+        >
+          {busy ? "保存中…" : "保存零售价"}
+        </button>
+      </section>
+
       <section className="km-panel max-w-2xl space-y-4">
         <div>
           <h2 className="text-xl font-semibold">我的店铺链接</h2>
           <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-            只能修改链接末尾的 slug。旧链接将保留并跳转到新链接。
+            只能修改链接末尾的 slug。旧链接会跳到新链接。
           </p>
         </div>
         <form onSubmit={saveSlug} className="space-y-3">
@@ -253,54 +337,6 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
             {busy ? "保存中…" : "保存链接"}
           </button>
         </form>
-      </section>
-
-      <section className="km-panel space-y-4">
-        <div>
-          <h2 className="text-xl font-semibold">商品定价</h2>
-          <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-            零售价不得低于代理成本价。卡台不可售的套餐会自动停止下单。
-          </p>
-        </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          {plans.map((plan) => (
-            <article key={plan.planKey} className="space-y-3 rounded-xl border border-[var(--km-border)] p-4">
-              <div>
-                <h3 className="font-semibold">{plan.name}</h3>
-                <p className="text-sm text-[var(--km-fg-muted)]">
-                  代理成本 ¥{(plan.costPriceCents / 100).toFixed(2)}
-                </p>
-              </div>
-              <label className="block space-y-1">
-                <span className="text-sm">零售价（元）</span>
-                <input
-                  className="km-input w-full"
-                  type="number"
-                  min={(plan.costPriceCents / 100).toFixed(2)}
-                  step="0.01"
-                  value={prices[plan.planKey] ?? ""}
-                  onChange={(event) =>
-                    setPrices((current) => ({
-                      ...current,
-                      [plan.planKey]: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <button
-                type="button"
-                className="km-btn km-btn-primary w-full"
-                disabled={busy || !plan.enabled}
-                onClick={() => savePrice(plan)}
-              >
-                保存价格
-              </button>
-              {!plan.cardplatformSellable ? (
-                <p className="text-xs text-[var(--km-fg-muted)]">卡台当前不可售</p>
-              ) : null}
-            </article>
-          ))}
-        </div>
       </section>
 
       <section className="km-panel space-y-4">

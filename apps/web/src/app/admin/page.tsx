@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { AdminAgents } from "@/components/admin-agents";
 import { AdminGuide } from "@/components/admin-guide";
 import { CardIntegration } from "@/components/card-integration";
 import { CardSelectionConfig } from "@/components/card-selection-config";
+import { CommerceAdmin } from "@/components/commerce-admin";
 import { toast } from "@/components/toast";
 
 type Tab =
@@ -13,6 +15,8 @@ type Tab =
   | "cdks"
   | "integration"
   | "selection"
+  | "commerce"
+  | "agents"
   | "appearance"
   | "guide";
 
@@ -71,6 +75,23 @@ const KIND_LABEL: Record<string, string> = {
   purchase: "进货",
 };
 
+const HASH_TABS: Tab[] = [
+  "overview",
+  "orders",
+  "cdks",
+  "integration",
+  "selection",
+  "commerce",
+  "agents",
+  "appearance",
+  "guide",
+];
+
+function tabFromHash(hash: string): Tab | null {
+  if (hash === "card-selection") return "selection";
+  return HASH_TABS.includes(hash as Tab) ? (hash as Tab) : null;
+}
+
 function kindLabel(kind: unknown) {
   const key = String(kind || "");
   return KIND_LABEL[key] || key || "—";
@@ -121,6 +142,13 @@ export default function AdminPage() {
   });
   const [busy, setBusy] = useState(false);
 
+  function goTab(next: Tab) {
+    setTab(next);
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", `#${next}`);
+    }
+  }
+
   async function refreshBoot() {
     const res = await fetch("/api/setup");
     setBoot(await res.json());
@@ -137,12 +165,16 @@ export default function AdminPage() {
 
   useEffect(() => {
     void refreshBoot();
-    if (typeof window !== "undefined") {
-      if (window.location.hash === "#integration") setTab("integration");
-      if (window.location.hash === "#selection" || window.location.hash === "#card-selection") {
-        setTab("selection");
-      }
+    function applyLocation() {
+      const queryTab = new URLSearchParams(window.location.search).get("tab");
+      const next =
+        tabFromHash(queryTab || "") ||
+        tabFromHash(window.location.hash.replace("#", ""));
+      if (next) setTab(next);
     }
+    applyLocation();
+    window.addEventListener("hashchange", applyLocation);
+    return () => window.removeEventListener("hashchange", applyLocation);
   }, []);
 
   useEffect(() => {
@@ -200,6 +232,8 @@ export default function AdminPage() {
         ["cdks", "卡密查询"],
         ["integration", "接入卡台"],
         ["selection", "选卡配置"],
+        ["commerce", "即时发卡"],
+        ["agents", "代理管理"],
         ["appearance", "外观"],
         ["guide", "使用说明"],
       ] as const,
@@ -323,9 +357,8 @@ export default function AdminPage() {
       <main className="min-h-screen">
         <section className="km-shell-narrow space-y-6 py-20">
           <div className="km-page-hero km-rise">
-            <p className="km-eyebrow">Admin</p>
             <h1 className="km-page-title">Kaimi 后台</h1>
-            <p className="km-lead">登录后管理订单、卡密与上游接入。</p>
+            <p className="km-lead">管理员从这里登录。代理请走右上角「代理登录」。</p>
           </div>
           <div className="km-panel km-form-stack km-rise">
             <input
@@ -372,17 +405,11 @@ export default function AdminPage() {
               </div>
             </div>
             <div className="flex gap-2">
-              <Link href="/admin/card-selection" className="km-btn km-btn-ghost">
-                选卡配置
-              </Link>
-              <Link href="/admin/commerce" className="km-btn km-btn-ghost">
-                即时发卡
-              </Link>
-              <Link href="/admin/agents" className="km-btn km-btn-ghost">
-                代理管理
-              </Link>
               <Link href="/" className="km-btn km-btn-ghost">
                 前台
+              </Link>
+              <Link href="/login" className="km-btn km-btn-ghost">
+                代理登录
               </Link>
               <button className="km-btn km-btn-ghost" onClick={logout}>
                 退出
@@ -394,7 +421,7 @@ export default function AdminPage() {
               <button
                 key={id}
                 className={`km-tab ${tab === id ? "km-tab-active" : ""}`}
-                onClick={() => setTab(id)}
+                onClick={() => goTab(id)}
               >
                 {label}
               </button>
@@ -443,8 +470,10 @@ export default function AdminPage() {
               </div>
             ) : null}
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm text-[var(--km-fg-muted)]">第一次开店或客户问流程，看「使用说明」。</p>
-              <button className="km-btn km-btn-ghost" onClick={() => setTab("guide")}>
+              <p className="text-sm text-[var(--km-fg-muted)]">
+                第一次开店或客户问流程，看「使用说明」。代理登录入口在右上角，零售价由代理自己改。
+              </p>
+              <button className="km-btn km-btn-ghost" onClick={() => goTab("guide")}>
                 使用说明
               </button>
             </div>
@@ -471,7 +500,7 @@ export default function AdminPage() {
             <div className="km-panel overflow-x-auto">
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="font-semibold">最近订单</h3>
-                <button className="km-btn km-btn-ghost" onClick={() => setTab("orders")}>
+                <button className="km-btn km-btn-ghost" onClick={() => goTab("orders")}>
                   全部订单
                 </button>
               </div>
@@ -518,12 +547,25 @@ export default function AdminPage() {
               />
               <select className="km-input max-w-[10rem]" value={orderStatus} onChange={(e) => setOrderStatus(e.target.value)}>
                 <option value="">全部状态</option>
-                <option value="pending">pending</option>
-                <option value="processing">processing</option>
-                <option value="success">success</option>
-                <option value="failed">failed</option>
-                <option value="unknown">unknown</option>
-                <option value="fulfilled">fulfilled</option>
+                {(
+                  [
+                    "pending",
+                    "processing",
+                    "success",
+                    "failed",
+                    "unknown",
+                    "fulfilled",
+                    "paid",
+                    "unpaid",
+                    "pending_pay",
+                    "paid_undelivered",
+                    "issuing",
+                  ] as const
+                ).map((value) => (
+                  <option key={value} value={value}>
+                    {STATUS_LABEL[value] || value}
+                  </option>
+                ))}
               </select>
               <button
                 className="km-btn"
@@ -895,6 +937,10 @@ export default function AdminPage() {
 
         {tab === "selection" ? <CardSelectionConfig /> : null}
 
+        {tab === "commerce" ? <CommerceAdmin embedded /> : null}
+
+        {tab === "agents" ? <AdminAgents /> : null}
+
         {tab === "appearance" ? (
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="km-panel space-y-3 lg:col-span-2">
@@ -962,7 +1008,7 @@ export default function AdminPage() {
           </div>
         ) : null}
 
-        {tab === "guide" ? <AdminGuide onGo={setTab} /> : null}
+        {tab === "guide" ? <AdminGuide onGo={goTab} /> : null}
       </section>
     </main>
   );

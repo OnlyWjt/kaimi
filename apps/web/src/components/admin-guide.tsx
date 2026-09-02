@@ -6,6 +6,8 @@ type GuideTab =
   | "cdks"
   | "integration"
   | "selection"
+  | "commerce"
+  | "agents"
   | "appearance";
 
 const SECTIONS = [
@@ -122,6 +124,12 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
             </GuideJump>
             <GuideJump title="选卡配置" onClick={() => onGo("selection")}>
               产品在线状态、自动选卡优先级、本站兑换策略和卡健康。
+            </GuideJump>
+            <GuideJump title="即时发卡" onClick={() => onGo("commerce")}>
+              易支付、店铺订单、返佣结算。默认价格在「代理管理」。
+            </GuideJump>
+            <GuideJump title="代理管理" onClick={() => onGo("agents")}>
+              新建代理、默认成本、给代理勾选可售套餐。代理自己从 /login 改零售价。
             </GuideJump>
           </div>
           <p className="text-sm text-[var(--km-fg-muted)]">

@@ -38,6 +38,7 @@ import { createHmac } from "node:crypto";
 import { decryptSecret, encryptSecret } from "./crypto";
 import { sanitizeLog } from "./log";
 import { messageFromApiBody } from "./http-error";
+import { centsFromYuanText, yuanTextFromCents } from "./money";
 import { isIpv4, isIpv6 } from "./network/egress";
 
 afterEach(() => {
@@ -57,6 +58,18 @@ describe("agent slug", () => {
     expect(validateAgentSlug("admin").ok).toBe(false);
     expect(validateAgentSlug("bad--slug").ok).toBe(false);
     expect(validateAgentSlug("-bad").ok).toBe(false);
+  });
+});
+
+describe("money drafts", () => {
+  it("lets users type yuan text without snapping to two decimals", () => {
+    expect(yuanTextFromCents(107)).toBe("1.07");
+    expect(centsFromYuanText("1")).toBe(100);
+    expect(centsFromYuanText("1.")).toBe(100);
+    expect(centsFromYuanText("1.0")).toBe(100);
+    expect(centsFromYuanText("1.07")).toBe(107);
+    expect(centsFromYuanText("")).toBeNull();
+    expect(centsFromYuanText("abc")).toBeNaN();
   });
 });
 

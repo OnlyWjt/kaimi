@@ -1,6 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "@/components/toast";
+import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
 
 type AgentRow = {
   id: number;
@@ -8,9 +10,16 @@ type AgentRow = {
   displayName: string;
   status: "active" | "disabled";
   currentSlug: string;
-  notes: string;
   lastLoginAt: string | null;
-  createdAt: string;
+  allowedPlans: Array<{ planKey: string; name: string }>;
+};
+
+type CatalogPlan = {
+  planKey: string;
+  name: string;
+  enabled: boolean;
+  cardplatformSellable: boolean;
+  globalCostPriceCents: number;
 };
 
 type AgentPlanRow = {
@@ -20,32 +29,61 @@ type AgentPlanRow = {
   cardplatformSellable: boolean;
   enabled: boolean;
   costOverrideCents: number | null;
+  retailPriceCents: number;
 };
 
 export function AdminAgents() {
   const [list, setList] = useState<AgentRow[]>([]);
+  const [catalog, setCatalog] = useState<CatalogPlan[]>([]);
+  const [costDraft, setCostDraft] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<AgentRow | null>(null);
   const [agentPlans, setAgentPlans] = useState<AgentPlanRow[]>([]);
-  const planRequestId = useRef(0);
+  const [overrideDraft, setOverrideDraft] = useState<Record<string, string>>({});
   const [form, setForm] = useState({
     username: "",
     password: "",
     displayName: "",
     slug: "",
+    planKeys: [] as string[],
   });
+
+  const loginUrl =
+    typeof window !== "undefined" ? `${window.location.origin}/login` : "/login";
+
+  const enabledCatalog = useMemo(
+    () => catalog.filter((item) => item.cardplatformSellable || item.enabled),
+    [catalog],
+  );
 
   async function load() {
     setLoading(true);
     try {
-      const response = await fetch("/api/admin/agents", { cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "代理列表加载失败");
-      setList(data.list || []);
+      const [agentsRes, plansRes] = await Promise.all([
+        fetch("/api/admin/agents", { cache: "no-store" }),
+        fetch("/api/admin/plans", { cache: "no-store" }),
+      ]);
+      const [agentsData, plansData] = await Promise.all([
+        agentsRes.json(),
+        plansRes.json(),
+      ]);
+      if (!agentsRes.ok) throw new Error(agentsData.error || "代理列表加载失败");
+      if (!plansRes.ok) throw new Error(plansData.error || "套餐加载失败");
+      const nextCatalog = (plansData.list || []) as CatalogPlan[];
+      setList(agentsData.list || []);
+      setCatalog(nextCatalog);
+      setCostDraft(
+        Object.fromEntries(
+          nextCatalog.map((item) => [
+            item.planKey,
+            yuanTextFromCents(item.globalCostPriceCents),
+          ]),
+        ),
+      );
     } catch (reason) {
-      setMessage(reason instanceof Error ? reason.message : "代理列表加载失败");
+      toast(reason instanceof Error ? reason.message : "加载失败", "err");
     } finally {
       setLoading(false);
     }
@@ -55,10 +93,8 @@ export function AdminAgents() {
     void load();
   }, []);
 
-  async function create(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    setMessage("");
+  async function createAgent() {
+    setBusy("create");
     try {
       const response = await fetch("/api/admin/agents", {
         method: "POST",
@@ -74,18 +110,24 @@ export function AdminAgents() {
           typeof data.error === "string" ? data.error : "代理创建失败",
         );
       }
-      setForm({ username: "", password: "", displayName: "", slug: "" });
-      setMessage("代理已创建");
+      setForm({
+        username: "",
+        password: "",
+        displayName: "",
+        slug: "",
+        planKeys: [],
+      });
+      setCreateOpen(false);
+      toast("代理已创建，可把登录地址发给对方");
       await load();
     } catch (reason) {
-      setMessage(reason instanceof Error ? reason.message : "代理创建失败");
+      toast(reason instanceof Error ? reason.message : "代理创建失败", "err");
     } finally {
-      setBusy(false);
+      setBusy("");
     }
   }
 
   async function toggleStatus(agent: AgentRow) {
-    setMessage("");
     const next = agent.status === "active" ? "disabled" : "active";
     const response = await fetch(`/api/admin/agents/${agent.id}`, {
       method: "PATCH",
@@ -94,152 +136,286 @@ export function AdminAgents() {
     });
     const data = await response.json();
     if (!response.ok) {
-      setMessage(data.error || "状态修改失败");
+      toast(data.error || "状态修改失败", "err");
       return;
     }
+    toast(next === "active" ? "已启用" : "已停用");
     await load();
   }
 
   async function loadAgentPlans(agent: AgentRow) {
-    const requestId = ++planRequestId.current;
     setSelectedAgent(agent);
-    setAgentPlans([]);
     const response = await fetch(`/api/admin/agents/${agent.id}/plans`, {
       cache: "no-store",
     });
     const data = await response.json();
-    if (requestId !== planRequestId.current) return;
     if (!response.ok) {
-      setMessage(data.error || "套餐加载失败");
+      toast(data.error || "套餐加载失败", "err");
       return;
     }
-    setAgentPlans(data.list || []);
+    const rows = (data.list || []) as AgentPlanRow[];
+    setAgentPlans(rows);
+    setOverrideDraft(
+      Object.fromEntries(
+        rows.map((item) => [
+          item.planKey,
+          item.costOverrideCents == null
+            ? ""
+            : yuanTextFromCents(item.costOverrideCents),
+        ]),
+      ),
+    );
   }
 
-  async function saveAgentPlan(agentId: number, plan: AgentPlanRow) {
-    setBusy(true);
-    const response = await fetch(
-      `/api/admin/agents/${agentId}/plans/${encodeURIComponent(plan.planKey)}`,
-      {
-        method: "PATCH",
+  async function saveDefaultPrices() {
+    setBusy("defaults");
+    try {
+      const plans = catalog.map((item) => {
+        const cents = centsFromYuanText(costDraft[item.planKey] ?? "");
+        if (cents == null || Number.isNaN(cents)) {
+          throw new Error(`${item.name} 的默认成本请填金额`);
+        }
+        return {
+          planKey: item.planKey,
+          name: item.name,
+          globalCostPriceCents: cents,
+          enabled: item.enabled,
+        };
+      });
+      const response = await fetch("/api/admin/plans", {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          enabled: plan.enabled,
-          costOverrideCents: plan.costOverrideCents,
-        }),
-      },
-    );
-    const data = await response.json();
-    setBusy(false);
-    if (!response.ok) {
-      setMessage(data.error || "代理套餐保存失败");
-      return;
+        body: JSON.stringify({ plans }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "默认价格保存失败");
+      toast("默认成本已保存");
+      await load();
+    } catch (reason) {
+      toast(reason instanceof Error ? reason.message : "默认价格保存失败", "err");
+    } finally {
+      setBusy("");
     }
-    setMessage(`${selectedAgent?.displayName} 的 ${plan.name} 已保存`);
-    if (selectedAgent?.id === agentId) await loadAgentPlans(selectedAgent);
+  }
+
+  async function saveAgentPlans() {
+    if (!selectedAgent) return;
+    setBusy("agent-plans");
+    try {
+      const plans = agentPlans.map((item) => {
+        const raw = overrideDraft[item.planKey] ?? "";
+        const cents = centsFromYuanText(raw);
+        if (raw.trim() && Number.isNaN(cents as number)) {
+          throw new Error(`${item.name} 的代理成本请填金额`);
+        }
+        return {
+          planKey: item.planKey,
+          enabled: item.enabled,
+          costOverrideCents: raw.trim() ? cents : null,
+        };
+      });
+      const response = await fetch(
+        `/api/admin/agents/${selectedAgent.id}/plans`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plans }),
+        },
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "代理套餐保存失败");
+      toast(`${selectedAgent.displayName} 的可售套餐已保存`);
+      await load();
+      await loadAgentPlans(selectedAgent);
+    } catch (reason) {
+      toast(reason instanceof Error ? reason.message : "代理套餐保存失败", "err");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  function toggleCreatePlan(planKey: string) {
+    setForm((current) => ({
+      ...current,
+      planKeys: current.planKeys.includes(planKey)
+        ? current.planKeys.filter((item) => item !== planKey)
+        : [...current.planKeys, planKey],
+    }));
   }
 
   return (
     <div className="space-y-6">
-      <section className="km-panel">
-        <h2 className="text-xl font-semibold">创建代理</h2>
-        <form onSubmit={create} className="mt-4 grid gap-3 md:grid-cols-2">
-          <input
-            className="km-input"
-            placeholder="登录用户名"
-            value={form.username}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, username: event.target.value }))
-            }
-            required
-          />
-          <input
-            className="km-input"
-            placeholder="代理显示名"
-            value={form.displayName}
-            onChange={(event) =>
-              setForm((current) => ({
-                ...current,
-                displayName: event.target.value,
-              }))
-            }
-            required
-          />
-          <input
-            className="km-input"
-            type="password"
-            placeholder="初始密码（至少 8 位）"
-            value={form.password}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, password: event.target.value }))
-            }
-            minLength={8}
-            required
-          />
-          <input
-            className="km-input"
-            placeholder="店铺 slug（可留空自动生成）"
-            value={form.slug}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, slug: event.target.value }))
-            }
-          />
-          <div className="md:col-span-2">
-            <button className="km-btn km-btn-primary" disabled={busy}>
-              {busy ? "创建中…" : "创建代理"}
+      <section className="km-panel space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold">代理管理</h2>
+            <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
+              代理用同一套登录页进入自己的后台改零售价。登录地址：
+              <a className="ml-1 underline" href="/login" target="_blank" rel="noreferrer">
+                {loginUrl}
+              </a>
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="km-btn km-btn-ghost" onClick={() => void load()}>
+              刷新
+            </button>
+            <button
+              type="button"
+              className="km-btn"
+              onClick={() => setCreateOpen(true)}
+            >
+              新建代理
             </button>
           </div>
-        </form>
+        </div>
       </section>
 
-      {message ? <div className="km-panel text-sm">{message}</div> : null}
+      <section className="km-panel space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold">默认成本价</h2>
+          <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
+            这是平台给代理的默认成本。代理登录后只能在自己的成本之上加零售价。
+          </p>
+        </div>
+        {catalog.length === 0 ? (
+          <p className="text-sm text-[var(--km-fg-muted)]">
+            还没有套餐。先到「接入卡台」同步售卖套餐。
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-[var(--km-border)]">
+                  <th className="py-2 pr-3">套餐</th>
+                  <th className="py-2 pr-3">卡台</th>
+                  <th className="py-2 pr-3">默认成本（元）</th>
+                  <th className="py-2">平台可售</th>
+                </tr>
+              </thead>
+              <tbody>
+                {catalog.map((plan) => (
+                  <tr key={plan.planKey} className="border-b border-[var(--km-border)]">
+                    <td className="py-2 pr-3">
+                      <div className="font-medium">{plan.name}</div>
+                      <div className="font-mono text-xs text-[var(--km-fg-muted)]">
+                        {plan.planKey}
+                      </div>
+                    </td>
+                    <td className="py-2 pr-3">
+                      {plan.cardplatformSellable ? "可售" : "不可售"}
+                    </td>
+                    <td className="py-2 pr-3">
+                      <input
+                        className="km-input w-28"
+                        inputMode="decimal"
+                        value={costDraft[plan.planKey] ?? ""}
+                        onChange={(event) =>
+                          setCostDraft((current) => ({
+                            ...current,
+                            [plan.planKey]: event.target.value,
+                          }))
+                        }
+                      />
+                    </td>
+                    <td className="py-2">
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={plan.enabled}
+                          onChange={(event) =>
+                            setCatalog((current) =>
+                              current.map((item) =>
+                                item.planKey === plan.planKey
+                                  ? { ...item, enabled: event.target.checked }
+                                  : item,
+                              ),
+                            )
+                          }
+                        />
+                        启用
+                      </label>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <button
+          type="button"
+          className="km-btn"
+          disabled={Boolean(busy) || catalog.length === 0}
+          onClick={() => void saveDefaultPrices()}
+        >
+          {busy === "defaults" ? "保存中…" : "保存默认价格"}
+        </button>
+      </section>
 
       <section className="km-panel overflow-x-auto">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-xl font-semibold">代理账号</h2>
-          <button type="button" className="km-btn km-btn-ghost" onClick={load}>
-            刷新
-          </button>
-        </div>
+        <h2 className="mb-4 text-xl font-semibold">代理账号</h2>
         {loading ? (
           <p className="text-sm text-[var(--km-fg-muted)]">加载中…</p>
         ) : (
-          <table className="w-full min-w-[760px] text-left text-sm">
+          <table className="w-full min-w-[820px] text-left text-sm">
             <thead>
               <tr className="border-b border-[var(--km-border)]">
                 <th className="py-3 pr-4">代理</th>
                 <th className="py-3 pr-4">用户名</th>
-                <th className="py-3 pr-4">店铺链接</th>
+                <th className="py-3 pr-4">店铺</th>
+                <th className="py-3 pr-4">可售套餐</th>
                 <th className="py-3 pr-4">状态</th>
-                <th className="py-3 pr-4">最后登录</th>
                 <th className="py-3">操作</th>
               </tr>
             </thead>
             <tbody>
+              {list.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-[var(--km-fg-muted)]">
+                    还没有代理，点右上角「新建代理」
+                  </td>
+                </tr>
+              ) : null}
               {list.map((agent) => (
                 <tr key={agent.id} className="border-b border-[var(--km-border)]">
                   <td className="py-3 pr-4">{agent.displayName}</td>
-                  <td className="py-3 pr-4">{agent.username}</td>
-                  <td className="py-3 pr-4">/s/{agent.currentSlug}</td>
+                  <td className="py-3 pr-4 font-mono">{agent.username}</td>
                   <td className="py-3 pr-4">
-                    {agent.status === "active" ? "启用" : "禁用"}
+                    <a className="underline" href={`/s/${agent.currentSlug}`} target="_blank" rel="noreferrer">
+                      /s/{agent.currentSlug}
+                    </a>
                   </td>
-                  <td className="py-3 pr-4">{agent.lastLoginAt || "—"}</td>
+                  <td className="py-3 pr-4">
+                    {agent.allowedPlans?.length ? (
+                      <span className="flex flex-wrap gap-1">
+                        {agent.allowedPlans.map((plan) => (
+                          <span key={plan.planKey} className="km-badge">
+                            {plan.name}
+                          </span>
+                        ))}
+                      </span>
+                    ) : (
+                      <span className="text-[var(--km-fg-muted)]">未分配</span>
+                    )}
+                  </td>
+                  <td className="py-3 pr-4">
+                    {agent.status === "active" ? "启用" : "停用"}
+                  </td>
                   <td className="py-3">
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
                         className="km-btn km-btn-ghost"
-                        onClick={() => loadAgentPlans(agent)}
+                        onClick={() => void loadAgentPlans(agent)}
                       >
-                        配置套餐
+                        套餐
                       </button>
                       <button
                         type="button"
                         className="km-btn km-btn-ghost"
-                        onClick={() => toggleStatus(agent)}
+                        onClick={() => void toggleStatus(agent)}
                       >
-                        {agent.status === "active" ? "禁用" : "启用"}
+                        {agent.status === "active" ? "停用" : "启用"}
                       </button>
                     </div>
                   </td>
@@ -253,80 +429,212 @@ export function AdminAgents() {
       {selectedAgent ? (
         <section className="km-panel space-y-4">
           <div>
-            <h2 className="text-xl font-semibold">
-              {selectedAgent.displayName} 的套餐
-            </h2>
+            <h2 className="text-xl font-semibold">{selectedAgent.displayName} 的可售套餐</h2>
             <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-              留空使用平台成本；首次启用时，零售价初始化为代理成本，代理可再自行加价。
+              勾选后代理才能卖。成本留空则用上面的默认成本。零售价由代理自己在
+              <a className="mx-1 underline" href="/login">/login</a>
+              登录后改。
             </p>
           </div>
-          <div className="grid gap-4 md:grid-cols-3">
-            {agentPlans.map((plan) => (
-              <article key={plan.planKey} className="space-y-3 rounded-xl border border-[var(--km-border)] p-4">
-                <div>
-                  <h3 className="font-semibold">{plan.name}</h3>
-                  <p className="text-xs text-[var(--km-fg-muted)]">
-                    平台成本 ¥{(plan.globalCostPriceCents / 100).toFixed(2)} ·
-                    卡台{plan.cardplatformSellable ? "可售" : "不可售"}
-                  </p>
-                </div>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={plan.enabled}
-                    onChange={(event) =>
-                      setAgentPlans((current) =>
-                        current.map((item) =>
-                          item.planKey === plan.planKey
-                            ? { ...item, enabled: event.target.checked }
-                            : item,
-                        ),
-                      )
-                    }
-                  />
-                  允许代理销售
-                </label>
-                <label className="block space-y-1 text-sm">
-                  <span>代理成本覆盖（元）</span>
-                  <input
-                    className="km-input w-full"
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    placeholder="留空使用平台成本"
-                    value={
-                      plan.costOverrideCents === null
-                        ? ""
-                        : (plan.costOverrideCents / 100).toFixed(2)
-                    }
-                    onChange={(event) =>
-                      setAgentPlans((current) =>
-                        current.map((item) =>
-                          item.planKey === plan.planKey
-                            ? {
-                                ...item,
-                                costOverrideCents: event.target.value
-                                  ? Math.round(Number(event.target.value) * 100)
-                                  : null,
-                              }
-                            : item,
-                        ),
-                      )
-                    }
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="km-btn km-btn-primary w-full"
-                  disabled={busy}
-                  onClick={() => saveAgentPlan(selectedAgent.id, plan)}
-                >
-                  保存
-                </button>
-              </article>
-            ))}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-[var(--km-border)]">
+                  <th className="py-2 pr-3">允许销售</th>
+                  <th className="py-2 pr-3">套餐</th>
+                  <th className="py-2 pr-3">默认成本</th>
+                  <th className="py-2 pr-3">代理成本覆盖</th>
+                  <th className="py-2">当前零售价</th>
+                </tr>
+              </thead>
+              <tbody>
+                {agentPlans.map((plan) => (
+                  <tr key={plan.planKey} className="border-b border-[var(--km-border)]">
+                    <td className="py-2 pr-3">
+                      <input
+                        type="checkbox"
+                        checked={plan.enabled}
+                        onChange={(event) =>
+                          setAgentPlans((current) =>
+                            current.map((item) =>
+                              item.planKey === plan.planKey
+                                ? { ...item, enabled: event.target.checked }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                    </td>
+                    <td className="py-2 pr-3">
+                      {plan.name}
+                      <span className="ml-2 font-mono text-xs text-[var(--km-fg-muted)]">
+                        {plan.planKey}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-3">
+                      ¥{yuanTextFromCents(plan.globalCostPriceCents)}
+                    </td>
+                    <td className="py-2 pr-3">
+                      <input
+                        className="km-input w-28"
+                        inputMode="decimal"
+                        placeholder="留空用默认"
+                        value={overrideDraft[plan.planKey] ?? ""}
+                        onChange={(event) =>
+                          setOverrideDraft((current) => ({
+                            ...current,
+                            [plan.planKey]: event.target.value,
+                          }))
+                        }
+                      />
+                    </td>
+                    <td className="py-2">
+                      ¥{yuanTextFromCents(plan.retailPriceCents)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+          <button
+            type="button"
+            className="km-btn"
+            disabled={Boolean(busy)}
+            onClick={() => void saveAgentPlans()}
+          >
+            {busy === "agent-plans" ? "保存中…" : "保存该代理套餐"}
+          </button>
         </section>
+      ) : null}
+
+      {createOpen ? (
+        <div className="km-modal-backdrop" onClick={() => setCreateOpen(false)}>
+          <div
+            className="km-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-labelledby="create-agent-title"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 id="create-agent-title" className="text-xl font-semibold">
+                  新建代理
+                </h2>
+                <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
+                  填登录信息，并勾选这个代理能卖的套餐。
+                </p>
+              </div>
+              <button
+                type="button"
+                className="km-btn km-btn-ghost"
+                onClick={() => setCreateOpen(false)}
+              >
+                关闭
+              </button>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label className="block space-y-1 text-sm">
+                <span>登录用户名</span>
+                <input
+                  className="km-input"
+                  value={form.username}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      username: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="block space-y-1 text-sm">
+                <span>显示名</span>
+                <input
+                  className="km-input"
+                  value={form.displayName}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      displayName: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="block space-y-1 text-sm">
+                <span>初始密码（至少 8 位）</span>
+                <input
+                  className="km-input"
+                  type="password"
+                  value={form.password}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      password: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="block space-y-1 text-sm">
+                <span>店铺 slug（可空）</span>
+                <input
+                  className="km-input"
+                  value={form.slug}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      slug: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            </div>
+            <div className="mt-4 space-y-2">
+              <p className="text-sm font-medium">可售套餐</p>
+              {enabledCatalog.length === 0 ? (
+                <p className="text-sm text-[var(--km-fg-muted)]">
+                  还没有可售套餐，先同步卡台再勾选。
+                </p>
+              ) : (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {enabledCatalog.map((plan) => (
+                    <label
+                      key={plan.planKey}
+                      className="flex items-center gap-2 rounded-xl border border-[var(--km-border)] px-3 py-2 text-sm"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={form.planKeys.includes(plan.planKey)}
+                        onChange={() => toggleCreatePlan(plan.planKey)}
+                      />
+                      <span>
+                        {plan.name}
+                        <span className="ml-2 text-xs text-[var(--km-fg-muted)]">
+                          成本 ¥{yuanTextFromCents(plan.globalCostPriceCents)}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                className="km-btn km-btn-ghost"
+                onClick={() => setCreateOpen(false)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="km-btn"
+                disabled={Boolean(busy)}
+                onClick={() => void createAgent()}
+              >
+                {busy === "create" ? "创建中…" : "创建"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );

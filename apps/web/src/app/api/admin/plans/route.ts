@@ -76,3 +76,54 @@ export async function POST(req: Request) {
   });
   return NextResponse.json({ plan }, { status: existing ? 200 : 201 });
 }
+
+const batchSchema = z.object({
+  plans: z.array(
+    z.object({
+      planKey: z.string().trim().min(1),
+      name: z.string().trim().min(1).max(100).optional(),
+      globalCostPriceCents: z.number().int().min(0),
+      enabled: z.boolean(),
+    }),
+  ),
+});
+
+export async function PUT(req: Request) {
+  let session;
+  try {
+    session = await requireAdmin();
+  } catch (error) {
+    if (error instanceof Response) return error;
+    throw error;
+  }
+  await bootDb();
+  const parsed = batchSchema.safeParse(await req.json());
+  if (!parsed.success) {
+    return NextResponse.json({ error: "套餐格式无效" }, { status: 400 });
+  }
+  const now = new Date().toISOString();
+  await db.transaction(async (tx) => {
+    for (const item of parsed.data.plans) {
+      const existing = await tx.query.platformPlans.findFirst({
+        where: eq(platformPlans.planKey, item.planKey),
+      });
+      if (!existing) continue;
+      await tx
+        .update(platformPlans)
+        .set({
+          name: item.name || existing.name,
+          globalCostPriceCents: item.globalCostPriceCents,
+          enabled: item.enabled,
+          updatedAt: now,
+        })
+        .where(eq(platformPlans.id, existing.id));
+    }
+  });
+  await writeAuditLog({
+    actor: session,
+    action: "admin.plan.batch",
+    targetType: "platform_plan",
+    metadata: { count: parsed.data.plans.length },
+  });
+  return NextResponse.json({ ok: true });
+}
