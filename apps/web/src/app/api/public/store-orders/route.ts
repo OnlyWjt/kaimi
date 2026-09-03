@@ -8,7 +8,7 @@ const schema = z.object({
   slug: z.string().trim().min(3).max(32),
   planKey: z.string().trim().min(1).max(64),
   channel: z.enum(["alipay", "wxpay"]),
-  customerEmail: z.string().trim().email().max(254),
+  customerEmail: z.string().trim().email("请填写有效邮箱").max(254),
 });
 
 export async function POST(req: Request) {
@@ -17,7 +17,10 @@ export async function POST(req: Request) {
   await bootDb();
   const parsed = schema.safeParse(await req.json());
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message || "下单参数无效" },
+      { status: 400 },
+    );
   }
   try {
     const result = await createStoreOrder({ request: req, ...parsed.data });

@@ -310,28 +310,145 @@ select.km-input option {
   background-size: 140% 140%, 130% 130%, 150% 150%;
 }
 
-.km-pay-choices {
+.km-shop {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+}
+
+@media (min-width: 900px) {
+  .km-shop {
+    grid-template-columns: minmax(0, 1.25fr) minmax(20rem, 0.75fr);
+    align-items: start;
+    gap: 1.5rem;
+  }
+
+  .km-shop-pay {
+    position: sticky;
+    top: 1.25rem;
+  }
+}
+
+.km-plan-pick {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in oklab, var(--km-border) 88%, transparent);
+  background: color-mix(in oklab, var(--km-bg-elevated) 96%, transparent);
+  padding: 1.05rem 1.15rem;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.km-plan-pick:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklab, var(--km-fg) 22%, var(--km-border));
+}
+
+.km-plan-pick-active {
+  border-color: var(--km-fg);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--km-fg) 10%, transparent);
+}
+
+.km-shop-pay {
+  border-radius: 20px;
+  border: 1px solid color-mix(in oklab, var(--km-border) 88%, transparent);
+  background: color-mix(in oklab, var(--km-bg-elevated) 96%, transparent);
+  box-shadow: var(--km-shadow);
+  padding: 1.35rem 1.4rem;
+}
+
+.km-pay-list {
+  display: grid;
   gap: 0.5rem;
 }
 
-.km-pay-choice {
+.km-pay-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.78rem 0.85rem;
   border-radius: 14px;
-  border: 1px solid var(--km-border);
-  background: var(--km-bg-elevated);
+  border: 1.5px solid color-mix(in oklab, var(--km-border) 88%, transparent);
+  background: color-mix(in oklab, var(--km-bg-muted) 55%, var(--km-bg-elevated));
   color: var(--km-fg);
-  padding: 0.72rem 0.8rem;
-  font-size: 0.9rem;
-  font-weight: 550;
+  text-align: left;
   cursor: pointer;
-  transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
 }
 
-.km-pay-choice[aria-pressed="true"] {
-  background: var(--km-accent);
-  color: var(--km-accent-fg);
-  border-color: var(--km-accent);
+.km-pay-row:hover {
+  border-color: color-mix(in oklab, var(--km-fg) 18%, var(--km-border));
+}
+
+.km-pay-row[data-channel="alipay"][aria-checked="true"] {
+  border-color: #1677ff;
+  background: color-mix(in oklab, #1677ff 8%, var(--km-bg-elevated));
+  box-shadow: 0 0 0 3px color-mix(in oklab, #1677ff 12%, transparent);
+}
+
+.km-pay-row[data-channel="wxpay"][aria-checked="true"] {
+  border-color: #07c160;
+  background: color-mix(in oklab, #07c160 8%, var(--km-bg-elevated));
+  box-shadow: 0 0 0 3px color-mix(in oklab, #07c160 12%, transparent);
+}
+
+.km-pay-logo {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex-shrink: 0;
+  place-items: center;
+  border-radius: 10px;
+}
+
+.km-pay-logo-alipay {
+  background: #1677ff;
+  color: #fff;
+}
+
+.km-pay-logo-wxpay {
+  background: #07c160;
+  color: #fff;
+}
+
+.km-pay-radio {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-left: auto;
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 1.5px solid color-mix(in oklab, var(--km-fg) 22%, var(--km-border));
+  display: grid;
+  place-items: center;
+}
+
+.km-pay-radio::after {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.km-pay-row[data-channel="alipay"][aria-checked="true"] .km-pay-radio {
+  border-color: #1677ff;
+}
+
+.km-pay-row[data-channel="alipay"][aria-checked="true"] .km-pay-radio::after {
+  background: #1677ff;
+}
+
+.km-pay-row[data-channel="wxpay"][aria-checked="true"] .km-pay-radio {
+  border-color: #07c160;
+}
+
+.km-pay-row[data-channel="wxpay"][aria-checked="true"] .km-pay-radio::after {
+  background: #07c160;
 }
 
 .km-theme-grid {
@@ -359,12 +476,6 @@ select.km-input option {
 .km-theme-swatch[aria-pressed="true"] {
   border-color: var(--km-fg);
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--km-fg) 12%, transparent);
-}
-
-.km-shop-card {
-  display: flex;
-  flex-direction: column;
-  gap: 1.05rem;
 }
 
 /* —— Panels —— */

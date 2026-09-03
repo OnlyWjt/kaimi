@@ -124,20 +124,39 @@ export async function createEpayPayment(
   );
   params.sign_type = "MD5";
 
-  const response = await fetch(`${normalizedBase(config.apiBase)}/mapi.php`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams(params),
-    signal: AbortSignal.timeout(20_000),
-    cache: "no-store",
-  });
-  const raw = (await response.json()) as {
+  let response: Response;
+  try {
+    response = await fetch(`${normalizedBase(config.apiBase)}/mapi.php`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(params),
+      signal: AbortSignal.timeout(20_000),
+      cache: "no-store",
+    });
+  } catch {
+    throw new Error("易支付下单网络请求失败，请稍后重试");
+  }
+  const text = await response.text();
+  let raw: {
     code?: number;
     msg?: string;
     trade_no?: string;
     payurl?: string;
     qrcode?: string;
-  };
+  } = {};
+  if (text.trim()) {
+    try {
+      raw = JSON.parse(text) as typeof raw;
+    } catch {
+      throw new Error(
+        text.includes("<")
+          ? `易支付返回了网页而不是 JSON（HTTP ${response.status}）`
+          : `易支付响应无效（HTTP ${response.status}）`,
+      );
+    }
+  } else {
+    throw new Error(`易支付没有返回内容（HTTP ${response.status}）`);
+  }
   if (!response.ok || raw.code !== 1) {
     throw new Error(raw.msg?.trim() || `易支付下单失败（HTTP ${response.status}）`);
   }
