@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ApplyTheme } from "@/components/apply-theme";
 import { toast } from "@/components/toast";
 import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
+import { publicStatusLabel } from "@/lib/status-labels";
 import { THEME_CHOICES } from "@/lib/themes";
 import type { ThemeId } from "@kaimi/themes";
 
@@ -84,6 +85,11 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
   const [settlements, setSettlements] = useState<AgentSettlement[]>([]);
   const [earningRange, setEarningRange] = useState("7d");
   const [origin, setOrigin] = useState("");
+
+  /** 卡密列表只带套餐码（plus / pro_5x），代理认的是套餐名。 */
+  function planName(planKey: string) {
+    return plans.find((plan) => plan.planKey === planKey)?.name || planKey;
+  }
 
   async function loadPlans() {
     const response = await fetch("/api/agent/plans", { cache: "no-store" });
@@ -259,12 +265,19 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
         <div>
           <h1 className="km-page-title">{initialProfile.displayName}</h1>
           <p className="mt-2 text-sm text-[var(--km-fg-muted)]">
-            登录账号 {initialProfile.username}。客户从你的店铺下单，零售价在下面改。
+            登录账号 {initialProfile.username}。客户从你的店铺下单，零售价在下面改。第一次用先看
+            <a className="mx-1 underline" href="/agent/guide">
+              使用说明
+            </a>
+            。
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <a className="km-btn" href={`/s/${savedSlug}`} target="_blank" rel="noreferrer">
             打开店铺
+          </a>
+          <a className="km-btn km-btn-ghost" href="/agent/guide">
+            使用说明
           </a>
           <button type="button" className="km-btn km-btn-ghost" onClick={logout}>
             退出登录
@@ -384,7 +397,7 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
                         ? "未开放"
                         : plan.cardplatformSellable
                           ? "可售"
-                          : "卡台暂不可售"}
+                          : "平台暂时缺货"}
                     </td>
                   </tr>
                 ))}
@@ -475,7 +488,7 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
                     <th className="py-2 pr-3">实付</th>
                     <th className="py-2 pr-3">手续费</th>
                     <th className="py-2 pr-3">收益</th>
-                    <th className="py-2">对账</th>
+                    <th className="py-2">手续费口径</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -493,7 +506,9 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
                       <td className="py-2 pr-3">
                         ¥{(item.earningCents / 100).toFixed(2)}
                       </td>
-                      <td className="py-2">{item.feeReconcileStatus}</td>
+                      <td className="py-2">
+                        {publicStatusLabel(item.feeReconcileStatus, "fee")}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -522,7 +537,9 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
                 <p className="font-semibold">
                   ¥{(settlement.amountCents / 100).toFixed(2)}
                 </p>
-                <p className="text-[var(--km-fg-muted)]">{settlement.status}</p>
+                <p className="text-[var(--km-fg-muted)]">
+                  {publicStatusLabel(settlement.status, "settlement")}
+                </p>
               </div>
             </div>
           ))}
@@ -574,9 +591,11 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
               {cdks.map((cdk) => (
                 <tr key={cdk.id} className="border-b border-[var(--km-border)]">
                   <td className="py-2 pr-3 font-mono text-xs">{cdk.code}</td>
-                  <td className="py-2 pr-3">{cdk.planKey}</td>
+                  <td className="py-2 pr-3">{planName(cdk.planKey)}</td>
                   <td className="py-2 pr-3 font-mono text-xs">{cdk.orderNo}</td>
-                  <td className="py-2 pr-3">{cdk.status}</td>
+                  <td className="py-2 pr-3">
+                    {publicStatusLabel(cdk.status, "cdk")}
+                  </td>
                   <td className="py-2">
                     <button
                       type="button"

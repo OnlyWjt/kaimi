@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { copyText } from "@/lib/copy-text";
+import { adminStatusLabel } from "@/lib/status-labels";
 import { useAskDialog } from "@/components/ask-dialog";
 
 type ChannelRule = {
@@ -63,34 +64,11 @@ const emptyRule: ChannelRule = {
   fixedFeeCents: 0,
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  pending: "排队中",
-  processing: "处理中",
-  success: "成功",
-  failed: "失败",
-  unknown: "未知",
-  fulfilled: "已完成",
-  paid: "已支付",
-  unpaid: "未支付",
-  pending_pay: "待支付",
-  delivered: "已发货",
-  paid_undelivered: "已付未发",
-  issuing: "发货中",
-  confirmed: "已确认",
-  unsupported: "不支持",
-  pending_payment: "待返佣",
-  retrying: "重试中",
-};
-
 function localIsoDate(date = new Date()) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-
-function statusLabel(value: string) {
-  return STATUS_LABEL[value] || value || "—";
 }
 
 export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
@@ -665,7 +643,9 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
                 {backgroundJobs.map((job) => (
                   <tr key={job.id} className="border-b border-[var(--km-border)]">
                     <td className="py-2 pr-3">{job.type}</td>
-                    <td className="py-2 pr-3">{statusLabel(job.status)}</td>
+                    <td className="py-2 pr-3">
+                      {adminStatusLabel(job.status, "job")}
+                    </td>
                     <td className="py-2 pr-3">
                       {job.attempts}/{job.maxAttempts}
                     </td>
@@ -726,11 +706,15 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
                   <td className="py-2 pr-3">
                     ¥{(order.retailPriceCents / 100).toFixed(2)}
                   </td>
-                  <td className="py-2 pr-3">{statusLabel(order.payStatus)}</td>
-                  <td className="py-2 pr-3" title={order.lastErrorMessage}>
-                    {statusLabel(order.fulfillStatus)}
+                  <td className="py-2 pr-3">
+                    {adminStatusLabel(order.payStatus, "pay")}
                   </td>
-                  <td className="py-2 pr-3">{statusLabel(order.feeReconcileStatus)}</td>
+                  <td className="py-2 pr-3" title={order.lastErrorMessage}>
+                    {adminStatusLabel(order.fulfillStatus, "fulfill")}
+                  </td>
+                  <td className="py-2 pr-3">
+                    {adminStatusLabel(order.feeReconcileStatus, "fee")}
+                  </td>
                   <td className="py-2">
                     <div className="flex flex-wrap gap-2">
                       {order.payStatus === "paid" &&
@@ -884,7 +868,9 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
                   <td className="py-2 pr-3">
                     ¥{(settlement.amountCents / 100).toFixed(2)}
                   </td>
-                  <td className="py-2 pr-3">{statusLabel(settlement.status)}</td>
+                  <td className="py-2 pr-3">
+                    {adminStatusLabel(settlement.status, "settlement")}
+                  </td>
                   <td className="py-2">
                     {settlement.status === "pending_payment" ? (
                       <div className="flex flex-wrap gap-2">

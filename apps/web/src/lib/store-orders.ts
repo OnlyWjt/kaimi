@@ -29,6 +29,12 @@ export async function createStoreOrder(input: {
   channel: PaymentChannel;
   customerEmail: string;
 }) {
+  /** 配置没弄好是我们的问题，买家只需要知道买不了；真实原因留在服务端日志里。 */
+  function unavailable(detail: string): never {
+    console.warn(`[store-order] 拒绝下单：${detail}`);
+    throw new Error("这个套餐暂时买不了，请联系店主。");
+  }
+
   const agent = await db.query.agents.findFirst({
     where: and(
       eq(agents.currentSlug, normalizeAgentSlug(input.slug)),
@@ -60,13 +66,13 @@ export async function createStoreOrder(input: {
     )
     .limit(1);
   if (!offer || !offer.assignmentEnabled || !offer.cardplatformSellable) {
-    throw new Error("该套餐暂不可购买");
+    throw new Error("这个套餐现在买不了，换一个或联系店主。");
   }
 
   const costCents =
     offer.costOverrideCents ?? offer.globalCostPriceCents;
   if (costCents <= 0 || offer.retailPriceCents < costCents) {
-    throw new Error("商品价格配置无效");
+    unavailable(`套餐 ${offer.planKey} 价格配置无效：成本 ${costCents}，零售 ${offer.retailPriceCents}`);
   }
   const channelConfig = await db.query.paymentChannelConfigs.findFirst({
     where: and(
@@ -74,12 +80,12 @@ export async function createStoreOrder(input: {
       eq(paymentChannelConfigs.enabled, true),
     ),
   });
-  if (!channelConfig) throw new Error("该支付方式未开通");
+  if (!channelConfig) throw new Error("这个支付方式暂时不可用，换一个试试。");
   const cardplatform = await getDefaultCardplatformAccount();
-  if (!cardplatform) throw new Error("卡台未配置，暂不能下单");
+  if (!cardplatform) unavailable("没有可用的卡台账户");
 
   const epay = await getEpayConfig();
-  if (!epayReady(epay)) throw new Error("易支付未配置，暂不能下单");
+  if (!epayReady(epay)) unavailable("易支付未配置");
 
   const estimatedFeeCents = calculatePaymentFeeCents(
     offer.retailPriceCents,
@@ -93,7 +99,11 @@ export async function createStoreOrder(input: {
     costCents,
     estimatedFeeCents,
   );
-  if (earningCents < 0) throw new Error("当前价格扣除手续费后收益为负，商品已暂停");
+  if (earningCents < 0) {
+    unavailable(
+      `套餐 ${offer.planKey} 扣手续费后代理收益为负：零售 ${offer.retailPriceCents}，成本 ${costCents}，手续费 ${estimatedFeeCents}`,
+    );
+  }
 
   const orderNo = newOrderNo("KS");
   const queryToken = crypto.randomBytes(24).toString("base64url");

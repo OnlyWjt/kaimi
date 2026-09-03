@@ -6,7 +6,7 @@ type LookupResult = {
   found: boolean;
   codeMasked?: string;
   status?: string;
-  planKey?: string;
+  planName?: string;
   orderNo?: string | null;
   fulfillStatus?: string | null;
   message?: string;
@@ -46,7 +46,7 @@ export function CdkLookupForm() {
           <span className="font-medium">卡密</span>
           <input
             className="km-input font-mono"
-            placeholder="CDK-XXXX-XXXX-XXXX"
+            placeholder="购买后拿到的那串卡密"
             value={code}
             onChange={(e) => setCode(e.target.value)}
             onKeyDown={(e) => {
@@ -63,12 +63,12 @@ export function CdkLookupForm() {
         {result ? (
           <div className="km-result">
             {!result.found ? (
-              <p>未找到该卡密。</p>
+              <p>没有查到这张卡密。请检查有没有输错，或者确认是不是在本站购买的。</p>
             ) : (
               <ul className="space-y-1.5">
                 <li>卡密：{result.codeMasked}</li>
                 <li>状态：{result.status}</li>
-                <li>套餐：{result.planKey}</li>
+                {result.planName ? <li>套餐：{result.planName}</li> : null}
                 {result.orderNo ? <li>关联订单：{result.orderNo}</li> : null}
                 {result.fulfillStatus ? <li>订单状态：{result.fulfillStatus}</li> : null}
                 {result.message ? <li>{result.message}</li> : null}

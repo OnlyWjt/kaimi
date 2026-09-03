@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { readApiJson } from "@/lib/http-error";
 import { yuanTextFromCents } from "@/lib/money";
+import { publicStatusLabel } from "@/lib/status-labels";
 
 const CHANNEL_LABEL: Record<"alipay" | "wxpay", string> = {
   alipay: "支付宝",
@@ -12,20 +13,6 @@ const CHANNEL_LABEL: Record<"alipay" | "wxpay", string> = {
 const CHANNEL_HINT: Record<"alipay" | "wxpay", string> = {
   alipay: "支持花呗、余额、银行卡",
   wxpay: "支持微信扫码或零钱",
-};
-
-const PAY_LABEL: Record<string, string> = {
-  paid: "已支付",
-  unpaid: "未支付",
-  refunded: "已退款",
-};
-
-const FULFILL_LABEL: Record<string, string> = {
-  delivered: "已发卡",
-  paid_undelivered: "发卡中",
-  issuing: "发卡中",
-  pending: "待支付",
-  unknown: "核对中",
 };
 
 type EmailOrder = {
@@ -283,8 +270,8 @@ export function StoreCheckout({
                       {item.orderNo}
                     </p>
                     <p className="mt-1 text-xs text-[var(--km-fg-muted)]">
-                      {PAY_LABEL[item.payStatus] || item.payStatus} ·{" "}
-                      {FULFILL_LABEL[item.fulfillStatus] || item.fulfillStatus}
+                      {publicStatusLabel(item.payStatus, "pay")} ·{" "}
+                      {publicStatusLabel(item.fulfillStatus, "fulfill")}
                     </p>
                   </div>
                   <p className="shrink-0 text-sm font-semibold">

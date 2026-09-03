@@ -44,18 +44,29 @@ export async function getOpsHealth(): Promise<OpsHealth | null> {
   }
 }
 
+/** 关店的真实原因（余额、网关）是运营的事，买家只会看到这句。 */
+const CLOSED_PUBLIC_REASON = "店铺暂时停止售卖，请稍后再来或联系店主。";
+
 export async function getStoreSalesGate() {
   const [manual, health] = await Promise.all([
     getSetting(MANUAL_KEY, "0"),
     getOpsHealth(),
   ]);
   if (manual === "1") {
-    return { open: false, reason: "管理员已手动关闭店铺购买" };
+    return {
+      open: false,
+      reason: "管理员已手动关闭店铺购买",
+      publicReason: CLOSED_PUBLIC_REASON,
+    };
   }
   if (health && !health.salesOpen) {
-    return { open: false, reason: health.reason || "店铺暂时停止售卖" };
+    return {
+      open: false,
+      reason: health.reason || "店铺暂时停止售卖",
+      publicReason: CLOSED_PUBLIC_REASON,
+    };
   }
-  return { open: true, reason: "" };
+  return { open: true, reason: "", publicReason: "" };
 }
 
 export async function assertStoreSalesOpen() {
@@ -64,7 +75,10 @@ export async function assertStoreSalesOpen() {
     !current || Date.now() - new Date(current.checkedAt).getTime() > 3 * 60_000;
   if (stale) await refreshOpsHealth();
   const gate = await getStoreSalesGate();
-  if (!gate.open) throw new Error(gate.reason);
+  if (!gate.open) {
+    console.warn(`[store-order] 店铺已停售：${gate.reason}`);
+    throw new Error(gate.publicReason);
+  }
 }
 
 export async function setManualSalesClosed(closed: boolean) {

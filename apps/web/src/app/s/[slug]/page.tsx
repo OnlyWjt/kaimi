@@ -92,7 +92,7 @@ export default async function AgentStorePage({
               ? "店铺暂时关闭。"
               : salesGate.open
                 ? "选套餐付款，到账后立刻发一张新卡密。"
-                : salesGate.reason || "店铺暂时停止售卖。"}
+                : salesGate.publicReason}
           </p>
         </header>
         {agent.status === "active" && salesGate.open ? (

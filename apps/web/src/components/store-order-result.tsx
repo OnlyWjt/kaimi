@@ -6,6 +6,7 @@ import { toast } from "@/components/toast";
 import { copyText } from "@/lib/copy-text";
 import { readApiJson } from "@/lib/http-error";
 import { yuanTextFromCents } from "@/lib/money";
+import { publicStatusLabel } from "@/lib/status-labels";
 import {
   looksLikeStoreQueryToken,
   pickStoreQueryToken,
@@ -22,22 +23,6 @@ type StoreOrderResult = {
   rechargePath?: string;
   rechargeUrl?: string;
   queryToken?: string;
-};
-
-const PAY_LABEL: Record<string, string> = {
-  paid: "已支付",
-  unpaid: "未支付",
-  pending_pay: "待支付",
-  refunded: "已退款",
-};
-
-const FULFILL_LABEL: Record<string, string> = {
-  delivered: "已发卡",
-  paid_undelivered: "已付未发",
-  issuing: "发卡中",
-  unknown: "核对中",
-  pending: "等待中",
-  failed: "失败",
 };
 
 function OrderWait({
@@ -172,8 +157,8 @@ export function StoreOrderResultPanel({
         <h2 className="text-xl font-semibold">{order.productName}</h2>
         <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
           ¥{yuanTextFromCents(order.amountCents)} · 支付{" "}
-          {PAY_LABEL[order.payStatus] || order.payStatus} · 发卡{" "}
-          {FULFILL_LABEL[order.fulfillStatus] || order.fulfillStatus}
+          {publicStatusLabel(order.payStatus, "pay")} · 发卡{" "}
+          {publicStatusLabel(order.fulfillStatus, "fulfill")}
         </p>
         <p className="mt-1 font-mono text-xs text-[var(--km-fg-muted)]">{order.orderNo}</p>
       </div>
@@ -215,14 +200,15 @@ export function StoreOrderResultPanel({
         </>
       ) : order.fulfillStatus === "unknown" ? (
         <p className="text-sm text-[var(--km-fg-muted)]">
-          {order.message || "支付成功，订单正在人工核对。"}
+          {order.message ||
+            "已收到你的付款，这一笔我们正在确认，确认好会把卡密显示在本页。请不要重复付款。"}
         </p>
       ) : order.payStatus === "paid" ? (
         <OrderWait
           title="正在生成卡密，请稍候"
           detail={
             order.message ||
-            "卡台出码可能需要几十秒到一两分钟，完成后会自动显示在本页。"
+            "一般几十秒，最多一两分钟。出好了会自动显示在本页，不用刷新。"
           }
         />
       ) : (
