@@ -85,6 +85,8 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
   const [settlements, setSettlements] = useState<AgentSettlement[]>([]);
   const [earningRange, setEarningRange] = useState("7d");
   const [origin, setOrigin] = useState("");
+  const [password, setPassword] = useState({ current: "", next: "", confirm: "" });
+  const [passwordBusy, setPasswordBusy] = useState(false);
 
   /** 卡密列表只带套餐码（plus / pro_5x），代理认的是套餐名。 */
   function planName(planKey: string) {
@@ -192,6 +194,46 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
       toast(reason instanceof Error ? reason.message : "保存失败", "err");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function changePassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (password.next.length < 8) {
+      toast("新密码至少 8 位", "err");
+      return;
+    }
+    if (password.next !== password.confirm) {
+      toast("两次输入的新密码不一样", "err");
+      return;
+    }
+    if (password.next === password.current) {
+      toast("新密码不能和当前密码一样", "err");
+      return;
+    }
+    setPasswordBusy(true);
+    try {
+      const response = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "change_password",
+          currentPassword: password.current,
+          newPassword: password.next,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "密码修改失败",
+        );
+      }
+      setPassword({ current: "", next: "", confirm: "" });
+      toast("密码已改好，下次登录用新密码");
+    } catch (reason) {
+      toast(reason instanceof Error ? reason.message : "密码修改失败", "err");
+    } finally {
+      setPasswordBusy(false);
     }
   }
 
@@ -643,6 +685,73 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
             </div>
           </div>
         ) : null}
+      </section>
+
+      <section className="km-panel space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold">登录密码</h2>
+          <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
+            改完这里就用新密码登录，其他设备上已经登录的会被退出。忘了当前密码就找管理员重置。
+          </p>
+        </div>
+        <form onSubmit={changePassword} className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="block space-y-1 text-sm">
+              <span>当前密码</span>
+              <input
+                className="km-input w-full"
+                type="password"
+                autoComplete="current-password"
+                value={password.current}
+                onChange={(event) =>
+                  setPassword((current) => ({
+                    ...current,
+                    current: event.target.value,
+                  }))
+                }
+                required
+              />
+            </label>
+            <label className="block space-y-1 text-sm">
+              <span>新密码</span>
+              <input
+                className="km-input w-full"
+                type="password"
+                autoComplete="new-password"
+                value={password.next}
+                onChange={(event) =>
+                  setPassword((current) => ({
+                    ...current,
+                    next: event.target.value,
+                  }))
+                }
+                minLength={8}
+                required
+              />
+            </label>
+            <label className="block space-y-1 text-sm">
+              <span>确认新密码</span>
+              <input
+                className="km-input w-full"
+                type="password"
+                autoComplete="new-password"
+                value={password.confirm}
+                onChange={(event) =>
+                  setPassword((current) => ({
+                    ...current,
+                    confirm: event.target.value,
+                  }))
+                }
+                minLength={8}
+                required
+              />
+            </label>
+          </div>
+          <p className="text-sm text-[var(--km-fg-muted)]">新密码至少 8 位。</p>
+          <button className="km-btn km-btn-primary" disabled={passwordBusy}>
+            {passwordBusy ? "修改中…" : "修改密码"}
+          </button>
+        </form>
       </section>
     </div>
   );

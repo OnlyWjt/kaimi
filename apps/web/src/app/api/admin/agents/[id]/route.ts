@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { agents, users } from "@/db/schema";
+import { writeAuditLog } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 
@@ -18,22 +19,17 @@ const updateSchema = z
     message: "至少提供一个修改项",
   });
 
-async function authorize() {
-  try {
-    await requireAdmin();
-    return null;
-  } catch (error) {
-    if (error instanceof Response) return error;
-    throw error;
-  }
-}
-
 export async function PATCH(
   req: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const denied = await authorize();
-  if (denied) return denied;
+  let session: Awaited<ReturnType<typeof requireAdmin>>;
+  try {
+    session = await requireAdmin();
+  } catch (error) {
+    if (error instanceof Response) return error;
+    throw error;
+  }
   await bootDb();
 
   const { id: rawId } = await context.params;
@@ -82,6 +78,16 @@ export async function PATCH(
         .where(eq(users.agentId, id));
     }
   });
+
+  if (data.newPassword !== undefined) {
+    await writeAuditLog({
+      actor: session,
+      action: "admin.agent.password_reset",
+      targetType: "agent",
+      targetId: id,
+      ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
+    });
+  }
 
   return NextResponse.json({ ok: true });
 }

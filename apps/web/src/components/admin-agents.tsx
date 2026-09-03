@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
 import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
 
@@ -33,6 +34,7 @@ type AgentPlanRow = {
 };
 
 export function AdminAgents() {
+  const { ask, dialog } = useAskDialog();
   const [list, setList] = useState<AgentRow[]>([]);
   const [catalog, setCatalog] = useState<CatalogPlan[]>([]);
   const [costDraft, setCostDraft] = useState<Record<string, string>>({});
@@ -153,6 +155,52 @@ export function AdminAgents() {
     }
     toast(next === "active" ? "已启用" : "已停用");
     await load();
+  }
+
+  async function resetPassword(agent: AgentRow) {
+    const answer = await ask({
+      title: `重置 ${agent.displayName} 的登录密码`,
+      message: `登录用户名 ${agent.username}。重置后旧密码立刻失效，对方已经登录的设备也会被退出，记得把新密码发给他。`,
+      fields: [
+        {
+          name: "password",
+          label: "新密码",
+          required: true,
+          hint: "至少 8 位。这里是明文，方便你直接复制发给代理。",
+        },
+        { name: "confirm", label: "再输一次", required: true },
+      ],
+      confirmLabel: "重置密码",
+      danger: true,
+    });
+    if (!answer) return;
+    if (answer.password.length < 8) {
+      toast("新密码至少 8 位", "err");
+      return;
+    }
+    if (answer.password !== answer.confirm) {
+      toast("两次输入的新密码不一样", "err");
+      return;
+    }
+    setBusy(`password-${agent.id}`);
+    try {
+      const response = await fetch(`/api/admin/agents/${agent.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newPassword: answer.password }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "密码重置失败",
+        );
+      }
+      toast(`${agent.displayName} 的密码已重置，记得发给对方`);
+    } catch (reason) {
+      toast(reason instanceof Error ? reason.message : "密码重置失败", "err");
+    } finally {
+      setBusy("");
+    }
   }
 
   function closePlans() {
@@ -439,6 +487,14 @@ export function AdminAgents() {
                       <button
                         type="button"
                         className="km-btn km-btn-ghost"
+                        disabled={busy === `password-${agent.id}`}
+                        onClick={() => void resetPassword(agent)}
+                      >
+                        {busy === `password-${agent.id}` ? "重置中…" : "重置密码"}
+                      </button>
+                      <button
+                        type="button"
+                        className="km-btn km-btn-ghost"
                         onClick={() => void toggleStatus(agent)}
                       >
                         {agent.status === "active" ? "停用" : "启用"}
@@ -694,6 +750,7 @@ export function AdminAgents() {
           </div>
         </div>
       ) : null}
+      {dialog}
     </div>
   );
 }
