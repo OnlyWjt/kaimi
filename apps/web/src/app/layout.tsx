@@ -17,10 +17,14 @@ const plex = IBM_Plex_Sans({
   display: "swap",
 });
 
-export const metadata: Metadata = {
-  title: "Kaimi",
-  description: "卡密兑换开通",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  // 站点名后台可改，标签页标题跟着它走，别写死。
+  const { siteName } = await getSiteAppearance();
+  return {
+    title: siteName || "Kaimi",
+    description: "卡密兑换开通",
+  };
+}
 
 export const dynamic = "force-dynamic";
 

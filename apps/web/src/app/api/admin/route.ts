@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { and, desc, eq, inArray, like, or, sql } from "drizzle-orm";
+import { isThemeId } from "@kaimi/themes";
 import { db } from "@/db";
 import { agents, cdkPool, issuedCdks, orders, storefronts, storeOrders } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth";
@@ -488,7 +489,13 @@ export async function POST(req: Request) {
   if (action === "save_appearance" || action === "save_storefront") {
     // Site-wide brand/theme (admin 整站外观). Do not overwrite when saving a storefront card.
     if (!body.id) {
-      if (body.siteTheme) await setSetting("site_theme", String(body.siteTheme));
+      if (body.siteTheme) {
+        const theme = String(body.siteTheme);
+        if (!isThemeId(theme)) {
+          return NextResponse.json({ error: "主题不存在" }, { status: 400 });
+        }
+        await setSetting("site_theme", theme);
+      }
       if (body.siteName !== undefined && body.siteName !== null) {
         await setSetting("site_name", String(body.siteName));
       }

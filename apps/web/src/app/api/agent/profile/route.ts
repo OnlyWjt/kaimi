@@ -7,10 +7,12 @@ import { requireAgent } from "@/lib/auth";
 import { validateAgentSlug } from "@/lib/agent-slug";
 import { bootDb } from "@/lib/config";
 import { resolveThemeId } from "@/lib/storefront";
+import { isThemeId } from "@kaimi/themes";
 
 const updateSchema = z.object({
   slug: z.string().trim().optional(),
-  themeId: z.enum(["snow", "aurora", "ink", "sakura"]).optional(),
+  // 跟着 @kaimi/themes 走，新增主题不用再回来改这里。
+  themeId: z.string().trim().refine(isThemeId, "主题不存在").optional(),
 });
 
 async function authorize() {

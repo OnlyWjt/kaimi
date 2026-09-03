@@ -305,7 +305,10 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
                   aria-pressed={themeId === theme.id}
                   onClick={() => setThemeId(theme.id)}
                 >
-                  <span className="block font-medium">{theme.label}</span>
+                  <span className="flex items-center gap-2 font-medium">
+                    <span className="km-theme-dot" aria-hidden />
+                    {theme.label}
+                  </span>
                   <span className="mt-1 block text-xs text-[var(--km-fg-muted)]">
                     {theme.hint}
                   </span>

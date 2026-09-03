@@ -1,3 +1,9 @@
+/*
+ * 主题之间要一眼能分清，所以每套至少在三个维度上不同：
+ * 明暗、主色（--km-accent，按钮和选中态都吃它）、圆角（--km-radius）。
+ * 只改背景色的话，几套主题看起来会几乎一样。
+ */
+
 :root,
 [data-theme="snow"] {
   --km-bg: #f5f3ef;
@@ -22,6 +28,7 @@
     radial-gradient(760px 420px at 50% 108%, #f0dc9a55, transparent 52%);
 }
 
+/* 深蓝夜色 + 极光青主色，和纯黑的 ink 区分开。 */
 [data-theme="aurora"] {
   --km-bg: #0b0d12;
   --km-bg-elevated: #141821;
@@ -29,19 +36,20 @@
   --km-fg: #f3f1ec;
   --km-fg-muted: #9aa1b0;
   --km-border: #2a3142;
-  --km-accent: #f3f1ec;
-  --km-accent-fg: #111318;
+  --km-accent: #5fd4c4;
+  --km-accent-fg: #08201d;
   --km-success: #8aaa8c;
-  --km-danger: #d08a7a;
+  --km-danger: #e09b8a;
   --km-warning: #d4b06a;
-  --km-label: #e0b8a4;
+  --km-label: #7fdccd;
   --km-radius: 22px;
   --km-shadow: 0 20px 50px -24px rgb(0 0 0 / 55%);
   --km-hero-glow:
-    radial-gradient(1000px 480px at 16% -12%, #3b2a4d66, transparent 58%),
+    radial-gradient(1000px 480px at 16% -12%, #1f5c5566, transparent 58%),
     radial-gradient(820px 400px at 92% 0%, #2a3d5c66, transparent 55%);
 }
 
+/* 纯黑单色，不带任何彩色倾向，是最克制的一套。 */
 [data-theme="ink"] {
   --km-bg: #0a0a0a;
   --km-bg-elevated: #141414;
@@ -60,6 +68,7 @@
   --km-hero-glow: radial-gradient(900px 420px at 50% -20%, #2a2a2a, transparent 60%);
 }
 
+/* 藕粉底 + 玫红主色，和同为浅色的 snow 区分开。 */
 [data-theme="sakura"] {
   --km-bg: #f7f1f3;
   --km-bg-elevated: #fffafb;
@@ -67,15 +76,118 @@
   --km-fg: #1a1215;
   --km-fg-muted: #7a5d66;
   --km-border: #ead5db;
-  --km-accent: #1a1215;
-  --km-accent-fg: #fffafb;
+  --km-accent: #c9447a;
+  --km-accent-fg: #fff5f8;
   --km-success: #5c7a5e;
   --km-danger: #b85c4a;
   --km-warning: #b8863a;
-  --km-label: #c17a5a;
-  --km-radius: 22px;
+  --km-label: #c9447a;
+  --km-radius: 26px;
   --km-shadow: 0 18px 50px -28px rgb(26 18 21 / 24%);
   --km-hero-glow:
     radial-gradient(900px 480px at 18% -8%, #f4b8c466, transparent 58%),
     radial-gradient(760px 400px at 88% 0%, #f3d6a866, transparent 55%);
+}
+
+/* 冷调浅色 + 正蓝主色，最接近常见 SaaS 观感。 */
+[data-theme="ocean"] {
+  --km-bg: #eef3f8;
+  --km-bg-elevated: #fbfdff;
+  --km-bg-muted: #dde7f1;
+  --km-fg: #10243a;
+  --km-fg-muted: #52708c;
+  --km-border: #cfdeeb;
+  --km-accent: #1668c9;
+  --km-accent-fg: #f7fbff;
+  --km-success: #2f7d5c;
+  --km-danger: #c2503f;
+  --km-warning: #b3781f;
+  --km-label: #1668c9;
+  --km-radius: 18px;
+  --km-shadow: 0 18px 46px -26px rgb(16 36 58 / 30%);
+  --km-hero-glow:
+    radial-gradient(940px 500px at 10% -10%, #a9cdf070, transparent 58%),
+    radial-gradient(820px 440px at 92% -4%, #b9e3ee70, transparent 56%);
+}
+
+/* 墨绿暗色 + 草绿主色，暖字色，和冷调的 aurora 拉开距离。 */
+[data-theme="forest"] {
+  --km-bg: #0e1512;
+  --km-bg-elevated: #16201b;
+  --km-bg-muted: #1d2a23;
+  --km-fg: #eef3ec;
+  --km-fg-muted: #9bb0a2;
+  --km-border: #27362c;
+  --km-accent: #5fbf7a;
+  --km-accent-fg: #07160d;
+  --km-success: #7fd08f;
+  --km-danger: #dd8f7d;
+  --km-warning: #cfae63;
+  --km-label: #8ed3a0;
+  --km-radius: 16px;
+  --km-shadow: 0 20px 48px -24px rgb(0 0 0 / 58%);
+  --km-hero-glow:
+    radial-gradient(960px 460px at 14% -12%, #1c4a3066, transparent 58%),
+    radial-gradient(800px 400px at 90% 0%, #2c4a1f55, transparent 55%);
+}
+
+/* 暖橙浅色 + 大圆角，观感最活泼。 */
+[data-theme="citrus"] {
+  --km-bg: #fff7ed;
+  --km-bg-elevated: #fffdf8;
+  --km-bg-muted: #ffedd7;
+  --km-fg: #2b1a08;
+  --km-fg-muted: #7c5a35;
+  --km-border: #f3ddc0;
+  --km-accent: #e2680f;
+  --km-accent-fg: #fffaf3;
+  --km-success: #4f7d3f;
+  --km-danger: #c2452f;
+  --km-warning: #a8761a;
+  --km-label: #e2680f;
+  --km-radius: 30px;
+  --km-shadow: 0 18px 48px -26px rgb(43 26 8 / 26%);
+  --km-hero-glow:
+    radial-gradient(900px 500px at 14% -10%, #ffcf9a80, transparent 58%),
+    radial-gradient(820px 420px at 90% -4%, #ffe07a70, transparent 55%);
+}
+
+/* 近乎直角 + 无光晕的高对比单色，形状语言和其他几套完全不同。 */
+[data-theme="mono"] {
+  --km-bg: #ffffff;
+  --km-bg-elevated: #ffffff;
+  --km-bg-muted: #f0f0f0;
+  --km-fg: #0a0a0a;
+  --km-fg-muted: #5c5c5c;
+  --km-border: #d4d4d4;
+  --km-accent: #0a0a0a;
+  --km-accent-fg: #ffffff;
+  --km-success: #2f6b45;
+  --km-danger: #b03a2b;
+  --km-warning: #8a6a15;
+  --km-label: #0a0a0a;
+  --km-radius: 2px;
+  --km-shadow: none;
+  --km-hero-glow: none;
+}
+
+/* 深紫暗色 + 淡紫主色。 */
+[data-theme="grape"] {
+  --km-bg: #120e1c;
+  --km-bg-elevated: #1b1528;
+  --km-bg-muted: #241c35;
+  --km-fg: #f1ecf9;
+  --km-fg-muted: #a99ec2;
+  --km-border: #322746;
+  --km-accent: #a97bf0;
+  --km-accent-fg: #140c22;
+  --km-success: #86c79a;
+  --km-danger: #e0929a;
+  --km-warning: #d3b273;
+  --km-label: #c4a3f7;
+  --km-radius: 26px;
+  --km-shadow: 0 20px 52px -24px rgb(0 0 0 / 60%);
+  --km-hero-glow:
+    radial-gradient(980px 470px at 16% -12%, #4a2a7066, transparent 58%),
+    radial-gradient(820px 400px at 92% 0%, #6b2f6255, transparent 55%);
 }

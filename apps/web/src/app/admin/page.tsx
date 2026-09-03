@@ -10,6 +10,7 @@ import { CardSelectionConfig } from "@/components/card-selection-config";
 import { CommerceAdmin } from "@/components/commerce-admin";
 import { toast } from "@/components/toast";
 import { copyText } from "@/lib/copy-text";
+import { THEME_CHOICES } from "@/lib/themes";
 
 type Tab =
   | "overview"
@@ -963,7 +964,7 @@ export default function AdminPage() {
               <div>
                 <h3 className="font-semibold">整站外观</h3>
                 <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-                  站点名和主题会应用到全部前台页面。浅色主题主按钮为近黑。
+                  站点名和主题会应用到全部前台页面。代理店铺可以各自选主题，不受这里影响。
                 </p>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -974,10 +975,11 @@ export default function AdminPage() {
                 <label className="block space-y-1 text-sm">
                   <span>主题</span>
                   <select className="km-input" value={siteTheme} onChange={(e) => setSiteTheme(e.target.value)}>
-                    <option value="snow">暖纸白 / 近黑按钮</option>
-                    <option value="aurora">深色 / 近白按钮</option>
-                    <option value="ink">纯黑 / 近白按钮</option>
-                    <option value="sakura">浅藕粉 / 近黑按钮</option>
+                    {THEME_CHOICES.map((theme) => (
+                      <option key={theme.id} value={theme.id}>
+                        {theme.label} / {theme.hint}
+                      </option>
+                    ))}
                   </select>
                 </label>
               </div>
