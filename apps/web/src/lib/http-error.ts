@@ -45,7 +45,11 @@ function stringifyErrorField(error: unknown): string {
   return [...form, ...fields].join("；");
 }
 
-export async function readApiJson<T = Record<string, any>>(res: Response): Promise<T> {
+// 默认类型要允许调用方直接点属性，换成 unknown 会让每个调用点都得先断言。
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function readApiJson<T = Record<string, any>>(
+  res: Response,
+): Promise<T> {
   const raw = await res.text();
   let data: unknown = {};
   if (raw.trim()) {

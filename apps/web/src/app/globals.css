@@ -199,6 +199,15 @@ a {
   box-shadow: none;
 }
 
+.km-btn-danger {
+  background: var(--km-danger);
+  color: #fff;
+}
+
+.km-btn-danger:hover {
+  box-shadow: 0 10px 28px color-mix(in oklab, var(--km-danger) 26%, transparent);
+}
+
 .km-btn-muted {
   background: var(--km-bg-muted);
   color: var(--km-fg-muted);
@@ -782,6 +791,10 @@ select.km-input option {
 
 .km-modal-wide {
   width: min(56rem, 100%);
+}
+
+.km-modal-ask {
+  width: min(28rem, 100%);
 }
 
 @keyframes km-rise {

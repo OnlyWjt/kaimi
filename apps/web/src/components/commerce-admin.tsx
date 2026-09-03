@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { copyText } from "@/lib/copy-text";
+import { useAskDialog } from "@/components/ask-dialog";
 
 type ChannelRule = {
   enabled: boolean;
@@ -94,6 +95,7 @@ function statusLabel(value: string) {
 
 export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
   const [message, setMessage] = useState("");
+  const { ask, dialog } = useAskDialog();
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [payment, setPayment] = useState({
@@ -236,9 +238,12 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
             `${item.settlementNo}（¥${(item.amountCents / 100).toFixed(2)}）`,
         )
         .join("、");
-      const ok = window.confirm(
-        `有 ${blocking.length} 张待返佣结算单占用着要改的收益：${list}\n\n撤销它们并按当前费率重算吗？撤销后收益回到待结算，你可以立刻重新生成结算单。`,
-      );
+      const ok = await ask({
+        title: "先撤销占用中的结算单？",
+        message: `有 ${blocking.length} 张待返佣结算单占用着要改的收益：\n${list}\n\n撤销它们并按当前费率重算。收益会回到待结算，你可以立刻重新生成结算单。`,
+        confirmLabel: "撤销并重算",
+        danger: true,
+      });
       if (ok) {
         await recalculateFees(true);
         return;
@@ -282,9 +287,12 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
   }
 
   async function cancelSettlement(settlement: Settlement) {
-    const ok = window.confirm(
-      `撤销结算单 ${settlement.settlementNo}？单据里的 ¥${(settlement.amountCents / 100).toFixed(2)} 收益会退回待结算，之后可以重算手续费再重新生成。`,
-    );
+    const ok = await ask({
+      title: `撤销结算单 ${settlement.settlementNo}？`,
+      message: `单据里的 ¥${(settlement.amountCents / 100).toFixed(2)} 收益会退回待结算，之后可以重算手续费再重新生成。`,
+      confirmLabel: "撤销",
+      danger: true,
+    });
     if (!ok) return;
     const data = await submit(
       `/api/admin/settlements/${settlement.id}`,
@@ -298,14 +306,25 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
   }
 
   async function markSettlementPaid(settlement: Settlement) {
-    const paymentMethod = window.prompt("返佣方式（如支付宝/银行转账）");
-    if (!paymentMethod) return;
-    const paymentReference = window.prompt("付款流水号");
-    if (!paymentReference) return;
+    const answer = await ask({
+      title: `标记 ${settlement.settlementNo} 已返佣`,
+      message: `金额 ¥${(settlement.amountCents / 100).toFixed(2)}，标记后不能再撤销。`,
+      fields: [
+        {
+          name: "paymentMethod",
+          label: "返佣方式",
+          placeholder: "支付宝 / 银行转账",
+          required: true,
+        },
+        { name: "paymentReference", label: "付款流水号", required: true },
+      ],
+      confirmLabel: "标记已返佣",
+    });
+    if (!answer) return;
     const data = await submit(`/api/admin/settlements/${settlement.id}`, {
       action: "mark_paid",
-      paymentMethod,
-      paymentReference,
+      paymentMethod: answer.paymentMethod,
+      paymentReference: answer.paymentReference,
     }, "PATCH");
     if (data) await load();
   }
@@ -333,47 +352,101 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
   }
 
   async function resolveUnknown(order: StoreOrder) {
-    const issued = window.confirm(
-      `是否已在卡台确认订单 ${order.orderNo} 生成了卡密？\n确定=补录卡密，取消=继续选择未发码重试。`,
-    );
-    if (issued) {
-      const code = window.prompt("请输入从卡台核对到的完整卡密");
-      if (!code) return;
+    const choice = await ask({
+      title: `处理未知状态订单 ${order.orderNo}`,
+      message: "先去卡台核对这笔到底有没有生成卡密，再选对应的处理方式。",
+      actions: [
+        { name: "issued", label: "已生成，补录卡密" },
+        { name: "not_issued", label: "确认未发码", danger: true },
+      ],
+    });
+    if (!choice) return;
+    if (choice.__action === "issued") {
+      const answer = await ask({
+        title: "补录卡密",
+        message: `订单 ${order.orderNo}`,
+        fields: [
+          {
+            name: "code",
+            label: "从卡台核对到的完整卡密",
+            required: true,
+          },
+        ],
+        confirmLabel: "补录",
+      });
+      if (!answer) return;
       const data = await submit(
         `/api/admin/store-orders/${encodeURIComponent(order.orderNo)}/resolve`,
-        { action: "confirm_issued", code },
+        { action: "confirm_issued", code: answer.code },
         "PATCH",
       );
       if (data) await load();
       return;
     }
-    const confirmation = window.prompt("确认卡台未发码，请输入完整订单号");
-    if (!confirmation) return;
+    const answer = await ask({
+      title: "确认卡台未发码",
+      message: "确认后这笔会按未发货处理。",
+      fields: [
+        {
+          name: "confirmation",
+          label: "输入完整订单号确认",
+          placeholder: order.orderNo,
+          mustEqual: order.orderNo,
+          required: true,
+        },
+      ],
+      confirmLabel: "确认未发码",
+      danger: true,
+    });
+    if (!answer) return;
     const data = await submit(
       `/api/admin/store-orders/${encodeURIComponent(order.orderNo)}/resolve`,
-      { action: "confirm_not_issued", confirmation },
+      { action: "confirm_not_issued", confirmation: answer.confirmation },
       "PATCH",
     );
     if (data) await load();
   }
 
   async function recordRefund(order: StoreOrder) {
-    const type = window.confirm(
-      `订单 ${order.orderNo} 是否为拒付？\n确定=拒付，取消=普通退款。`,
-    )
-      ? "chargeback"
-      : "refund";
-    const reference = window.prompt("请输入支付渠道退款/拒付参考号");
-    if (!reference) return;
-    const reason = window.prompt("请输入退款/拒付原因");
-    if (!reason) return;
-    const confirmation = window.prompt(
-      "此操作会禁用未使用卡密并冲正收益，请输入完整订单号确认",
-    );
-    if (!confirmation) return;
+    const choice = await ask({
+      title: `登记退款 / 拒付 ${order.orderNo}`,
+      message: "拒付是支付渠道强制扣回，普通退款是你主动退给买家。",
+      actions: [
+        { name: "refund", label: "普通退款" },
+        { name: "chargeback", label: "拒付", danger: true },
+      ],
+    });
+    if (!choice) return;
+    const answer = await ask({
+      title: choice.__action === "chargeback" ? "登记拒付" : "登记退款",
+      message: "会禁用这笔未使用的卡密并冲正代理收益，登记后不能撤销。",
+      fields: [
+        {
+          name: "reference",
+          label: "支付渠道退款/拒付参考号",
+          required: true,
+        },
+        { name: "reason", label: "原因", required: true },
+        {
+          name: "confirmation",
+          label: "输入完整订单号确认",
+          placeholder: order.orderNo,
+          mustEqual: order.orderNo,
+          required: true,
+        },
+      ],
+      confirmLabel: "确认登记",
+      danger: true,
+    });
+    if (!answer) return;
     const data = await submit(
       `/api/admin/store-orders/${encodeURIComponent(order.orderNo)}/refund`,
-      { type, reference, reason, confirmation },
+      {
+        type: choice.__action,
+        reference: answer.reference,
+        reason: answer.reason,
+        confirmation: answer.confirmation,
+      },
       "PATCH",
     );
     if (data) await load();
@@ -394,6 +467,7 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
 
   return (
     <div className="space-y-6">
+      {dialog}
       <div className="flex flex-wrap gap-2">
         {embedded ? null : (
           <Link href="/admin" className="km-btn km-btn-ghost">

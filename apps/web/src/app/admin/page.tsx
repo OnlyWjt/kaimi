@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AdminAgents } from "@/components/admin-agents";
+import { useAskDialog } from "@/components/ask-dialog";
 import { AdminGuide } from "@/components/admin-guide";
 import { CardIntegration } from "@/components/card-integration";
 import { CardSelectionConfig } from "@/components/card-selection-config";
@@ -133,6 +134,7 @@ export default function AdminPage() {
   const [cdkPage, setCdkPage] = useState(1);
   const [cdkPageSize] = useState(20);
   const [cdkTotal, setCdkTotal] = useState(0);
+  const { ask, dialog } = useAskDialog();
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [integForm, setIntegForm] = useState({
     publicBaseUrl: "",
@@ -314,7 +316,12 @@ export default function AdminPage() {
   async function cdkOp(action: "void_cdk" | "disable_cdk" | "enable_cdk", id: number) {
     const label =
       action === "void_cdk" ? "核销" : action === "disable_cdk" ? "禁用" : "启用";
-    if (!window.confirm(`确认${label}该卡密？`)) return;
+    const ok = await ask({
+      title: `确认${label}该卡密？`,
+      confirmLabel: label,
+      danger: action !== "enable_cdk",
+    });
+    if (!ok) return;
     await postAction({ action, id });
     await refreshCdks();
   }
@@ -389,6 +396,7 @@ export default function AdminPage() {
 
   return (
     <main className="km-admin min-h-screen">
+      {dialog}
       <header className="km-header">
         <div className="km-shell-wide space-y-3 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
