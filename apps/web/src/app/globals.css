@@ -806,6 +806,29 @@ select.km-input option {
   animation-delay: 90ms;
 }
 
+.km-order-wait {
+  display: grid;
+  justify-items: center;
+  gap: 0.7rem;
+  padding: 1.15rem 0.4rem 0.2rem;
+  text-align: center;
+}
+
+.km-spinner {
+  width: 2.15rem;
+  height: 2.15rem;
+  border-radius: 999px;
+  border: 3px solid color-mix(in oklab, var(--km-fg) 14%, transparent);
+  border-top-color: var(--km-fg);
+  animation: km-spin 0.75s linear infinite;
+}
+
+@keyframes km-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @media (max-width: 640px) {
   .km-header-inner {
     flex-direction: column;

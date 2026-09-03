@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "@/components/toast";
 import { readApiJson } from "@/lib/http-error";
@@ -38,6 +38,37 @@ const FULFILL_LABEL: Record<string, string> = {
   pending: "等待中",
   failed: "失败",
 };
+
+function OrderWait({
+  title,
+  detail,
+}: {
+  title: string;
+  detail: string;
+}) {
+  const startedAt = useRef(Date.now());
+  const [seconds, setSeconds] = useState(0);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setSeconds(Math.max(0, Math.floor((Date.now() - startedAt.current) / 1000)));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  return (
+    <div className="km-order-wait" role="status" aria-live="polite">
+      <span className="km-spinner" aria-hidden />
+      <p className="font-medium">{title}</p>
+      <p className="max-w-[28ch] text-sm leading-6 text-[var(--km-fg-muted)]">
+        {detail}
+      </p>
+      <p className="text-xs text-[var(--km-fg-muted)]">
+        已等待 {seconds} 秒，请不要关闭本页
+      </p>
+    </div>
+  );
+}
 
 export function StoreOrderResultPanel({
   orderNo,
@@ -120,8 +151,14 @@ export function StoreOrderResultPanel({
     }
   }
 
-  if (error) return <div className="km-panel">{error}</div>;
-  if (!order) return <div className="km-panel">正在查询订单…</div>;
+  if (error) return <div className="km-panel mx-auto max-w-[560px]">{error}</div>;
+  if (!order) {
+    return (
+      <div className="km-panel mx-auto max-w-[560px]">
+        <OrderWait title="正在确认订单" detail="支付完成后会自动开始生成卡密，请稍候。" />
+      </div>
+    );
+  }
 
   const rechargePath = order.rechargePath || "/recharge";
   const rechargeUrl =
@@ -175,12 +212,21 @@ export function StoreOrderResultPanel({
             </div>
           </div>
         </>
+      ) : order.fulfillStatus === "unknown" ? (
+        <p className="text-sm text-[var(--km-fg-muted)]">
+          {order.message || "支付成功，订单正在人工核对。"}
+        </p>
+      ) : order.payStatus === "paid" ? (
+        <OrderWait
+          title="正在生成卡密，请稍候"
+          detail={
+            order.message ||
+            "卡台出码可能需要几十秒到一两分钟，完成后会自动显示在本页。"
+          }
+        />
       ) : (
         <p className="text-sm text-[var(--km-fg-muted)]">
-          {order.message ||
-            (order.payStatus === "paid"
-              ? "支付成功，正在生成卡密…"
-              : "等待支付完成。")}
+          {order.message || "等待支付完成。"}
         </p>
       )}
     </div>

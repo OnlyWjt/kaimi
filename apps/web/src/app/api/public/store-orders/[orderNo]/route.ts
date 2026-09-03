@@ -1,10 +1,11 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { issuedCdks, storeOrders } from "@/db/schema";
 import { bootDb } from "@/lib/config";
 import { decryptSecret, hashLookupValue } from "@/lib/crypto";
 import { fulfillStoreOrder } from "@/lib/fulfillment/fulfill-store-order";
+import { sanitizeLog } from "@/lib/log";
 import { epayReady, getEpayConfig } from "@/lib/payments/config";
 import {
   confirmStoreOrderPaid,
@@ -138,8 +139,16 @@ export async function GET(
     current.payStatus === "paid" &&
     (newlyPaid || current.fulfillStatus === "pending")
   ) {
-    const fulfilled = await fulfillStoreOrder(current.id);
-    if (fulfilled) current = fulfilled;
+    const orderId = current.id;
+    const orderNoForLog = current.orderNo;
+    after(async () => {
+      await fulfillStoreOrder(orderId).catch((error) => {
+        console.error(
+          `[store-order] fulfill after return order=${orderNoForLog}`,
+          sanitizeLog(error instanceof Error ? error.message : "unknown error"),
+        );
+      });
+    });
   }
 
   return NextResponse.json(await serializePublicOrder(current, req));
