@@ -15,6 +15,11 @@ import {
 import { buildEarningsWorkbook } from "./earnings-export";
 import { periodBoundary } from "./period";
 import {
+  isEphemeralPublicHost,
+  isLoopbackHttpUrl,
+  isPublicHttpUrl,
+} from "./public-url-core";
+import {
   epayParamsFromSearch,
   looksLikeStoreQueryToken,
   pickStoreQueryToken,
@@ -119,6 +124,15 @@ describe("epay signing", () => {
         params,
       ),
     ).toEqual({ ok: true });
+  });
+});
+
+describe("public base url", () => {
+  it("rejects localhost and accepts a real https origin", () => {
+    expect(isLoopbackHttpUrl("http://localhost:3100")).toBe(true);
+    expect(isPublicHttpUrl("http://localhost:3100")).toBe(false);
+    expect(isPublicHttpUrl("https://kaimi.example.com")).toBe(true);
+    expect(isEphemeralPublicHost("https://wise-shoes-beam.loca.lt")).toBe(true);
   });
 });
 

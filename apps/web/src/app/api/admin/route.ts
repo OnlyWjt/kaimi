@@ -21,6 +21,11 @@ import {
   reconcileStuckLocks,
 } from "@/lib/orders";
 import { getDefaultCardplatformAccount } from "@/lib/cardplatform/config";
+import {
+  getPublicBaseUrl,
+  isPublicHttpUrl,
+  normalizePublicBaseUrl,
+} from "@/lib/public-url";
 
 async function guard() {
   try {
@@ -31,13 +36,6 @@ async function guard() {
   }
 }
 
-function publicBaseFromReq(req: Request) {
-  const env = process.env.KAIMI_PUBLIC_BASE_URL?.replace(/\/+$/, "");
-  if (env) return env;
-  const proto = req.headers.get("x-forwarded-proto") || "http";
-  const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost:3100";
-  return `${proto}://${host}`.replace(/\/+$/, "");
-}
 
 function maskKey(key: string) {
   const plain = decryptSecret(key);
@@ -214,7 +212,10 @@ export async function GET(req: Request) {
 
   if (section === "integration") {
     const cfg = await getAppConfig();
-    const publicBase = (await getSetting("public_base_url")) || publicBaseFromReq(req);
+    const storedPublicBase = normalizePublicBaseUrl(
+      await getSetting("public_base_url"),
+    );
+    const publicBase = storedPublicBase || (await getPublicBaseUrl(req));
     const syncIntervalMinutes = Number(await getSetting("sync_interval_minutes", "15")) || 0;
     const syncLastAt = await getSetting("sync_last_at", "");
     const syncLastRaw = await getSetting("sync_last_result", "");
@@ -272,8 +273,17 @@ export async function POST(req: Request) {
   const action = String(body.action || "");
 
   if (action === "save_integration" || action === "save_settings") {
-    if (body.publicBaseUrl) {
-      await setSetting("public_base_url", String(body.publicBaseUrl).replace(/\/+$/, ""));
+    if (body.publicBaseUrl !== undefined) {
+      const publicBaseUrl = normalizePublicBaseUrl(String(body.publicBaseUrl || ""));
+      if (publicBaseUrl && !isPublicHttpUrl(publicBaseUrl)) {
+        return NextResponse.json(
+          { error: "本站公网地址不能是 localhost，易支付无法回调本地地址" },
+          { status: 400 },
+        );
+      }
+      if (publicBaseUrl) {
+        await setSetting("public_base_url", publicBaseUrl);
+      }
     }
     if (body.paymentMode) {
       await setSetting("payment_mode", "manual");

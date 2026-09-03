@@ -88,6 +88,8 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
     pid: "",
     key: "",
     signMode: "append" as "append" | "key_param",
+    publicBaseUrl: "",
+    notifyUrl: "",
     channels: {
       alipay: { ...emptyRule },
       wxpay: { ...emptyRule },
@@ -146,6 +148,8 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
         apiBase: paymentData.apiBase || "",
         pid: paymentData.pid || "",
         signMode: paymentData.signMode || "append",
+        publicBaseUrl: paymentData.publicBaseUrl || paymentData.resolvedPublicBaseUrl || "",
+        notifyUrl: paymentData.notifyUrl || "",
         channels: {
           alipay: byChannel.alipay || { ...emptyRule },
           wxpay: byChannel.wxpay || { ...emptyRule },
@@ -359,6 +363,29 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
 
       <section className="km-panel space-y-4">
         <h2 className="text-xl font-semibold">易支付商户与手续费</h2>
+        <p className="text-sm text-[var(--km-fg-muted)]">
+          易支付会从外网访问「异步通知地址」。这里不能填 localhost，否则支付成功也不会发卡。
+        </p>
+        <label className="block space-y-1 text-sm">
+          <span>本站公网地址</span>
+          <input
+            className="km-input w-full"
+            placeholder="https://你的域名"
+            value={payment.publicBaseUrl}
+            onChange={(event) =>
+              setPayment((current) => ({
+                ...current,
+                publicBaseUrl: event.target.value,
+              }))
+            }
+          />
+        </label>
+        <p className="break-all font-mono text-xs text-[var(--km-fg-muted)]">
+          将发给易支付的异步通知：
+          {payment.publicBaseUrl.trim()
+            ? `${payment.publicBaseUrl.trim().replace(/\/+$/, "")}/api/webhooks/epay`
+            : payment.notifyUrl || "（还没填公网地址）"}
+        </p>
         <div className="grid gap-3 md:grid-cols-3">
           <input
             className="km-input"

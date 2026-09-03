@@ -20,16 +20,7 @@ import {
   type PaymentChannel,
 } from "@/lib/payments/fees";
 import { assertStoreSalesOpen } from "@/lib/ops-health";
-import { getPublicBaseUrl } from "@/lib/public-url";
-
-async function publicBaseFromRequest(req: Request) {
-  const base = await getPublicBaseUrl(req);
-  if (base) return base;
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("生产环境必须配置 KAIMI_PUBLIC_BASE_URL");
-  }
-  return "http://localhost:3100";
-}
+import { requirePublicBaseUrl } from "@/lib/public-url";
 
 export async function createStoreOrder(input: {
   request: Request;
@@ -106,7 +97,7 @@ export async function createStoreOrder(input: {
 
   const orderNo = newOrderNo("KS");
   const queryToken = crypto.randomBytes(24).toString("base64url");
-  const base = await publicBaseFromRequest(input.request);
+  const base = await requirePublicBaseUrl(input.request);
   const fulfillmentIdempotencyKey = `kaimi-order-${orderNo}`;
   const createdAt = new Date().toISOString();
   const [order] = await db

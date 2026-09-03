@@ -6,6 +6,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { decryptSecret } from "@/lib/crypto";
+import { getPublicBaseUrl } from "@/lib/public-url";
 
 export async function POST(
   req: Request,
@@ -32,8 +33,7 @@ export async function POST(
   }
   const token = decryptSecret(order.queryTokenEncrypted);
   const origin =
-    process.env.KAIMI_PUBLIC_BASE_URL?.trim().replace(/\/+$/, "") ||
-    new URL(req.url).origin;
+    (await getPublicBaseUrl(req)) || new URL(req.url).origin;
   await writeAuditLog({
     actor: session,
     action: "admin.store_order.recovery_link",

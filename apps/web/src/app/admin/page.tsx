@@ -898,6 +898,9 @@ export default function AdminPage() {
                     value={integForm.publicBaseUrl}
                     onChange={(e) => setIntegForm((s) => ({ ...s, publicBaseUrl: e.target.value }))}
                   />
+                  <span className="text-xs text-[var(--km-fg-muted)]">
+                    给易支付和卡台回调用，不能填 localhost。即时发卡页也会改同一项。
+                  </span>
                 </label>
                 <label className="block space-y-1 text-sm">
                   <span>终态通知地址（可选）</span>
