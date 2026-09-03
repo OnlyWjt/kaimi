@@ -218,6 +218,24 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
+  async function recalculateFees() {
+    const data = await submit("/api/admin/earnings/recalculate");
+    if (!data) return;
+    const notes: string[] = [];
+    if (data.skippedSettled) notes.push(`${data.skippedSettled} 笔已进结算单未改`);
+    if (data.skippedGatewayActual) {
+      notes.push(`${data.skippedGatewayActual} 笔用网关真实手续费`);
+    }
+    if (data.skippedNegative) {
+      notes.push(`${data.skippedNegative} 笔按新费率会亏本，请检查零售价`);
+    }
+    setMessage(
+      `已重算 ${data.updated} 笔（扫描 ${data.scanned} 笔，${data.unchanged} 笔本来就是对的）` +
+        (notes.length ? `。${notes.join("；")}` : ""),
+    );
+    await load();
+  }
+
   async function createSettlement() {
     const data = await submit("/api/admin/settlements", {
       agentId: settlementForm.agentId,
@@ -659,6 +677,18 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
         <p className="text-sm text-[var(--km-fg-muted)]">
           已支付且已发卡的订单会按当前收益进入结算。易支付查不到手续费时，用后台配置的费率估算，不再卡住结算单。
         </p>
+        <div className="km-stat space-y-2 text-sm">
+          <p>
+            手续费在下单时就按当时的费率算好存进订单了，改费率不会追溯。改过费率就先重算一次，再生成结算单。
+          </p>
+          <button
+            className="km-btn km-btn-ghost"
+            disabled={busy || !loaded}
+            onClick={recalculateFees}
+          >
+            按当前费率重算未结算手续费
+          </button>
+        </div>
         <div className="grid gap-3 md:grid-cols-4">
           <select
             className="km-input"
