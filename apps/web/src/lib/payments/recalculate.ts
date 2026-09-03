@@ -1,6 +1,11 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { agentEarnings, storeOrders } from "@/db/schema";
+import {
+  agentEarningAdjustments,
+  agentEarnings,
+  agentSettlements,
+  storeOrders,
+} from "@/db/schema";
 import { calculateAgentEarningCents, calculatePaymentFeeCents } from "./fees";
 
 /**
@@ -15,18 +20,71 @@ const RECALCULABLE_FEE_STATUSES = [
   "unsupported",
 ];
 
+export type BlockingSettlement = {
+  id: number;
+  settlementNo: string;
+  amountCents: number;
+};
+
 export type RecalculateFeesResult = {
   scanned: number;
   updated: number;
   unchanged: number;
   skippedGatewayActual: number;
-  skippedSettled: number;
+  skippedPaidSettlement: number;
   skippedNegative: number;
   skippedNoChannelRule: number;
+  releasedSettlements: number;
+  /** 待返佣结算单占用着待改收益，撤销后才能重算。 */
+  blockingSettlements: BlockingSettlement[];
 };
 
+type PlannedChange = {
+  orderId: number;
+  earningId: number | null;
+  feeRatePpm: number;
+  fixedFeeCents: number;
+  feeCents: number;
+  earningCents: number;
+  feeSource: string;
+};
+
+async function cancelSettlements(ids: number[]) {
+  if (!ids.length) return;
+  const now = new Date().toISOString();
+  await db.transaction(async (tx) => {
+    await tx
+      .update(agentSettlements)
+      .set({ status: "cancelled" })
+      .where(
+        and(
+          inArray(agentSettlements.id, ids),
+          eq(agentSettlements.status, "pending_payment"),
+        ),
+      );
+    await tx
+      .update(agentEarnings)
+      .set({ settlementId: null, status: "pending", updatedAt: now })
+      .where(
+        and(
+          inArray(agentEarnings.settlementId, ids),
+          eq(agentEarnings.status, "settling"),
+        ),
+      );
+    await tx
+      .update(agentEarningAdjustments)
+      .set({ settlementId: null, status: "pending", updatedAt: now })
+      .where(
+        and(
+          inArray(agentEarningAdjustments.settlementId, ids),
+          eq(agentEarningAdjustments.status, "settling"),
+        ),
+      );
+  });
+}
+
 export async function recalculateEstimatedFees(
-  options: { orderIds?: number[] } = {},
+  options: { orderIds?: number[]; releaseSettlements?: boolean } = {},
 ) {
   const rules = await db.query.paymentChannelConfigs.findMany();
   const ruleByChannel = new Map(rules.map((row) => [row.channel, row]));
@@ -57,10 +115,16 @@ export async function recalculateEstimatedFees(
     updated: 0,
     unchanged: 0,
     skippedGatewayActual: Number(confirmed?.total || 0),
-    skippedSettled: 0,
+    skippedPaidSettlement: 0,
     skippedNegative: 0,
     skippedNoChannelRule: 0,
+    releasedSettlements: 0,
+    blockingSettlements: [],
   };
+
+  const ready: PlannedChange[] = [];
+  const blocked: PlannedChange[] = [];
+  const blockingById = new Map<number, BlockingSettlement>();
 
   for (const order of orders) {
     const rule = ruleByChannel.get(order.paymentChannel);
@@ -94,46 +158,85 @@ export async function recalculateEstimatedFees(
       continue;
     }
 
+    const change: PlannedChange = {
+      orderId: order.id,
+      earningId: null,
+      feeRatePpm: rule.feeRatePpm,
+      fixedFeeCents: rule.fixedFeeCents,
+      feeCents,
+      earningCents,
+      feeSource:
+        order.feeReconcileStatus === "unsupported"
+          ? "configured_fallback"
+          : "estimated",
+    };
+
     const earningRow = await db.query.agentEarnings.findFirst({
       where: eq(agentEarnings.orderId, order.id),
     });
-    // 已经进过结算单的收益不能改，那笔钱已经按当时的金额算给代理了。
-    if (
-      earningRow &&
-      (earningRow.settlementId !== null || earningRow.status !== "pending")
-    ) {
-      result.skippedSettled += 1;
+    if (!earningRow) {
+      ready.push(change);
+      continue;
+    }
+    change.earningId = earningRow.id;
+    if (earningRow.settlementId === null && earningRow.status === "pending") {
+      ready.push(change);
       continue;
     }
 
+    const settlement = earningRow.settlementId
+      ? await db.query.agentSettlements.findFirst({
+          where: eq(agentSettlements.id, earningRow.settlementId),
+        })
+      : null;
+    // 已返佣的钱不能事后改账；还没返佣的只是被占用，撤销单据就能放出来。
+    if (!settlement || settlement.status !== "pending_payment") {
+      result.skippedPaidSettlement += 1;
+      continue;
+    }
+    blockingById.set(settlement.id, {
+      id: settlement.id,
+      settlementNo: settlement.settlementNo,
+      amountCents: settlement.amountCents,
+    });
+    blocked.push(change);
+  }
+
+  const applying = [...ready];
+  if (options.releaseSettlements && blockingById.size > 0) {
+    await cancelSettlements([...blockingById.keys()]);
+    result.releasedSettlements = blockingById.size;
+    applying.push(...blocked);
+  } else {
+    result.blockingSettlements = [...blockingById.values()];
+  }
+
+  for (const change of applying) {
     const now = new Date().toISOString();
     await db.transaction(async (tx) => {
       await tx
         .update(storeOrders)
         .set({
-          feeRatePpm: rule.feeRatePpm,
-          fixedFeeCents: rule.fixedFeeCents,
-          estimatedPaymentFeeCents: feeCents,
-          finalPaymentFeeCents: feeCents,
-          agentEarningCents: earningCents,
+          feeRatePpm: change.feeRatePpm,
+          fixedFeeCents: change.fixedFeeCents,
+          estimatedPaymentFeeCents: change.feeCents,
+          finalPaymentFeeCents: change.feeCents,
+          agentEarningCents: change.earningCents,
           updatedAt: now,
         })
-        .where(eq(storeOrders.id, order.id));
-      if (earningRow) {
+        .where(eq(storeOrders.id, change.orderId));
+      if (change.earningId !== null) {
         await tx
           .update(agentEarnings)
           .set({
-            paymentFeeCents: feeCents,
-            feeSource:
-              order.feeReconcileStatus === "unsupported"
-                ? "configured_fallback"
-                : "estimated",
-            earningCents,
+            paymentFeeCents: change.feeCents,
+            feeSource: change.feeSource,
+            earningCents: change.earningCents,
             updatedAt: now,
           })
           .where(
             and(
-              eq(agentEarnings.id, earningRow.id),
+              eq(agentEarnings.id, change.earningId),
               eq(agentEarnings.status, "pending"),
               isNull(agentEarnings.settlementId),
             ),

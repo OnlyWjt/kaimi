@@ -4,7 +4,7 @@ import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { recalculateEstimatedFees } from "@/lib/payments/recalculate";
 
-export async function POST() {
+export async function POST(req: Request) {
   let session;
   try {
     session = await requireAdmin();
@@ -13,8 +13,13 @@ export async function POST() {
     throw error;
   }
   await bootDb();
+  const body = (await req.json().catch(() => ({}))) as {
+    releaseSettlements?: unknown;
+  };
   try {
-    const result = await recalculateEstimatedFees();
+    const result = await recalculateEstimatedFees({
+      releaseSettlements: body.releaseSettlements === true,
+    });
     await writeAuditLog({
       actor: session,
       action: "admin.earnings.recalculate_fees",

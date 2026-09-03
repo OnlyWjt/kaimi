@@ -11,6 +11,11 @@ type ChannelRule = {
 };
 
 type AgentOption = { id: number; displayName: string };
+type BlockingSettlement = {
+  id: number;
+  settlementNo: string;
+  amountCents: number;
+};
 type Settlement = {
   id: number;
   settlementNo: string;
@@ -218,14 +223,36 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
-  async function recalculateFees() {
-    const data = await submit("/api/admin/earnings/recalculate");
+  async function recalculateFees(releaseSettlements = false) {
+    const data = await submit("/api/admin/earnings/recalculate", {
+      releaseSettlements,
+    });
     if (!data) return;
-    const notes: string[] = [];
-    if (data.skippedSettled) {
-      notes.push(
-        `${data.skippedSettled} 笔已被结算单占用，没有改动 —— 请先在下面把对应的待返佣结算单「撤销」，再点一次重算`,
+    const blocking: BlockingSettlement[] = data.blockingSettlements ?? [];
+    if (blocking.length) {
+      const list = blocking
+        .map(
+          (item) =>
+            `${item.settlementNo}（¥${(item.amountCents / 100).toFixed(2)}）`,
+        )
+        .join("、");
+      const ok = window.confirm(
+        `有 ${blocking.length} 张待返佣结算单占用着要改的收益：${list}\n\n撤销它们并按当前费率重算吗？撤销后收益回到待结算，你可以立刻重新生成结算单。`,
       );
+      if (ok) {
+        await recalculateFees(true);
+        return;
+      }
+    }
+    const notes: string[] = [];
+    if (data.releasedSettlements) {
+      notes.push(`撤销了 ${data.releasedSettlements} 张待返佣结算单，请重新生成`);
+    }
+    if (blocking.length) {
+      notes.push(`${blocking.length} 张结算单仍占用着收益，未改动`);
+    }
+    if (data.skippedPaidSettlement) {
+      notes.push(`${data.skippedPaidSettlement} 笔已返佣，不能改账`);
     }
     if (data.skippedGatewayActual) {
       notes.push(`${data.skippedGatewayActual} 笔用网关真实手续费`);
@@ -702,12 +729,12 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
             手续费在下单时就按当时的费率算好存进订单了，改费率不会追溯。改过费率就先重算一次，再生成结算单。
           </p>
           <p className="text-xs text-[var(--km-fg-muted)]">
-            已经进了结算单的收益不会被重算改动。如果那张结算单还没返佣，先「撤销」它，重算完再重新生成。
+            如果待改的收益还被待返佣结算单占着，重算时会问你要不要连带撤销。已返佣的不会动。
           </p>
           <button
             className="km-btn km-btn-ghost"
             disabled={busy || !loaded}
-            onClick={recalculateFees}
+            onClick={() => recalculateFees()}
           >
             按当前费率重算未结算手续费
           </button>
