@@ -19,6 +19,15 @@ export type CardplatformPlan = {
   raw: unknown;
 };
 
+export type CdkOrderRow = {
+  orderId: number;
+  cdkId: number;
+  codePrefix: string;
+  cdkStatus: string;
+  orderStatus: string;
+  updatedAt: string;
+};
+
 export type IssueCardPref = {
   issuer?: string;
   segmentType?: string;
@@ -301,6 +310,25 @@ export class CardplatformClient {
     return filterSellablePlans(mapped, registry.length > 0);
   }
 
+  /** 对账用：按 updated_after 拉 CDK 兑换订单，回调不可用时同步卡密状态。 */
+  async listCdkOrders(query: {
+    page?: number;
+    pageSize?: number;
+    updatedAfter?: string;
+  }): Promise<{ list: CdkOrderRow[]; total: number }> {
+    const params = new URLSearchParams({
+      page: String(Math.max(1, query.page ?? 1)),
+      page_size: String(Math.min(100, Math.max(1, query.pageSize ?? 100))),
+    });
+    const updatedAfter = query.updatedAfter?.trim();
+    if (updatedAfter) params.set("updated_after", updatedAfter);
+    const data = asObject(
+      await this.request<unknown>("GET", `/gpt-direct/cdk-orders?${params}`),
+    );
+    const list = Array.isArray(data.list) ? data.list : [];
+    return { list: list.map(parseCdkOrderRow), total: Number(data.total || 0) };
+  }
+
   async getDirectCardProducts(): Promise<DirectCardProduct[]> {
     const data = await this.request<unknown>("GET", "/gpt-direct/card-products");
     if (Array.isArray(data)) return data.map(parseDirectCardProduct);
@@ -445,6 +473,20 @@ export function htmlOrInvalidResponse(raw: string, status: number) {
     return `卡台返回了 HTML 而非 JSON (HTTP ${status})，请检查 API 地址与密钥`;
   }
   return `卡台返回了无效响应（HTTP ${status}）`;
+}
+
+function parseCdkOrderRow(value: unknown): CdkOrderRow {
+  const row = asObject(value);
+  return {
+    orderId: Number(row.order_id || row.id || 0),
+    cdkId: Number(row.cdk_id || 0),
+    codePrefix: String(row.code_prefix || "").trim(),
+    cdkStatus: String(row.cdk_status || "").trim(),
+    orderStatus: String(row.status || "").trim(),
+    updatedAt: String(
+      row.updated_at || row.completed_at || row.created_at || "",
+    ).trim(),
+  };
 }
 
 function parseDirectCardProduct(value: unknown): DirectCardProduct {

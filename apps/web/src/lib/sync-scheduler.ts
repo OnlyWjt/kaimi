@@ -6,6 +6,7 @@ import { processBackgroundJobs } from "@/lib/background-jobs";
 import { sanitizeLog } from "@/lib/log";
 import { refreshOpsHealth } from "@/lib/ops-health";
 import { syncEnabledAccountProducts } from "@/lib/cardplatform/products";
+import { reconcileIssuedCdkStatuses } from "@/lib/cardplatform/reconcile-issued";
 
 const DEFAULT_MINUTES = 15;
 const TICK_INTERVAL_MS = 30_000;
@@ -15,7 +16,10 @@ type SchedulerState = {
   tickRunning: boolean;
   lastInflightMs: number;
   lastProductSyncMs: number;
+  lastIssuedReconcileMs?: number;
 };
+
+const ISSUED_RECONCILE_INTERVAL_MS = 120_000;
 
 const schedulerGlobal = globalThis as typeof globalThis & {
   __kaimiSyncSchedulerState?: SchedulerState;
@@ -100,6 +104,22 @@ async function maybeTick() {
         }
       } catch (err) {
         console.warn("[kaimi-sync] payment fee reconcile failed", err);
+      }
+      const lastReconcile = state.lastIssuedReconcileMs ?? 0;
+      if (now - lastReconcile >= ISSUED_RECONCILE_INTERVAL_MS || lastReconcile === 0) {
+        state.lastIssuedReconcileMs = now;
+        try {
+          const results = await reconcileIssuedCdkStatuses();
+          const updated = results.reduce((sum, item) => sum + item.updated, 0);
+          const failed = results.filter((item) => item.error).length;
+          if (updated > 0 || failed > 0) {
+            console.log(
+              `[kaimi-sync] issued cdk reconcile: updated=${updated} failed=${failed}`,
+            );
+          }
+        } catch (err) {
+          console.warn("[kaimi-sync] issued cdk reconcile failed", sanitizeLog(err));
+        }
       }
       if (now - state.lastProductSyncMs >= 180_000 || state.lastProductSyncMs === 0) {
         state.lastProductSyncMs = now;

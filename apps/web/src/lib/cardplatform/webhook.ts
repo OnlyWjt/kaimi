@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
-import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { cardplatformAccounts, issuedCdks, webhookEvents } from "@/db/schema";
+import { webhookEvents } from "@/db/schema";
 import { decryptSecret } from "@/lib/crypto";
 import { observeFromWebhookPayload } from "./health";
+import { applyIssuedCdkStatus } from "./issued-status";
 import {
   defaultAccountWebhookPath,
   webhookPathForSlug,
@@ -73,41 +73,12 @@ async function applyIssuedStatusFromWebhook(
   accountId: number,
 ) {
   const cdkId = Number(payload.cdk_id || 0);
-  if (!Number.isSafeInteger(cdkId) || cdkId <= 0) return;
-  const et = eventType.toLowerCase();
   let status = String(payload.cdk_status || "").trim().toLowerCase();
-  if (!status && et.includes("completed")) status = "consumed";
-  if (!status) return;
-  const mapped =
-    status === "consumed" || status === "used"
-      ? "used"
-      : status === "disabled"
-        ? "disabled"
-        : status === "unused"
-          ? "unused"
-          : "";
-  if (!mapped) return;
-  const row = await db.query.issuedCdks.findFirst({
-    where: and(
-      eq(issuedCdks.upstreamRef, String(cdkId)),
-      eq(issuedCdks.cardplatformAccountId, accountId),
-    ),
-  });
-  if (!row) return;
-  if (
-    mapped === "unused" &&
-    (row.status === "used" || row.status === "disabled")
-  ) {
-    return;
+  if (!status && eventType.toLowerCase().includes("completed")) {
+    status = "consumed";
   }
-  await db
-    .update(issuedCdks)
-    .set({
-      status: mapped,
-      usedAt: mapped === "used" ? new Date().toISOString() : row.usedAt,
-      updatedAt: new Date().toISOString(),
-    })
-    .where(eq(issuedCdks.id, row.id));
+  if (!status) return;
+  await applyIssuedCdkStatus({ cdkId, accountId, status });
 }
 
 export function sanitizeWebhookPayload(raw: string) {
