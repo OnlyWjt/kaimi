@@ -8,6 +8,7 @@ import {
   paymentChannelConfigs,
   platformPlans,
 } from "@/db/schema";
+import { ApplyTheme } from "@/components/apply-theme";
 import { StoreCheckout } from "@/components/store-checkout";
 import { normalizeAgentSlug } from "@/lib/agent-slug";
 import { bootDb } from "@/lib/config";
@@ -82,6 +83,7 @@ export default async function AgentStorePage({
     );
   return (
     <main data-theme={themeId} className="km-themed-page">
+      <ApplyTheme themeId={themeId} />
       <section className="km-shell space-y-8 py-12 md:py-16">
         <header className="mx-auto max-w-xl space-y-3 text-center">
           <h1 className="km-page-title">{agent.displayName}</h1>

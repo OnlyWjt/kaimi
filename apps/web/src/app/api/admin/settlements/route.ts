@@ -97,10 +97,7 @@ export async function POST(req: Request) {
           isNull(agentEarnings.settlementId),
           gte(agentEarnings.confirmedAt, periodStart),
           lte(agentEarnings.confirmedAt, periodEnd),
-          inArray(storeOrders.feeReconcileStatus, [
-            "confirmed",
-            "unsupported",
-          ]),
+          eq(storeOrders.payStatus, "paid"),
           eq(storeOrders.fulfillStatus, "delivered"),
         ),
       );
@@ -119,7 +116,24 @@ export async function POST(req: Request) {
         ),
       );
     if (!earningRows.length && !adjustmentRows.length) {
-      throw new Error("该时间范围没有待结算收益或调整项");
+      const deliveredOrders = await tx
+        .select({ id: storeOrders.id })
+        .from(storeOrders)
+        .where(
+          and(
+            eq(storeOrders.agentId, data.agentId),
+            eq(storeOrders.payStatus, "paid"),
+            eq(storeOrders.fulfillStatus, "delivered"),
+          ),
+        );
+      if (deliveredOrders.length) {
+        throw new Error(
+          `该代理已有 ${deliveredOrders.length} 笔已发卡订单，但不在所选周期的待结算收益里。请把结算日期覆盖到付款当天，或确认收益还没被别的结算单占用。`,
+        );
+      }
+      throw new Error(
+        "该时间范围没有待结算收益。只有已支付且已发卡的订单才会进入结算单。",
+      );
     }
     const amountCents =
       earningRows.reduce((sum, row) => sum + row.earningCents, 0) +

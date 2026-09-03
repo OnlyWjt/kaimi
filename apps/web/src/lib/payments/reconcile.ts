@@ -9,6 +9,17 @@ import { getEpayConfig, epayReady } from "./config";
 import { queryEpayOrder } from "./epay";
 import { calculateAgentEarningCents } from "./fees";
 
+function isGatewayFeeQueryUnsupported(message: string) {
+  const text = message.toLowerCase();
+  return (
+    text.includes("no act") ||
+    text.includes("not act") ||
+    text.includes("act不存在") ||
+    text.includes("不支持该接口") ||
+    text.includes("不支持此接口")
+  );
+}
+
 export async function reconcilePaymentFee(
   orderId: number,
   options: { allowManualReview?: boolean } = {},
@@ -166,6 +177,54 @@ export async function reconcilePaymentFee(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "手续费对账失败";
+    if (isGatewayFeeQueryUnsupported(message)) {
+      const now = new Date().toISOString();
+      const earning = calculateAgentEarningCents(
+        order.retailPriceCents,
+        order.agentCostCents,
+        order.estimatedPaymentFeeCents,
+      );
+      await db.transaction(async (tx) => {
+        await tx
+          .update(storeOrders)
+          .set({
+            finalPaymentFeeCents: order.estimatedPaymentFeeCents,
+            agentEarningCents: earning,
+            feeReconcileStatus: "unsupported",
+            feeReconcileAttempts: attemptNo,
+            feeReconcileLastError: "",
+            feeReconciledAt: now,
+            updatedAt: now,
+          })
+          .where(eq(storeOrders.id, order.id));
+        await tx
+          .update(paymentFeeReconciliations)
+          .set({
+            status: "unsupported",
+            errorMessage: message.slice(0, 500),
+            finishedAt: now,
+          })
+          .where(eq(paymentFeeReconciliations.id, attempt.id));
+        await tx
+          .update(agentEarnings)
+          .set({
+            paymentFeeCents: order.estimatedPaymentFeeCents,
+            feeSource: "configured_fallback",
+            earningCents: earning,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(agentEarnings.orderId, order.id),
+              eq(agentEarnings.status, "pending"),
+              isNull(agentEarnings.settlementId),
+            ),
+          );
+      });
+      return await db.query.storeOrders.findFirst({
+        where: eq(storeOrders.id, order.id),
+      });
+    }
     const manualReview = attemptNo >= 6;
     const now = new Date().toISOString();
     await db.transaction(async (tx) => {

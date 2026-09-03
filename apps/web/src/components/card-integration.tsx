@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/components/toast";
+import { copyText } from "@/lib/copy-text";
 import { readApiJson } from "@/lib/http-error";
 
 type Account = {
@@ -183,8 +184,11 @@ export function CardIntegration({ publicBaseUrl = "" }: { publicBaseUrl?: string
   }
 
   function copy(text: string) {
-    void navigator.clipboard.writeText(text);
-    notice("已复制");
+    void copyText(text)
+      .then(() => notice("已复制"))
+      .catch((error) =>
+        notice(error instanceof Error ? error.message : "复制失败", "err"),
+      );
   }
 
   return (

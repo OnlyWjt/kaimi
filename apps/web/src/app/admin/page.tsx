@@ -8,6 +8,7 @@ import { CardIntegration } from "@/components/card-integration";
 import { CardSelectionConfig } from "@/components/card-selection-config";
 import { CommerceAdmin } from "@/components/commerce-admin";
 import { toast } from "@/components/toast";
+import { copyText } from "@/lib/copy-text";
 
 type Tab =
   | "overview"
@@ -121,7 +122,6 @@ export default function AdminPage() {
   const [storefronts, setStorefronts] = useState<Array<Record<string, unknown>>>([]);
   const [siteTheme, setSiteTheme] = useState("snow");
   const [siteName, setSiteName] = useState("Kaimi");
-  const [buyCdkUrl, setBuyCdkUrl] = useState("");
   const [shopEnabled, setShopEnabled] = useState(false);
   const [revealed, setRevealed] = useState<Record<number, string>>({});
   const [msg, setMsg] = useState("");
@@ -216,7 +216,6 @@ export default function AdminPage() {
         setStorefronts(data?.list || []);
         setSiteTheme(data?.siteTheme || "snow");
         setSiteName(data?.siteName || "Kaimi");
-        setBuyCdkUrl(data?.buyCdkUrl || "");
         setShopEnabled(Boolean(data?.shopEnabled));
       }
     })();
@@ -304,7 +303,7 @@ export default function AdminPage() {
 
   async function copyCdkCode(id: number, code: string) {
     try {
-      await navigator.clipboard.writeText(code);
+      await copyText(code);
       setCopiedId(id);
       window.setTimeout(() => setCopiedId((cur) => (cur === id ? null : cur)), 1500);
     } catch {
@@ -325,14 +324,12 @@ export default function AdminPage() {
       action: "save_appearance",
       siteTheme,
       siteName,
-      buyCdkUrl,
       shopEnabled,
     });
     const data = await loadSection("appearance");
     setStorefronts(data?.list || []);
     setSiteTheme(data?.siteTheme || siteTheme);
     setSiteName(data?.siteName || siteName);
-    setBuyCdkUrl(data?.buyCdkUrl || "");
     setShopEnabled(Boolean(data?.shopEnabled));
     toast("整站外观已保存");
   }
@@ -708,7 +705,7 @@ export default function AdminPage() {
             <div className="km-toolbar">
               <input
                 className="km-input max-w-xs font-mono"
-                placeholder="卡密片段"
+                placeholder="订单号 / 完整卡密 / 套餐"
                 value={cdkQ}
                 onChange={(e) => setCdkQ(e.target.value)}
                 onKeyDown={(e) => {
@@ -738,11 +735,9 @@ export default function AdminPage() {
                 }}
               >
                 <option value="">全部状态</option>
-                {Object.entries(STATUS_LABEL).map(([k, v]) => (
-                  <option key={k} value={k}>
-                    {v}
-                  </option>
-                ))}
+                <option value="unused">未使用</option>
+                <option value="used">已核销</option>
+                <option value="disabled">已禁用</option>
               </select>
               <button
                 className="km-btn"
@@ -754,23 +749,27 @@ export default function AdminPage() {
                 筛选
               </button>
               <span className="ml-auto text-xs text-[var(--km-fg-muted)]">
-                共 {cdkTotal} 条 · 默认脱敏，点「显示」后再复制
+                共 {cdkTotal} 条店铺已售卡密 · 默认脱敏，点「显示」后再复制
               </span>
             </div>
 
             <table className="km-table">
               <colgroup>
-                <col style={{ width: "38%" }} />
+                <col style={{ width: "28%" }} />
+                <col style={{ width: "10%" }} />
                 <col style={{ width: "12%" }} />
                 <col style={{ width: "18%" }} />
-                <col style={{ width: "16%" }} />
-                <col style={{ width: "16%" }} />
+                <col style={{ width: "12%" }} />
+                <col style={{ width: "10%" }} />
+                <col style={{ width: "10%" }} />
               </colgroup>
               <thead>
                 <tr>
                   <th>卡密</th>
                   <th>状态</th>
                   <th>套餐</th>
+                  <th>订单</th>
+                  <th>代理</th>
                   <th>更新</th>
                   <th>操作</th>
                 </tr>
@@ -813,6 +812,12 @@ export default function AdminPage() {
                       <td className="km-clip font-mono" title={String(c.planKey || "")}>
                         {String(c.planKey || "—")}
                       </td>
+                      <td className="km-clip font-mono text-xs" title={String(c.orderNo || "")}>
+                        {String(c.orderNo || "—")}
+                      </td>
+                      <td className="km-clip" title={String(c.agentName || "")}>
+                        {String(c.agentName || "—")}
+                      </td>
                       <td className="km-clip text-[var(--km-fg-muted)]" title={String(c.updatedAt || "")}>
                         {formatWhen(c.updatedAt)}
                       </td>
@@ -847,7 +852,7 @@ export default function AdminPage() {
               </tbody>
             </table>
             {!cdks.length ? (
-              <p className="py-8 text-center text-[var(--km-fg-muted)]">无卡密，请先接入并同步</p>
+              <p className="py-8 text-center text-[var(--km-fg-muted)]">还没有店铺售出的卡密</p>
             ) : null}
 
             {cdkTotal > 0 ? (
@@ -966,16 +971,6 @@ export default function AdminPage() {
                     <option value="ink">纯黑 / 近白按钮</option>
                     <option value="sakura">浅藕粉 / 近黑按钮</option>
                   </select>
-                </label>
-                <label className="block space-y-1 text-sm sm:col-span-2">
-                  <span>购买卡密外链</span>
-                  <input
-                    className="km-input"
-                    value={buyCdkUrl}
-                    onChange={(e) => setBuyCdkUrl(e.target.value)}
-                    placeholder="https://your-store.example.com"
-                  />
-                  <span className="text-xs text-[var(--km-fg-muted)]">留空则前台不显示购买入口。</span>
                 </label>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-3">

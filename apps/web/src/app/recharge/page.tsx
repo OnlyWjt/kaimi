@@ -1,5 +1,5 @@
 import { SiteFooter, SiteHeader } from "@/components/site-header";
-import { getSiteAppearance, getStorefront } from "@/lib/storefront";
+import { getStorefront } from "@/lib/storefront";
 import { RechargeForm } from "@/components/recharge-form";
 
 export default async function RechargePage({
@@ -8,11 +8,10 @@ export default async function RechargePage({
   searchParams: Promise<{ code?: string }>;
 }) {
   const sf = await getStorefront("recharge");
-  const { buyCdkUrl } = await getSiteAppearance();
   const { code = "" } = await searchParams;
   return (
     <main data-theme={sf.themeId} className="min-h-screen">
-      <SiteHeader siteName={sf.brandName} buyCdkUrl={buyCdkUrl} />
+      <SiteHeader siteName={sf.brandName} />
       <section className="km-shell-narrow space-y-8 pb-4">
         <div className="km-page-hero km-rise">
           <p className="km-eyebrow">开始兑换</p>

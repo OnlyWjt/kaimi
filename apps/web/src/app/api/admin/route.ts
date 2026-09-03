@@ -1,17 +1,11 @@
 import { NextResponse } from "next/server";
-import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { cdkPool, orders, storefronts } from "@/db/schema";
+import { agents, cdkPool, issuedCdks, orders, storefronts, storeOrders } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb, getAppConfig, getSetting, setSetting } from "@/lib/config";
-import { decryptSecret, encryptSecret, maskCode } from "@/lib/crypto";
-import {
-  countByStatus,
-  countUnused,
-  disableCode,
-  enableCode,
-  voidCode,
-} from "@/lib/inventory";
+import { decryptSecret, encryptSecret, hashLookupValue, maskCode } from "@/lib/crypto";
+import { countByStatus } from "@/lib/inventory";
 import {
   countInFlightRecharges,
   getStatusHistory,
@@ -34,6 +28,32 @@ async function guard() {
     if (res instanceof Response) return res;
     throw res;
   }
+}
+
+async function mutateIssuedCdk(
+  id: number,
+  next: (current: typeof issuedCdks.$inferSelect) => {
+    status: string;
+    usedAt?: string | null;
+  },
+) {
+  const current = await db.query.issuedCdks.findFirst({
+    where: eq(issuedCdks.id, id),
+  });
+  if (!current) throw new Error("卡密不存在");
+  const patch = next(current);
+  if (patch.status === current.status && patch.usedAt === undefined) return current;
+  const now = new Date().toISOString();
+  const [updated] = await db
+    .update(issuedCdks)
+    .set({
+      status: patch.status,
+      usedAt: patch.usedAt === undefined ? current.usedAt : patch.usedAt,
+      updatedAt: now,
+    })
+    .where(eq(issuedCdks.id, id))
+    .returning();
+  return updated ?? current;
 }
 
 
@@ -175,38 +195,63 @@ export async function GET(req: Request) {
     const page = Math.max(1, Number(searchParams.get("page") || "1") || 1);
     const pageSize = Math.min(100, Math.max(1, Number(searchParams.get("page_size") || "20") || 20));
     const conditions = [];
-    if (status) conditions.push(eq(cdkPool.status, status));
-    if (q) conditions.push(like(cdkPool.code, `%${q}%`));
+    if (status) conditions.push(eq(issuedCdks.status, status));
+    if (q) {
+      conditions.push(
+        or(
+          like(storeOrders.orderNo, `%${q}%`),
+          like(issuedCdks.planKey, `%${q}%`),
+          like(issuedCdks.codePrefix, `%${q}%`),
+          eq(issuedCdks.codeHash, hashLookupValue(q.toUpperCase())),
+        ),
+      );
+    }
     const where = conditions.length ? and(...conditions) : undefined;
 
     const [{ total }] = await db
       .select({ total: sql<number>`count(*)` })
-      .from(cdkPool)
+      .from(issuedCdks)
+      .innerJoin(storeOrders, eq(storeOrders.id, issuedCdks.orderId))
       .where(where);
 
-    const list = await db.query.cdkPool.findMany({
-      where,
-      orderBy: [desc(cdkPool.id)],
-      limit: pageSize,
-      offset: (page - 1) * pageSize,
-    });
+    const list = await db
+      .select({
+        id: issuedCdks.id,
+        planKey: issuedCdks.planKey,
+        status: issuedCdks.status,
+        codeEncrypted: issuedCdks.codeEncrypted,
+        orderId: issuedCdks.orderId,
+        orderNo: storeOrders.orderNo,
+        agentName: agents.displayName,
+        issuedAt: issuedCdks.issuedAt,
+        usedAt: issuedCdks.usedAt,
+        updatedAt: issuedCdks.updatedAt,
+      })
+      .from(issuedCdks)
+      .innerJoin(storeOrders, eq(storeOrders.id, issuedCdks.orderId))
+      .innerJoin(agents, eq(agents.id, issuedCdks.agentId))
+      .where(where)
+      .orderBy(desc(issuedCdks.id))
+      .limit(pageSize)
+      .offset((page - 1) * pageSize);
+
     return NextResponse.json({
       list: list.map((c) => ({
         id: c.id,
         planKey: c.planKey,
         status: c.status,
-        codeMasked: maskCode(c.code),
+        codeMasked: maskCode(decryptSecret(c.codeEncrypted)),
         orderId: c.orderId,
-        source: c.source,
-        lockedAt: c.lockedAt,
-        soldAt: c.soldAt,
+        orderNo: c.orderNo,
+        agentName: c.agentName,
+        source: "shop",
+        issuedAt: c.issuedAt,
         usedAt: c.usedAt,
         updatedAt: c.updatedAt,
       })),
       page,
       page_size: pageSize,
       total: Number(total) || 0,
-      unused: await countUnused(),
     });
   }
 
@@ -249,9 +294,8 @@ export async function GET(req: Request) {
     const list = await db.query.storefronts.findMany();
     const siteTheme = await getSetting("site_theme", "snow");
     const siteName = await getSetting("site_name", "Kaimi");
-    const buyCdkUrl = await getSetting("buy_cdk_url", "");
     const shopEnabled = (await getSetting("shop_enabled", "0")) === "1";
-    return NextResponse.json({ list, siteTheme, siteName, buyCdkUrl, shopEnabled });
+    return NextResponse.json({ list, siteTheme, siteName, shopEnabled });
   }
 
   if (section === "plans") {
@@ -333,7 +377,14 @@ export async function POST(req: Request) {
 
   if (action === "void_cdk") {
     try {
-      const row = await voidCode(Number(body.id));
+      const row = await mutateIssuedCdk(Number(body.id), (current) => {
+        if (current.status === "used") return current;
+        if (current.status === "disabled") {
+          throw new Error("已禁用的卡密请先启用再核销");
+        }
+        const now = new Date().toISOString();
+        return { status: "used", usedAt: now };
+      });
       return NextResponse.json({ ok: true, status: row.status });
     } catch (err) {
       return NextResponse.json(
@@ -345,7 +396,10 @@ export async function POST(req: Request) {
 
   if (action === "disable_cdk") {
     try {
-      const row = await disableCode(Number(body.id));
+      const row = await mutateIssuedCdk(Number(body.id), (current) => {
+        if (current.status === "used") throw new Error("已核销卡密不能禁用");
+        return { status: "disabled" };
+      });
       return NextResponse.json({ ok: true, status: row.status });
     } catch (err) {
       return NextResponse.json(
@@ -356,9 +410,15 @@ export async function POST(req: Request) {
   }
 
   if (action === "reveal_cdk") {
-    const row = await db.query.cdkPool.findFirst({ where: eq(cdkPool.id, Number(body.id)) });
+    const row = await db.query.issuedCdks.findFirst({
+      where: eq(issuedCdks.id, Number(body.id)),
+    });
     if (!row) return NextResponse.json({ error: "卡密不存在" }, { status: 404 });
-    return NextResponse.json({ ok: true, id: row.id, code: row.code });
+    return NextResponse.json({
+      ok: true,
+      id: row.id,
+      code: decryptSecret(row.codeEncrypted),
+    });
   }
 
   if (action === "poll_order") {
@@ -412,7 +472,10 @@ export async function POST(req: Request) {
 
   if (action === "enable_cdk") {
     try {
-      const row = await enableCode(Number(body.id));
+      const row = await mutateIssuedCdk(Number(body.id), (current) => {
+        if (current.status !== "disabled") throw new Error("仅已禁用卡密可启用");
+        return { status: "unused" };
+      });
       return NextResponse.json({ ok: true, status: row.status });
     } catch (err) {
       return NextResponse.json(
@@ -428,9 +491,6 @@ export async function POST(req: Request) {
       if (body.siteTheme) await setSetting("site_theme", String(body.siteTheme));
       if (body.siteName !== undefined && body.siteName !== null) {
         await setSetting("site_name", String(body.siteName));
-      }
-      if (body.buyCdkUrl !== undefined && body.buyCdkUrl !== null) {
-        await setSetting("buy_cdk_url", String(body.buyCdkUrl).trim());
       }
       if (body.shopEnabled !== undefined) {
         await setSetting("shop_enabled", body.shopEnabled ? "1" : "0");

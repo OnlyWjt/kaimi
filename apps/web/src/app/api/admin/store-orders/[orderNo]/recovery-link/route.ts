@@ -42,7 +42,7 @@ export async function POST(
     metadata: { orderNo: order.orderNo },
   });
   return NextResponse.json({
-    recoveryUrl: `${origin}/shop/order/${encodeURIComponent(order.orderNo)}?token=${encodeURIComponent(token)}`,
+    recoveryUrl: `${origin}/shop/order/${encodeURIComponent(order.orderNo)}?qt=${encodeURIComponent(token)}`,
     customerEmail: order.customerEmail,
   });
 }

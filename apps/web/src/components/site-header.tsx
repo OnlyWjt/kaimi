@@ -9,18 +9,12 @@ export type NavLink = {
   external?: boolean;
 };
 
-export function buildPublicNavLinks(buyCdkUrl?: string): NavLink[] {
-  const links: NavLink[] = [];
-  const url = buyCdkUrl?.trim();
-  if (url) {
-    links.push({ href: url, label: "购买卡密", external: true });
-  }
-  links.push(
+export function buildPublicNavLinks(): NavLink[] {
+  return [
     { href: "/recharge", label: "开始兑换" },
     { href: "/cdk", label: "卡密查询" },
     { href: "/lookup", label: "订单进度" },
-  );
-  return links;
+  ];
 }
 
 function isActivePath(href: string, pathname: string) {
@@ -29,11 +23,10 @@ function isActivePath(href: string, pathname: string) {
 
 export function SiteHeader(props: {
   siteName: string;
-  buyCdkUrl?: string;
   links?: NavLink[];
 }) {
   const pathname = usePathname() || "/";
-  const links = props.links ?? buildPublicNavLinks(props.buyCdkUrl);
+  const links = props.links ?? buildPublicNavLinks();
 
   return (
     <header className="km-header">

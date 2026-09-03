@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "@/components/toast";
+import { copyText } from "@/lib/copy-text";
 import { readApiJson } from "@/lib/http-error";
 import { yuanTextFromCents } from "@/lib/money";
 import {
@@ -144,7 +145,7 @@ export function StoreOrderResultPanel({
 
   async function copy(text: string, ok: string) {
     try {
-      await navigator.clipboard.writeText(text);
+      await copyText(text);
       toast(ok);
     } catch {
       toast("复制失败，请手动选择", "err");

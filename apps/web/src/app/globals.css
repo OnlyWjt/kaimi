@@ -465,17 +465,24 @@ select.km-input option {
 
 .km-theme-swatch {
   border-radius: 16px;
-  border: 1px solid var(--km-border);
+  border: 2px solid var(--km-border);
   background: var(--km-bg-elevated);
+  color: var(--km-fg);
   padding: 0.85rem 0.8rem;
   text-align: left;
   cursor: pointer;
+  box-shadow: none;
+  outline: none;
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
+.km-theme-swatch:hover {
+  border-color: color-mix(in oklab, var(--km-fg) 35%, var(--km-border));
+}
+
 .km-theme-swatch[aria-pressed="true"] {
-  border-color: var(--km-fg);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--km-fg) 12%, transparent);
+  border-color: var(--km-accent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--km-accent) 28%, transparent);
 }
 
 /* —— Panels —— */

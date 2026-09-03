@@ -146,7 +146,7 @@ export function CardSelectionConfig() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
-  const [showOffline, setShowOffline] = useState(true);
+  const [showOffline, setShowOffline] = useState(false);
   const [rules, setRules] = useState<Rule[]>([]);
   const [lastSync, setLastSync] = useState("");
   const [policy, setPolicy] = useState<Policy>(emptyPolicy);

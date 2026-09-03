@@ -14,6 +14,29 @@ const CHANNEL_HINT: Record<"alipay" | "wxpay", string> = {
   wxpay: "支持微信扫码或零钱",
 };
 
+const PAY_LABEL: Record<string, string> = {
+  paid: "已支付",
+  unpaid: "未支付",
+  refunded: "已退款",
+};
+
+const FULFILL_LABEL: Record<string, string> = {
+  delivered: "已发卡",
+  paid_undelivered: "发卡中",
+  issuing: "发卡中",
+  pending: "待支付",
+  unknown: "核对中",
+};
+
+type EmailOrder = {
+  orderNo: string;
+  productName: string;
+  amountCents: number;
+  payStatus: string;
+  fulfillStatus: string;
+  queryToken: string;
+};
+
 function PayLogo({ channel }: { channel: "alipay" | "wxpay" }) {
   if (channel === "alipay") {
     return (
@@ -57,7 +80,9 @@ export function StoreCheckout({
   );
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [lastOrderNo, setLastOrderNo] = useState("");
+  const [lookupBusy, setLookupBusy] = useState(false);
+  const [lookupError, setLookupError] = useState("");
+  const [myOrders, setMyOrders] = useState<EmailOrder[] | null>(null);
 
   const selected = plans.find((item) => item.planKey === planKey) || plans[0];
 
@@ -65,12 +90,8 @@ export function StoreCheckout({
     try {
       const savedEmail = window.sessionStorage.getItem("kaimi-store-email") || "";
       if (savedEmail) setEmail(savedEmail);
-      const saved = JSON.parse(
-        window.sessionStorage.getItem("kaimi-last-store-order") || "{}",
-      ) as { orderNo?: string };
-      setLastOrderNo(saved.orderNo || "");
     } catch {
-      setLastOrderNo("");
+      /* ignore */
     }
   }, []);
 
@@ -110,13 +131,39 @@ export function StoreCheckout({
             createdAt: new Date().toISOString(),
           }),
         );
-        setLastOrderNo(data.orderNo);
       }
       if (!data.payUrl) throw new Error("未拿到支付链接，请稍后重试");
       window.location.href = data.payUrl;
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "下单失败");
       setBusy(false);
+    }
+  }
+
+  async function lookupMyOrders() {
+    const nextEmail = email.trim();
+    if (!nextEmail) {
+      setLookupError("请先填写接收邮箱");
+      return;
+    }
+    setLookupBusy(true);
+    setLookupError("");
+    try {
+      window.sessionStorage.setItem("kaimi-store-email", nextEmail);
+      const data = await readApiJson<{ list?: EmailOrder[] }>(
+        await fetch(
+          `/api/public/store-orders?slug=${encodeURIComponent(slug)}&email=${encodeURIComponent(nextEmail)}`,
+          { cache: "no-store" },
+        ),
+      );
+      const list = data.list || [];
+      setMyOrders(list);
+      if (!list.length) setLookupError("这个邮箱在本店还没有订单");
+    } catch (reason) {
+      setMyOrders(null);
+      setLookupError(reason instanceof Error ? reason.message : "查单失败");
+    } finally {
+      setLookupBusy(false);
     }
   }
 
@@ -168,7 +215,7 @@ export function StoreCheckout({
             type="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            placeholder="付款成功后用来查单"
+            placeholder="付款成功后用这个邮箱查自己的订单"
             required
           />
         </label>
@@ -204,21 +251,49 @@ export function StoreCheckout({
         <button className="km-btn km-btn-primary w-full" disabled={busy || !selected}>
           {busy ? "正在创建订单…" : "立即购买"}
         </button>
-        {lastOrderNo ? (
-          <a
-            className="block text-center text-sm underline"
-            href={`/shop/order/${encodeURIComponent(lastOrderNo)}`}
-            onClick={(event) => {
-              const token = window.sessionStorage.getItem(
-                `kaimi-order-token:${lastOrderNo}`,
+        <button
+          type="button"
+          className="km-btn km-btn-ghost w-full"
+          disabled={lookupBusy}
+          onClick={() => void lookupMyOrders()}
+        >
+          {lookupBusy ? "正在查询…" : "用邮箱查询我的订单"}
+        </button>
+        {lookupError ? (
+          <p className="text-center text-sm text-[var(--km-fg-muted)]">{lookupError}</p>
+        ) : null}
+        {myOrders?.length ? (
+          <div className="space-y-2">
+            <p className="text-xs text-[var(--km-fg-muted)]">
+              只显示这个邮箱在本店的订单，和其他买家互不影响。
+            </p>
+            {myOrders.map((item) => {
+              const href = item.queryToken
+                ? `/shop/order/${encodeURIComponent(item.orderNo)}?qt=${encodeURIComponent(item.queryToken)}`
+                : `/shop/order/${encodeURIComponent(item.orderNo)}`;
+              return (
+                <a
+                  key={item.orderNo}
+                  className="km-plan-pick"
+                  href={href}
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium">{item.productName}</p>
+                    <p className="mt-1 font-mono text-xs text-[var(--km-fg-muted)]">
+                      {item.orderNo}
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--km-fg-muted)]">
+                      {PAY_LABEL[item.payStatus] || item.payStatus} ·{" "}
+                      {FULFILL_LABEL[item.fulfillStatus] || item.fulfillStatus}
+                    </p>
+                  </div>
+                  <p className="shrink-0 text-sm font-semibold">
+                    ¥{yuanTextFromCents(item.amountCents)}
+                  </p>
+                </a>
               );
-              if (!token) return;
-              event.preventDefault();
-              window.location.href = `/shop/order/${encodeURIComponent(lastOrderNo)}?token=${encodeURIComponent(token)}`;
-            }}
-          >
-            查看最近订单
-          </a>
+            })}
+          </div>
         ) : null}
       </form>
     </div>

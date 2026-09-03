@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, like, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { issuedCdks, storeOrders } from "@/db/schema";
 import { requireAgent } from "@/lib/auth";
@@ -18,6 +18,17 @@ export async function GET(req: Request) {
   const query = new URL(req.url).searchParams;
   const page = Math.max(1, Number(query.get("page") || 1));
   const pageSize = Math.max(1, Math.min(100, Number(query.get("pageSize") || 20)));
+  const q = query.get("q")?.trim() || "";
+  const conditions = [eq(issuedCdks.agentId, session.agentId)];
+  if (q) conditions.push(like(storeOrders.orderNo, `%${q}%`));
+  const where = and(...conditions);
+
+  const [{ total }] = await db
+    .select({ total: sql<number>`count(*)` })
+    .from(issuedCdks)
+    .innerJoin(storeOrders, eq(storeOrders.id, issuedCdks.orderId))
+    .where(where);
+
   const rows = await db
     .select({
       id: issuedCdks.id,
@@ -30,7 +41,7 @@ export async function GET(req: Request) {
     })
     .from(issuedCdks)
     .innerJoin(storeOrders, eq(storeOrders.id, issuedCdks.orderId))
-    .where(eq(issuedCdks.agentId, session.agentId))
+    .where(where)
     .orderBy(desc(issuedCdks.id))
     .limit(pageSize)
     .offset((page - 1) * pageSize);
@@ -47,5 +58,6 @@ export async function GET(req: Request) {
     })),
     page,
     pageSize,
+    total: Number(total) || 0,
   });
 }

@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import {
   agentPlanPrices,
@@ -9,7 +9,7 @@ import {
   storeOrders,
 } from "@/db/schema";
 import { normalizeAgentSlug } from "@/lib/agent-slug";
-import { encryptSecret, hashLookupValue } from "@/lib/crypto";
+import { decryptSecret, encryptSecret, hashLookupValue } from "@/lib/crypto";
 import { newOrderNo } from "@/lib/ids";
 import { getDefaultCardplatformAccount } from "@/lib/cardplatform/config";
 import { createEpayPayment } from "@/lib/payments/epay";
@@ -154,4 +154,34 @@ export async function createStoreOrder(input: {
     payUrl: payment.payUrl,
     gatewayTradeNo: payment.tradeNo,
   };
+}
+
+export async function listStoreOrdersByEmail(input: {
+  slug: string;
+  email: string;
+}) {
+  const agent = await db.query.agents.findFirst({
+    where: eq(agents.currentSlug, normalizeAgentSlug(input.slug)),
+  });
+  if (!agent) throw new Error("店铺不存在");
+  const email = input.email.trim().toLowerCase();
+  const rows = await db.query.storeOrders.findMany({
+    where: and(
+      eq(storeOrders.agentId, agent.id),
+      eq(storeOrders.customerEmail, email),
+    ),
+    orderBy: [desc(storeOrders.id)],
+    limit: 20,
+  });
+  return rows.map((order) => ({
+    orderNo: order.orderNo,
+    productName: order.productNameSnapshot,
+    amountCents: order.retailPriceCents,
+    payStatus: order.payStatus,
+    fulfillStatus: order.fulfillStatus,
+    createdAt: order.createdAt,
+    queryToken: order.queryTokenEncrypted
+      ? decryptSecret(order.queryTokenEncrypted)
+      : "",
+  }));
 }

@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ApplyTheme } from "@/components/apply-theme";
 import { toast } from "@/components/toast";
 import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
 import { THEME_CHOICES } from "@/lib/themes";
@@ -74,6 +75,11 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
   const [plans, setPlans] = useState<AgentPlan[]>([]);
   const [prices, setPrices] = useState<Record<string, string>>({});
   const [cdks, setCdks] = useState<AgentCdk[]>([]);
+  const [cdkPage, setCdkPage] = useState(1);
+  const [cdkPageSize] = useState(10);
+  const [cdkTotal, setCdkTotal] = useState(0);
+  const [cdkQ, setCdkQ] = useState("");
+  const [cdkQuery, setCdkQuery] = useState("");
   const [earnings, setEarnings] = useState<EarningsData | null>(null);
   const [settlements, setSettlements] = useState<AgentSettlement[]>([]);
   const [earningRange, setEarningRange] = useState("7d");
@@ -109,26 +115,36 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
     return `&start=${start}&end=${end}`;
   }
 
+  async function loadCdks(page = cdkPage, query = cdkQuery) {
+    const qs = new URLSearchParams({
+      page: String(page),
+      pageSize: String(cdkPageSize),
+    });
+    if (query.trim()) qs.set("q", query.trim());
+    const response = await fetch(`/api/agent/cdks?${qs}`, { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "卡密加载失败");
+    setCdks(data.list || []);
+    setCdkTotal(Number(data.total) || 0);
+    setCdkPage(Number(data.page) || page);
+  }
+
   async function loadSales() {
     const range = earningQuery();
-    const [cdkResponse, earningsResponse, settlementResponse] = await Promise.all([
-      fetch("/api/agent/cdks?pageSize=20", { cache: "no-store" }),
+    const [earningsResponse, settlementResponse] = await Promise.all([
       fetch(`/api/agent/earnings?pageSize=20${range}`, { cache: "no-store" }),
       fetch("/api/agent/settlements", { cache: "no-store" }),
     ]);
-    const [cdkData, earningsData, settlementData] = await Promise.all([
-      cdkResponse.json(),
+    const [earningsData, settlementData] = await Promise.all([
       earningsResponse.json(),
       settlementResponse.json(),
     ]);
-    if (!cdkResponse.ok) throw new Error(cdkData.error || "卡密加载失败");
     if (!earningsResponse.ok) {
       throw new Error(earningsData.error || "收益加载失败");
     }
     if (!settlementResponse.ok) {
       throw new Error(settlementData.error || "结算记录加载失败");
     }
-    setCdks(cdkData.list || []);
     setEarnings(earningsData);
     setSettlements(settlementData.list || []);
   }
@@ -141,6 +157,13 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
     // loadPlans/loadSales close over current earningRange
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [earningRange]);
+
+  useEffect(() => {
+    void loadCdks(cdkPage).catch((reason) => {
+      setMessage(reason instanceof Error ? reason.message : "卡密加载失败");
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cdkPage, cdkQuery]);
 
   async function saveShop(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -230,7 +253,8 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
   }
 
   return (
-    <div className="space-y-6">
+    <div data-theme={themeId} className="space-y-6">
+      <ApplyTheme themeId={themeId} />
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="km-page-title">{initialProfile.displayName}</h1>
@@ -252,7 +276,7 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
         <div>
           <h2 className="text-xl font-semibold">店铺外观与链接</h2>
           <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-            主题只作用于你的店铺页。改 slug 后，旧链接会跳到新链接。
+            点选主题可立即预览。记得点「保存店铺设置」，店铺页才会记住。改 slug 后，旧链接会跳到新链接。
           </p>
         </div>
         <form onSubmit={saveShop} className="space-y-4">
@@ -263,6 +287,7 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
                 <button
                   key={theme.id}
                   type="button"
+                  data-theme={theme.id}
                   className="km-theme-swatch"
                   aria-pressed={themeId === theme.id}
                   onClick={() => setThemeId(theme.id)}
@@ -397,8 +422,8 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
               <button
                 key={value}
                 type="button"
-                className="km-btn km-btn-ghost"
-                disabled={busy || earningRange === value}
+                className={earningRange === value ? "km-btn" : "km-btn km-btn-ghost"}
+                disabled={busy}
                 onClick={() => setEarningRange(value)}
               >
                 {label}
@@ -508,34 +533,94 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
       </section>
 
       <section className="km-panel space-y-4">
-        <div>
-          <h2 className="text-xl font-semibold">我的卡密</h2>
-          <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-            这里只显示通过你的店铺已经售出的卡密。
-          </p>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold">我的卡密</h2>
+            <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
+              只显示你店铺已售出的卡密，每页 {cdkPageSize} 条。
+            </p>
+          </div>
+          <form
+            className="flex flex-wrap items-center gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setCdkPage(1);
+              setCdkQuery(cdkQ.trim());
+            }}
+          >
+            <input
+              className="km-input w-56"
+              value={cdkQ}
+              onChange={(event) => setCdkQ(event.target.value)}
+              placeholder="按订单号筛选"
+            />
+            <button type="submit" className="km-btn km-btn-ghost">
+              筛选
+            </button>
+          </form>
         </div>
-        <div className="space-y-3">
-          {cdks.map((cdk) => (
-            <div
-              key={cdk.id}
-              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--km-border)] p-4"
-            >
-              <div>
-                <p className="font-mono text-sm">{cdk.code}</p>
-                <p className="mt-1 text-xs text-[var(--km-fg-muted)]">
-                  {cdk.planKey} · {cdk.orderNo} · {cdk.status}
-                </p>
-              </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-[var(--km-border)]">
+                <th className="py-2 pr-3">卡密</th>
+                <th className="py-2 pr-3">套餐</th>
+                <th className="py-2 pr-3">订单</th>
+                <th className="py-2 pr-3">状态</th>
+                <th className="py-2">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cdks.map((cdk) => (
+                <tr key={cdk.id} className="border-b border-[var(--km-border)]">
+                  <td className="py-2 pr-3 font-mono text-xs">{cdk.code}</td>
+                  <td className="py-2 pr-3">{cdk.planKey}</td>
+                  <td className="py-2 pr-3 font-mono text-xs">{cdk.orderNo}</td>
+                  <td className="py-2 pr-3">{cdk.status}</td>
+                  <td className="py-2">
+                    <button
+                      type="button"
+                      className="km-btn km-btn-ghost"
+                      onClick={() => revealCdk(cdk.id)}
+                    >
+                      显示完整卡密
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!cdks.length ? (
+            <p className="py-8 text-center text-sm text-[var(--km-fg-muted)]">
+              {cdkQuery ? "没有匹配的卡密" : "还没有售出卡密"}
+            </p>
+          ) : null}
+        </div>
+        {cdkTotal > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--km-border)] pt-3 text-sm">
+            <span className="text-[var(--km-fg-muted)]">
+              共 {cdkTotal} 条，第 {cdkPage} / {Math.max(1, Math.ceil(cdkTotal / cdkPageSize))} 页
+            </span>
+            <div className="flex gap-2">
               <button
                 type="button"
                 className="km-btn km-btn-ghost"
-                onClick={() => revealCdk(cdk.id)}
+                disabled={cdkPage <= 1}
+                onClick={() => setCdkPage((page) => Math.max(1, page - 1))}
               >
-                显示完整卡密
+                上一页
+              </button>
+              <button
+                type="button"
+                className="km-btn km-btn-ghost"
+                disabled={cdkPage * cdkPageSize >= cdkTotal}
+                onClick={() => setCdkPage((page) => page + 1)}
+              >
+                下一页
               </button>
             </div>
-          ))}
-        </div>
+          </div>
+        ) : null}
       </section>
     </div>
   );

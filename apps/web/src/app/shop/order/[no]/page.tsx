@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { ApplyTheme } from "@/components/apply-theme";
 import { SiteHeader } from "@/components/site-header";
 import { StoreOrderResultPanel } from "@/components/store-order-result";
 import { db } from "@/db";
@@ -30,7 +31,8 @@ export default async function ShopOrderPage({
 
   return (
     <main data-theme={themeId} className="km-themed-page pb-16">
-      <SiteHeader siteName={appearance.siteName} buyCdkUrl={appearance.buyCdkUrl} />
+      <ApplyTheme themeId={themeId} />
+      <SiteHeader siteName={appearance.siteName} />
       <section className="km-shell">
         <div className="km-page-hero km-rise">
           <h1 className="km-page-title">订单 {no}</h1>

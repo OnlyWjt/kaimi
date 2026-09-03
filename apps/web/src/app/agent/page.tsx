@@ -28,7 +28,7 @@ export default async function AgentPage() {
 
   const themeId = resolveThemeId(profile.themeId);
   return (
-    <main data-theme={themeId} className="km-themed-page">
+    <main className="km-themed-page">
       <section className="km-shell py-10">
         <AgentDashboard initialProfile={{ ...profile, themeId }} />
       </section>

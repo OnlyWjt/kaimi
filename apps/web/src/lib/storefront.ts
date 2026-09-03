@@ -7,8 +7,6 @@ import { bootDb, getSetting } from "@/lib/config";
 export type SiteAppearance = {
   siteName: string;
   themeId: ThemeId;
-  /** External storefront URL for 「购买卡密」. Empty = hide buy links. */
-  buyCdkUrl: string;
   /** Internal /shop 发卡网开关，默认关闭。 */
   shopEnabled: boolean;
 };
@@ -17,22 +15,14 @@ export function resolveThemeId(value?: string | null): ThemeId {
   return value && isThemeId(value) ? value : "snow";
 }
 
-function normalizeExternalUrl(raw: string): string {
-  const v = raw.trim();
-  if (!v) return "";
-  if (/^https?:\/\//i.test(v)) return v;
-  return `https://${v}`;
-}
-
 /** Site-wide brand + theme from admin 外观 (controls public pages). */
 export async function getSiteAppearance(): Promise<SiteAppearance> {
   await bootDb();
   const siteName = (await getSetting("site_name", "Kaimi")).trim() || "Kaimi";
   const raw = await getSetting("site_theme", "snow");
   const themeId = resolveThemeId(raw);
-  const buyCdkUrl = normalizeExternalUrl(await getSetting("buy_cdk_url", ""));
   const shopEnabled = (await getSetting("shop_enabled", "0")) === "1";
-  return { siteName, themeId, buyCdkUrl, shopEnabled };
+  return { siteName, themeId, shopEnabled };
 }
 
 export async function isShopEnabled() {

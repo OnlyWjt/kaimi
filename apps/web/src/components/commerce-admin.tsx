@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { copyText } from "@/lib/copy-text";
 
 type ChannelRule = {
   enabled: boolean;
@@ -75,6 +76,13 @@ const STATUS_LABEL: Record<string, string> = {
   retrying: "重试中",
 };
 
+function localIsoDate(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function statusLabel(value: string) {
   return STATUS_LABEL[value] || value || "—";
 }
@@ -102,10 +110,10 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
   const [health, setHealth] = useState<OpsHealth | null>(null);
   const [settlementForm, setSettlementForm] = useState({
     agentId: 0,
-    periodStart: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-      .toISOString()
-      .slice(0, 10),
-    periodEnd: new Date().toISOString().slice(0, 10),
+    periodStart: localIsoDate(
+      new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+    ),
+    periodEnd: localIsoDate(),
   });
 
   async function load() {
@@ -212,11 +220,16 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
 
   async function createSettlement() {
     const data = await submit("/api/admin/settlements", {
-      ...settlementForm,
-      periodStart: `${settlementForm.periodStart}T00:00:00.000Z`,
-      periodEnd: `${settlementForm.periodEnd}T23:59:59.999Z`,
+      agentId: settlementForm.agentId,
+      periodStart: settlementForm.periodStart,
+      periodEnd: settlementForm.periodEnd,
     });
-    if (data) await load();
+    if (data?.settlement) {
+      setMessage(
+        `已生成结算单 ${data.settlement.settlementNo}，金额 ¥${(data.settlement.amountCents / 100).toFixed(2)}`,
+      );
+      await load();
+    }
   }
 
   async function markSettlementPaid(settlement: Settlement) {
@@ -243,8 +256,12 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
       `/api/admin/store-orders/${encodeURIComponent(order.orderNo)}/${suffix}`,
     );
     if (data?.recoveryUrl) {
-      await navigator.clipboard.writeText(data.recoveryUrl);
-      setMessage(`已复制 ${order.orderNo} 的恢复链接`);
+      try {
+        await copyText(data.recoveryUrl);
+        setMessage(`已复制 ${order.orderNo} 的查单链接`);
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "复制失败，请手动复制");
+      }
     } else if (data) {
       await load();
     }
@@ -639,6 +656,9 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
 
       <section className="km-panel space-y-4">
         <h2 className="text-xl font-semibold">代理返佣结算</h2>
+        <p className="text-sm text-[var(--km-fg-muted)]">
+          已支付且已发卡的订单会按当前收益进入结算。易支付查不到手续费时，用后台配置的费率估算，不再卡住结算单。
+        </p>
         <div className="grid gap-3 md:grid-cols-4">
           <select
             className="km-input"
