@@ -276,6 +276,97 @@ a {
   color: color-mix(in oklab, var(--km-fg-muted) 70%, transparent);
 }
 
+select.km-input {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  padding-right: 2.55rem;
+  background-color: var(--km-bg-elevated);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--km-fg-muted) 50%),
+    linear-gradient(135deg, var(--km-fg-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 1.2rem) calc(50% - 0.12rem),
+    calc(100% - 0.8rem) calc(50% - 0.12rem);
+  background-size: 6px 6px;
+  background-repeat: no-repeat;
+}
+
+select.km-input option {
+  background: var(--km-bg-elevated);
+  color: var(--km-fg);
+}
+
+[data-theme="aurora"] select.km-input,
+[data-theme="ink"] select.km-input {
+  color-scheme: dark;
+}
+
+.km-themed-page {
+  min-height: 100vh;
+  background-color: var(--km-bg);
+  background-image: var(--km-hero-glow);
+  background-attachment: fixed;
+  background-size: 140% 140%, 130% 130%, 150% 150%;
+}
+
+.km-pay-choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.km-pay-choice {
+  border-radius: 14px;
+  border: 1px solid var(--km-border);
+  background: var(--km-bg-elevated);
+  color: var(--km-fg);
+  padding: 0.72rem 0.8rem;
+  font-size: 0.9rem;
+  font-weight: 550;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+.km-pay-choice[aria-pressed="true"] {
+  background: var(--km-accent);
+  color: var(--km-accent-fg);
+  border-color: var(--km-accent);
+}
+
+.km-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+@media (min-width: 640px) {
+  .km-theme-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.km-theme-swatch {
+  border-radius: 16px;
+  border: 1px solid var(--km-border);
+  background: var(--km-bg-elevated);
+  padding: 0.85rem 0.8rem;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.km-theme-swatch[aria-pressed="true"] {
+  border-color: var(--km-fg);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--km-fg) 12%, transparent);
+}
+
+.km-shop-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1.05rem;
+}
+
 /* —— Panels —— */
 .km-panel {
   border: 1px solid color-mix(in oklab, var(--km-border) 88%, transparent);

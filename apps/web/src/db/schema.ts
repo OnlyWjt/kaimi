@@ -50,6 +50,7 @@ export const agents = sqliteTable(
     displayName: text("display_name").notNull(),
     status: text("status").notNull().default("active"), // active | disabled
     currentSlug: text("current_slug").notNull(),
+    themeId: text("theme_id").notNull().default("snow"),
     settlementName: text("settlement_name").notNull().default(""),
     settlementMethod: text("settlement_method").notNull().default(""),
     settlementAccountEncrypted: text("settlement_account_encrypted").notNull().default(""),

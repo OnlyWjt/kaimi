@@ -11,8 +11,9 @@ import {
 import { StoreCheckout } from "@/components/store-checkout";
 import { normalizeAgentSlug } from "@/lib/agent-slug";
 import { bootDb } from "@/lib/config";
+import { yuanTextFromCents } from "@/lib/money";
 import { getStoreSalesGate } from "@/lib/ops-health";
-import { getSiteAppearance } from "@/lib/storefront";
+import { resolveThemeId } from "@/lib/storefront";
 
 export default async function AgentStorePage({
   params,
@@ -39,7 +40,7 @@ export default async function AgentStorePage({
     notFound();
   }
 
-  const appearance = await getSiteAppearance();
+  const themeId = resolveThemeId(agent.themeId);
   const salesGate = await getStoreSalesGate();
   const plans =
     agent.status === "active" && salesGate.open
@@ -81,34 +82,42 @@ export default async function AgentStorePage({
         channel === "alipay" || channel === "wxpay",
     );
   return (
-    <main data-theme={appearance.themeId} className="min-h-screen">
-      <section className="km-shell space-y-8 py-12">
+    <main data-theme={themeId} className="km-themed-page">
+      <section className="km-shell space-y-8 py-14">
         <header className="km-page-hero">
-          <p className="km-eyebrow">代理店铺</p>
           <h1 className="km-page-title">{agent.displayName}</h1>
           <p className="km-lead">
             {agent.status !== "active"
               ? "店铺暂时关闭。"
               : salesGate.open
-                ? "选择套餐，付款成功后系统即时生成一张新卡密。"
+                ? "选一个套餐付款，到账后立刻发一张新卡密。"
                 : salesGate.reason || "店铺暂时停止售卖。"}
           </p>
         </header>
         {agent.status === "active" && salesGate.open ? (
           sellablePlans.length ? (
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
               {sellablePlans.map((plan) => (
-                <article key={plan.planKey} className="km-panel space-y-3">
+                <article key={plan.planKey} className="km-panel km-panel-hover km-shop-card">
                   <div>
-                    <h2 className="text-xl font-semibold">{plan.name}</h2>
+                    <h2
+                      className="text-xl font-semibold"
+                      style={{ fontFamily: "var(--font-sora)" }}
+                    >
+                      {plan.name}
+                    </h2>
                     {plan.description ? (
-                      <p className="mt-2 text-sm text-[var(--km-fg-muted)]">
+                      <p className="mt-2 text-sm leading-6 text-[var(--km-fg-muted)]">
                         {plan.description}
                       </p>
-                    ) : null}
+                    ) : (
+                      <p className="mt-2 text-sm text-[var(--km-fg-muted)]">
+                        付款成功后即时发卡
+                      </p>
+                    )}
                   </div>
-                  <p className="text-2xl font-semibold">
-                    ¥{(plan.retailPriceCents / 100).toFixed(2)}
+                  <p className="text-3xl font-semibold tracking-tight">
+                    ¥{yuanTextFromCents(plan.retailPriceCents)}
                   </p>
                   <StoreCheckout
                     slug={agent.currentSlug}

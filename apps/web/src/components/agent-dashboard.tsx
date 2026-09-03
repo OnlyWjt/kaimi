@@ -4,11 +4,14 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/toast";
 import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
+import { THEME_CHOICES } from "@/lib/themes";
+import type { ThemeId } from "@kaimi/themes";
 
 type AgentProfile = {
   username: string;
   displayName: string;
   currentSlug: string;
+  themeId: ThemeId;
 };
 
 type AgentPlan = {
@@ -65,6 +68,7 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
   const router = useRouter();
   const [slug, setSlug] = useState(initialProfile.currentSlug);
   const [savedSlug, setSavedSlug] = useState(initialProfile.currentSlug);
+  const [themeId, setThemeId] = useState<ThemeId>(initialProfile.themeId);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [plans, setPlans] = useState<AgentPlan[]>([]);
@@ -73,6 +77,7 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
   const [earnings, setEarnings] = useState<EarningsData | null>(null);
   const [settlements, setSettlements] = useState<AgentSettlement[]>([]);
   const [earningRange, setEarningRange] = useState("7d");
+  const [origin, setOrigin] = useState("");
 
   async function loadPlans() {
     const response = await fetch("/api/agent/plans", { cache: "no-store" });
@@ -129,6 +134,7 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
   }
 
   useEffect(() => {
+    setOrigin(window.location.origin);
     void Promise.all([loadPlans(), loadSales()]).catch((reason) => {
       setMessage(reason instanceof Error ? reason.message : "套餐加载失败");
     });
@@ -136,7 +142,7 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [earningRange]);
 
-  async function saveSlug(event: FormEvent<HTMLFormElement>) {
+  async function saveShop(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     setMessage("");
@@ -144,13 +150,15 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
       const response = await fetch("/api/agent/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug }),
+        body: JSON.stringify({ slug, themeId }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "保存失败");
       setSlug(data.slug);
       setSavedSlug(data.slug);
-      toast("店铺链接已更新");
+      setThemeId(data.themeId || themeId);
+      toast("店铺设置已保存");
+      router.refresh();
     } catch (reason) {
       toast(reason instanceof Error ? reason.message : "保存失败", "err");
     } finally {
@@ -227,17 +235,76 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
         <div>
           <h1 className="km-page-title">{initialProfile.displayName}</h1>
           <p className="mt-2 text-sm text-[var(--km-fg-muted)]">
-            登录账号 {initialProfile.username}。店铺零售价在下面改，客户从
-            <a className="mx-1 underline" href={`/s/${savedSlug}`} target="_blank" rel="noreferrer">
-              /s/{savedSlug}
-            </a>
-            下单。
+            登录账号 {initialProfile.username}。客户从你的店铺下单，零售价在下面改。
           </p>
         </div>
-        <button type="button" className="km-btn km-btn-ghost" onClick={logout}>
-          退出登录
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <a className="km-btn" href={`/s/${savedSlug}`} target="_blank" rel="noreferrer">
+            打开店铺
+          </a>
+          <button type="button" className="km-btn km-btn-ghost" onClick={logout}>
+            退出登录
+          </button>
+        </div>
       </header>
+
+      <section className="km-panel space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold">店铺外观与链接</h2>
+          <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
+            主题只作用于你的店铺页。改 slug 后，旧链接会跳到新链接。
+          </p>
+        </div>
+        <form onSubmit={saveShop} className="space-y-4">
+          <div className="space-y-2">
+            <span className="text-sm">店铺主题</span>
+            <div className="km-theme-grid">
+              {THEME_CHOICES.map((theme) => (
+                <button
+                  key={theme.id}
+                  type="button"
+                  className="km-theme-swatch"
+                  aria-pressed={themeId === theme.id}
+                  onClick={() => setThemeId(theme.id)}
+                >
+                  <span className="block font-medium">{theme.label}</span>
+                  <span className="mt-1 block text-xs text-[var(--km-fg-muted)]">
+                    {theme.hint}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <label className="block space-y-2">
+            <span className="text-sm">店铺 slug</span>
+            <input
+              className="km-input w-full"
+              value={slug}
+              onChange={(event) => setSlug(event.target.value)}
+              minLength={3}
+              maxLength={32}
+              required
+            />
+          </label>
+          <div className="flex flex-wrap items-center gap-3">
+            <a
+              className="break-all text-sm underline"
+              href={`/s/${savedSlug}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {origin ? `${origin}/s/${savedSlug}` : `/s/${savedSlug}`}
+            </a>
+            <a className="km-btn km-btn-ghost" href={`/s/${savedSlug}`} target="_blank" rel="noreferrer">
+              打开店铺
+            </a>
+          </div>
+          {message ? <p className="text-sm">{message}</p> : null}
+          <button className="km-btn km-btn-primary" disabled={busy}>
+            {busy ? "保存中…" : "保存店铺设置"}
+          </button>
+        </form>
+      </section>
 
       <section className="km-panel space-y-4">
         <div>
@@ -308,35 +375,6 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
         >
           {busy ? "保存中…" : "保存零售价"}
         </button>
-      </section>
-
-      <section className="km-panel max-w-2xl space-y-4">
-        <div>
-          <h2 className="text-xl font-semibold">我的店铺链接</h2>
-          <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-            只能修改链接末尾的 slug。旧链接会跳到新链接。
-          </p>
-        </div>
-        <form onSubmit={saveSlug} className="space-y-3">
-          <label className="block space-y-2">
-            <span className="text-sm">店铺 slug</span>
-            <input
-              className="km-input w-full"
-              value={slug}
-              onChange={(event) => setSlug(event.target.value)}
-              minLength={3}
-              maxLength={32}
-              required
-            />
-          </label>
-          <p className="break-all text-sm text-[var(--km-fg-muted)]">
-            当前链接：/s/{savedSlug}
-          </p>
-          {message ? <p className="text-sm">{message}</p> : null}
-          <button className="km-btn km-btn-primary" disabled={busy}>
-            {busy ? "保存中…" : "保存链接"}
-          </button>
-        </form>
       </section>
 
       <section className="km-panel space-y-4">

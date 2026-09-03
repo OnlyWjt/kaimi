@@ -13,6 +13,10 @@ export type SiteAppearance = {
   shopEnabled: boolean;
 };
 
+export function resolveThemeId(value?: string | null): ThemeId {
+  return value && isThemeId(value) ? value : "snow";
+}
+
 function normalizeExternalUrl(raw: string): string {
   const v = raw.trim();
   if (!v) return "";
@@ -25,7 +29,7 @@ export async function getSiteAppearance(): Promise<SiteAppearance> {
   await bootDb();
   const siteName = (await getSetting("site_name", "Kaimi")).trim() || "Kaimi";
   const raw = await getSetting("site_theme", "snow");
-  const themeId: ThemeId = isThemeId(raw) ? raw : "snow";
+  const themeId = resolveThemeId(raw);
   const buyCdkUrl = normalizeExternalUrl(await getSetting("buy_cdk_url", ""));
   const shopEnabled = (await getSetting("shop_enabled", "0")) === "1";
   return { siteName, themeId, buyCdkUrl, shopEnabled };

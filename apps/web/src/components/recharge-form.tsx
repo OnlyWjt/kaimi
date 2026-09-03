@@ -51,9 +51,9 @@ function appendProgressEvent(
   return [...prev, { status: st, message, at: new Date().toISOString() }];
 }
 
-export function RechargeForm() {
+export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
   const [step, setStep] = useState<"code" | "session">("code");
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState(initialCode);
   const [validated, setValidated] = useState<Validated | null>(null);
   const [email, setEmail] = useState("");
   const [credMode, setCredMode] = useState<"session" | "mailbox">("session");
@@ -69,6 +69,10 @@ export function RechargeForm() {
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const sessionOk = Boolean(preview?.ok && preview.source === "cardplatform");
+
+  useEffect(() => {
+    if (initialCode.trim()) setCode(initialCode.trim());
+  }, [initialCode]);
 
   const refreshProgress = useCallback(async (orderNo: string, quiet = false) => {
     if (!orderNo.trim()) return;

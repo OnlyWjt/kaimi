@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { issuedCdks, storeOrders } from "@/db/schema";
 import { bootDb } from "@/lib/config";
 import { decryptSecret, hashLookupValue } from "@/lib/crypto";
+import { getPublicBaseUrl } from "@/lib/public-url";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
 export async function GET(
@@ -33,6 +34,9 @@ export async function GET(
           where: eq(issuedCdks.orderId, order.id),
         })
       : null;
+  const code = cdk ? decryptSecret(cdk.codeEncrypted) : null;
+  const rechargePath = code ? `/recharge?code=${encodeURIComponent(code)}` : "/recharge";
+  const origin = await getPublicBaseUrl(req);
   return NextResponse.json({
     orderNo: order.orderNo,
     productName: order.productNameSnapshot,
@@ -46,7 +50,9 @@ export async function GET(
         : order.fulfillStatus === "unknown"
           ? "支付成功，订单正在人工核对"
           : "",
-    code: cdk ? decryptSecret(cdk.codeEncrypted) : null,
+    code,
+    rechargePath,
+    rechargeUrl: origin ? `${origin}${rechargePath}` : rechargePath,
     cdkStatus: cdk?.status ?? null,
     paidAt: order.paidAt,
     deliveredAt: order.deliveredAt,

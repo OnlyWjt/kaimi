@@ -6,9 +6,11 @@ import { agentSlugHistory, agents, users } from "@/db/schema";
 import { requireAgent } from "@/lib/auth";
 import { validateAgentSlug } from "@/lib/agent-slug";
 import { bootDb } from "@/lib/config";
+import { resolveThemeId } from "@/lib/storefront";
 
 const updateSchema = z.object({
-  slug: z.string().trim(),
+  slug: z.string().trim().optional(),
+  themeId: z.enum(["snow", "aurora", "ink", "sakura"]).optional(),
 });
 
 async function authorize() {
@@ -32,6 +34,7 @@ export async function GET() {
       displayName: agents.displayName,
       status: agents.status,
       currentSlug: agents.currentSlug,
+      themeId: agents.themeId,
       lastLoginAt: users.lastLoginAt,
       createdAt: agents.createdAt,
     })
@@ -43,7 +46,9 @@ export async function GET() {
   if (!profile) {
     return NextResponse.json({ error: "代理资料不存在" }, { status: 404 });
   }
-  return NextResponse.json({ profile });
+  return NextResponse.json({
+    profile: { ...profile, themeId: resolveThemeId(profile.themeId) },
+  });
 }
 
 export async function PATCH(req: Request) {
@@ -53,44 +58,56 @@ export async function PATCH(req: Request) {
 
   const parsed = updateSchema.safeParse(await req.json());
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return NextResponse.json({ error: "参数无效" }, { status: 400 });
   }
-  const checked = validateAgentSlug(parsed.data.slug);
-  if (!checked.ok) {
-    return NextResponse.json({ error: checked.error }, { status: 400 });
-  }
-
   const current = await db.query.agents.findFirst({
     where: eq(agents.id, session.agentId),
   });
   if (!current || current.status !== "active") {
     return NextResponse.json({ error: "代理账号不可用" }, { status: 403 });
   }
-  if (current.currentSlug === checked.slug) {
-    return NextResponse.json({ ok: true, slug: checked.slug });
-  }
 
-  const occupiedAgent = await db.query.agents.findFirst({
-    where: eq(agents.currentSlug, checked.slug),
-  });
-  if (occupiedAgent && occupiedAgent.id !== session.agentId) {
-    return NextResponse.json({ error: "该店铺标识已被占用" }, { status: 409 });
+  let nextSlug = current.currentSlug;
+  if (parsed.data.slug !== undefined) {
+    const checked = validateAgentSlug(parsed.data.slug);
+    if (!checked.ok) {
+      return NextResponse.json({ error: checked.error }, { status: 400 });
+    }
+    nextSlug = checked.slug;
   }
-  const occupiedHistory = await db.query.agentSlugHistory.findFirst({
-    where: eq(agentSlugHistory.slug, checked.slug),
-  });
-  if (occupiedHistory) {
-    return NextResponse.json({ error: "该店铺标识已被占用" }, { status: 409 });
+  const nextTheme = parsed.data.themeId
+    ? resolveThemeId(parsed.data.themeId)
+    : resolveThemeId(current.themeId);
+
+  if (nextSlug !== current.currentSlug) {
+    const occupiedAgent = await db.query.agents.findFirst({
+      where: eq(agents.currentSlug, nextSlug),
+    });
+    if (occupiedAgent && occupiedAgent.id !== session.agentId) {
+      return NextResponse.json({ error: "该店铺标识已被占用" }, { status: 409 });
+    }
+    const occupiedHistory = await db.query.agentSlugHistory.findFirst({
+      where: eq(agentSlugHistory.slug, nextSlug),
+    });
+    if (occupiedHistory) {
+      return NextResponse.json({ error: "该店铺标识已被占用" }, { status: 409 });
+    }
   }
 
   try {
     await db.transaction(async (tx) => {
-      await tx
-        .insert(agentSlugHistory)
-        .values({ agentId: session.agentId, slug: current.currentSlug });
+      if (nextSlug !== current.currentSlug) {
+        await tx
+          .insert(agentSlugHistory)
+          .values({ agentId: session.agentId, slug: current.currentSlug });
+      }
       await tx
         .update(agents)
-        .set({ currentSlug: checked.slug, updatedAt: new Date().toISOString() })
+        .set({
+          currentSlug: nextSlug,
+          themeId: nextTheme,
+          updatedAt: new Date().toISOString(),
+        })
         .where(eq(agents.id, session.agentId));
     });
   } catch (error) {
@@ -100,5 +117,5 @@ export async function PATCH(req: Request) {
     throw error;
   }
 
-  return NextResponse.json({ ok: true, slug: checked.slug });
+  return NextResponse.json({ ok: true, slug: nextSlug, themeId: nextTheme });
 }

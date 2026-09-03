@@ -408,44 +408,54 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
                 />
                 {channel === "alipay" ? "支付宝" : "微信支付"}
               </label>
-              <input
-                className="km-input w-full"
-                type="number"
-                min={0}
-                placeholder="费率 PPM（6000 = 0.6%）"
-                value={payment.channels[channel].feeRatePpm}
-                onChange={(event) =>
-                  setPayment((current) => ({
-                    ...current,
-                    channels: {
-                      ...current.channels,
-                      [channel]: {
-                        ...current.channels[channel],
-                        feeRatePpm: Number(event.target.value || 0),
+              <label className="block space-y-1 text-sm">
+                <span>比例费率（PPM）</span>
+                <input
+                  className="km-input w-full"
+                  inputMode="numeric"
+                  placeholder="6000 = 0.6%"
+                  value={payment.channels[channel].feeRatePpm}
+                  onChange={(event) =>
+                    setPayment((current) => ({
+                      ...current,
+                      channels: {
+                        ...current.channels,
+                        [channel]: {
+                          ...current.channels[channel],
+                          feeRatePpm: Number(event.target.value || 0),
+                        },
                       },
-                    },
-                  }))
-                }
-              />
-              <input
-                className="km-input w-full"
-                type="number"
-                min={0}
-                placeholder="每笔固定手续费（分）"
-                value={payment.channels[channel].fixedFeeCents}
-                onChange={(event) =>
-                  setPayment((current) => ({
-                    ...current,
-                    channels: {
-                      ...current.channels,
-                      [channel]: {
-                        ...current.channels[channel],
-                        fixedFeeCents: Number(event.target.value || 0),
+                    }))
+                  }
+                />
+                <span className="text-xs text-[var(--km-fg-muted)]">
+                  按订单金额抽成。6000 表示 0.6%，10000 表示 1%。填 0 则不抽成。
+                </span>
+              </label>
+              <label className="block space-y-1 text-sm">
+                <span>每笔固定手续费（分）</span>
+                <input
+                  className="km-input w-full"
+                  inputMode="numeric"
+                  placeholder="10 = 0.10 元"
+                  value={payment.channels[channel].fixedFeeCents}
+                  onChange={(event) =>
+                    setPayment((current) => ({
+                      ...current,
+                      channels: {
+                        ...current.channels,
+                        [channel]: {
+                          ...current.channels[channel],
+                          fixedFeeCents: Number(event.target.value || 0),
+                        },
                       },
-                    },
-                  }))
-                }
-              />
+                    }))
+                  }
+                />
+                <span className="text-xs text-[var(--km-fg-muted)]">
+                  每笔额外扣的固定费，单位是分。10 表示 0.10 元，0 表示不加固定费。
+                </span>
+              </label>
             </div>
           ))}
         </div>

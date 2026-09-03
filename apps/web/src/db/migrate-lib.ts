@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS agents (
   display_name TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'active',
   current_slug TEXT NOT NULL,
+  theme_id TEXT NOT NULL DEFAULT 'snow',
   settlement_name TEXT NOT NULL DEFAULT '',
   settlement_method TEXT NOT NULL DEFAULT '',
   settlement_account_encrypted TEXT NOT NULL DEFAULT '',
@@ -656,6 +657,9 @@ export async function ensureSchema() {
   );
   await addColumn(
     "ALTER TABLE webhook_events ADD COLUMN account_id INTEGER NOT NULL DEFAULT 0",
+  );
+  await addColumn(
+    "ALTER TABLE agents ADD COLUMN theme_id TEXT NOT NULL DEFAULT 'snow'",
   );
   await ensureCardOpsTables();
 
