@@ -222,7 +222,11 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
     const data = await submit("/api/admin/earnings/recalculate");
     if (!data) return;
     const notes: string[] = [];
-    if (data.skippedSettled) notes.push(`${data.skippedSettled} 笔已进结算单未改`);
+    if (data.skippedSettled) {
+      notes.push(
+        `${data.skippedSettled} 笔已被结算单占用，没有改动 —— 请先在下面把对应的待返佣结算单「撤销」，再点一次重算`,
+      );
+    }
     if (data.skippedGatewayActual) {
       notes.push(`${data.skippedGatewayActual} 笔用网关真实手续费`);
     }
@@ -246,6 +250,22 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
       setMessage(
         `已生成结算单 ${data.settlement.settlementNo}，金额 ¥${(data.settlement.amountCents / 100).toFixed(2)}`,
       );
+      await load();
+    }
+  }
+
+  async function cancelSettlement(settlement: Settlement) {
+    const ok = window.confirm(
+      `撤销结算单 ${settlement.settlementNo}？单据里的 ¥${(settlement.amountCents / 100).toFixed(2)} 收益会退回待结算，之后可以重算手续费再重新生成。`,
+    );
+    if (!ok) return;
+    const data = await submit(
+      `/api/admin/settlements/${settlement.id}`,
+      { action: "cancel" },
+      "PATCH",
+    );
+    if (data) {
+      setMessage(`已撤销 ${settlement.settlementNo}，收益已退回待结算`);
       await load();
     }
   }
@@ -681,6 +701,9 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
           <p>
             手续费在下单时就按当时的费率算好存进订单了，改费率不会追溯。改过费率就先重算一次，再生成结算单。
           </p>
+          <p className="text-xs text-[var(--km-fg-muted)]">
+            已经进了结算单的收益不会被重算改动。如果那张结算单还没返佣，先「撤销」它，重算完再重新生成。
+          </p>
           <button
             className="km-btn km-btn-ghost"
             disabled={busy || !loaded}
@@ -763,13 +786,22 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
                   <td className="py-2 pr-3">{statusLabel(settlement.status)}</td>
                   <td className="py-2">
                     {settlement.status === "pending_payment" ? (
-                      <button
-                        className="km-btn km-btn-ghost"
-                        disabled={busy}
-                        onClick={() => markSettlementPaid(settlement)}
-                      >
-                        标记已返佣
-                      </button>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          className="km-btn km-btn-ghost"
+                          disabled={busy}
+                          onClick={() => markSettlementPaid(settlement)}
+                        >
+                          标记已返佣
+                        </button>
+                        <button
+                          className="km-btn km-btn-ghost"
+                          disabled={busy}
+                          onClick={() => cancelSettlement(settlement)}
+                        >
+                          撤销
+                        </button>
+                      </div>
                     ) : (
                       settlement.paymentReference || "—"
                     )}
