@@ -1,21 +1,33 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { cdkPool, orderStatusHistory, orders, products } from "@/db/schema";
-import { bootDb, getAppConfig } from "@/lib/config";
-import { newIdempotencyKey, newOrderNo } from "@/lib/ids";
 import {
-  lockCodeForRedeem,
+  cdkPool,
+  issuedCdks,
+  orderStatusHistory,
+  orders,
+  products,
+} from "@/db/schema";
+import { bootDb, getAppConfig } from "@/lib/config";
+import { newOrderNo } from "@/lib/ids";
+import {
   markCodeUsed,
   markCodesSold,
   releaseLockedCode,
   reserveCodes,
-  ensureUpstreamCdkUsable,
-  findCdkByCode,
 } from "@/lib/inventory";
 import { notifyOrderTerminal } from "@/lib/notify";
-import { getUpstreamClient } from "@/lib/upstream";
-import type { AgentCredential, ItemStatus } from "@kaimi/upstream";
-import { isTerminalStatus } from "@kaimi/upstream";
+import type { AgentCredential } from "@/lib/recharge-types";
+import { isTerminalStatus } from "@/lib/recharge-types";
+import {
+  mapCardplatformStatus,
+  parseCardplatformRequestId,
+  pollCardplatformResult,
+  preflightRedeemableCdk,
+  previewRedeemableCdk,
+  requestIdForRedeem,
+  resolveRedeemClient,
+} from "@/lib/cardplatform/redeem";
+import { nestedString } from "@/lib/cardplatform/issued-redemption";
 
 export async function appendStatusHistory(
   orderId: number,
@@ -134,195 +146,180 @@ export async function fulfillCodeOrder(orderId: number) {
   return updated;
 }
 
+async function createCardplatformRecharge(input: {
+  email: string;
+  account: AgentCredential;
+  cdkCode: string;
+}) {
+  const preview = await previewRedeemableCdk(input.cdkCode);
+  const issued = preview.redeemable.issued;
+  const now = new Date().toISOString();
+
+  if (issued) {
+    const [claimed] = await db
+      .update(issuedCdks)
+      .set({ status: "locked", updatedAt: now })
+      .where(
+        and(eq(issuedCdks.id, issued.id), eq(issuedCdks.status, "unused")),
+      )
+      .returning();
+    if (!claimed) throw new Error("该卡密已使用或正在兑换");
+  }
+
+  const orderNo = newOrderNo("RC");
+  let created: typeof orders.$inferSelect | undefined;
+  let redeemStarted = false;
+  let redemptionToken = preview.redemptionToken;
+  try {
+    [created] = await db
+      .insert(orders)
+      .values({
+        orderNo,
+        kind: "recharge",
+        email: input.email.trim().toLowerCase(),
+        quantity: 1,
+        amountCents: 0,
+        currency: "CNY",
+        payStatus: "manual",
+        fulfillStatus: "pending",
+        paymentChannel: issued ? "issued_cdk" : "cardplatform",
+        upstreamPlan: preview.redeemable.planKey,
+        clientReference: orderNo,
+        credMode: input.account.mode,
+        accountEmail: input.account.email || input.email,
+      })
+      .returning();
+    if (!created) throw new Error("兑换订单创建失败");
+    if (issued) {
+      await db
+        .update(issuedCdks)
+        .set({ redemptionOrderId: created.id, updatedAt: now })
+        .where(eq(issuedCdks.id, issued.id));
+    }
+    await appendStatusHistory(
+      created.id,
+      "pending",
+      "订单已创建，正在直连卡台兑换",
+      "cardplatform",
+    );
+
+    const prepared = await preflightRedeemableCdk({
+      code: preview.redeemable.code,
+      account: input.account,
+    });
+    redemptionToken = prepared.redemptionToken;
+    const { client } = await resolveRedeemClient(prepared.redeemable.code);
+    redeemStarted = true;
+    const redeemed = await client.redeemCdk({
+      redemption_token: prepared.redemptionToken,
+      preflight_token: prepared.preflightToken,
+      client_request_id: orderNo,
+    });
+    const status = mapCardplatformStatus(redeemed.payload, redeemed.ok);
+    const message =
+      nestedString(redeemed.payload, "message", "msg") ||
+      (status === "success" ? "兑换成功" : "已提交卡台处理");
+    const terminalSuccess = status === "success" || status === "skipped";
+    const terminalFailure = status === "failed";
+    const [updated] = await db.transaction(async (tx) => {
+      if (issued) {
+        await tx
+          .update(issuedCdks)
+          .set({
+            status: terminalSuccess
+              ? "used"
+              : terminalFailure
+                ? "unused"
+                : "redeeming",
+            usedAt: terminalSuccess ? new Date().toISOString() : null,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(issuedCdks.id, issued.id));
+      }
+      return tx
+        .update(orders)
+        .set({
+          fulfillStatus: status,
+          upstreamRequestId: requestIdForRedeem(
+            prepared.redeemable.accountId,
+            redemptionToken,
+          ),
+          message,
+          paidAt: now,
+          accountEmail: prepared.accountEmail || created!.accountEmail,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(orders.id, created!.id))
+        .returning();
+    });
+    await appendStatusHistory(
+      created.id,
+      updated?.fulfillStatus || status,
+      updated?.message || message,
+      "cardplatform",
+    );
+    if (updated && isTerminalStatus(updated.fulfillStatus)) {
+      await notifyIfTerminal(updated);
+    }
+    return updated ?? created;
+  } catch (error) {
+    const unknown = redeemStarted;
+    if (issued) {
+      await db
+        .update(issuedCdks)
+        .set({
+          status: unknown ? "redeeming" : "unused",
+          redemptionOrderId: created?.id ?? null,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(issuedCdks.id, issued.id));
+    }
+    if (created) {
+      const message = error instanceof Error ? error.message : "卡台兑换失败";
+      await db
+        .update(orders)
+        .set({
+          fulfillStatus: unknown ? "unknown" : "failed",
+          upstreamRequestId:
+            unknown && redemptionToken
+              ? requestIdForRedeem(preview.redeemable.accountId, redemptionToken)
+              : created.upstreamRequestId,
+          message,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(orders.id, created.id));
+      await appendStatusHistory(
+        created.id,
+        unknown ? "unknown" : "failed",
+        message,
+        "cardplatform",
+      );
+      await notifyIfTerminal({
+        orderNo: created.orderNo,
+        fulfillStatus: unknown ? "unknown" : "failed",
+        message,
+        upstreamRequestId: created.upstreamRequestId,
+        upstreamPlan: created.upstreamPlan,
+      });
+    }
+    throw error;
+  }
+}
+
 export async function createRechargeOrder(input: {
-  /** 客户持码兑换：传入卡密后自动识别套餐 */
   cdkCode: string;
   email: string;
   account: AgentCredential;
-  /** 兼容旧调用；有卡密时以卡密套餐为准 */
   productId?: number;
 }) {
   await bootDb();
   const code = input.cdkCode.trim();
   if (!code) throw new Error("请填写卡密");
-
-  let cdk = await findCdkByCode(code);
-  if (!cdk) throw new Error("卡密不存在");
-  if (cdk.status === "used") throw new Error("该卡密已使用");
-  if (cdk.status === "locked") throw new Error("该卡密占用中，请查询订单进度");
-
-  // 先问上游：误禁用可恢复；真正收回再拒绝
-  await ensureUpstreamCdkUsable(cdk.planKey, cdk.code);
-  cdk = (await findCdkByCode(code)) ?? cdk;
-
-  if (cdk.status === "disabled") {
-    throw new Error("该卡密已不可用");
-  }
-  if (cdk.status !== "unused" && cdk.status !== "sold") {
-    throw new Error(`卡密状态不可兑换：${cdk.status}`);
-  }
-
-  let product =
-    input.productId != null
-      ? await db.query.products.findFirst({ where: eq(products.id, input.productId) })
-      : null;
-  if (!product || product.upstreamPlan !== cdk.planKey) {
-    product =
-      (await db.query.products.findFirst({
-        where: and(
-          eq(products.upstreamPlan, cdk.planKey),
-          eq(products.kind, "recharge"),
-          eq(products.enabled, true),
-        ),
-      })) ?? null;
-  }
-  if (product && (!product.enabled || product.kind !== "recharge")) {
-    product = null;
-  }
-
-  const cfg = await getAppConfig();
-  const orderNo = newOrderNo("RC");
-
-  const [created] = await db
-    .insert(orders)
-    .values({
-      orderNo,
-      kind: "recharge",
-      productId: product?.id ?? null,
-      email: input.email.trim().toLowerCase(),
-      quantity: 1,
-      amountCents: product?.priceCents ?? 0,
-      currency: product?.currency ?? "CNY",
-      payStatus: cfg.paymentMode === "manual" ? "manual" : "unpaid",
-      fulfillStatus: "pending",
-      paymentChannel: cfg.paymentMode,
-      upstreamPlan: cdk.planKey,
-      clientReference: orderNo,
-      credMode: input.account.mode,
-      accountEmail: input.account.email || input.email,
-    })
-    .returning();
-
-  await appendStatusHistory(created.id, "pending", "订单已创建，准备提交上游", "submit");
-
-  if (cfg.paymentMode === "manual") {
-    return submitRecharge(created.id, input.account, code);
-  }
-
-  return created;
-}
-
-export async function submitRecharge(
-  orderId: number,
-  account: AgentCredential,
-  /** 客户持码兑换时传入；未传则从代理库存随机锁一张 */
-  cdkCode?: string,
-) {
-  await bootDb();
-  const order = await db.query.orders.findFirst({
-    where: eq(orders.id, orderId),
+  return createCardplatformRecharge({
+    cdkCode: code,
+    email: input.email,
+    account: input.account,
   });
-  if (!order) throw new Error("订单不存在");
-  if (order.kind !== "recharge") throw new Error("非代充订单");
-  if (order.fulfillStatus === "unknown") {
-    throw new Error("开通结果待确认，请勿重复提交");
-  }
-  if (order.upstreamRequestId && isTerminalStatus(order.fulfillStatus) === false) {
-    throw new Error("开通进行中，请勿重复提交");
-  }
-  if (["success", "skipped"].includes(order.fulfillStatus)) {
-    throw new Error("订单已完成");
-  }
-
-  const code = cdkCode?.trim()
-    ? (await lockCodeForRedeem(cdkCode.trim(), order.id)).code
-    : (await reserveCodes(order.upstreamPlan, 1, order.id))[0]!.code;
-
-  try {
-    const upstream = await getUpstreamClient();
-    const idem = newIdempotencyKey();
-    const res = await upstream.createRecharge(
-      {
-        plan: order.upstreamPlan,
-        cdk_code: code,
-        account,
-        client_reference: order.clientReference || order.orderNo,
-      },
-      idem,
-    );
-
-    // 主站创建接口可能返回批次态 running；去重时也可能直接返回已失败的旧任务。
-    let status = (res.status as ItemStatus) || "pending";
-    if (status === ("running" as ItemStatus) || (status as string) === "running") {
-      status = "pending";
-    }
-    const deduped = Boolean((res as { deduped?: boolean }).deduped);
-    const message =
-      res.message ||
-      (deduped
-        ? status === "failed"
-          ? "已关联到先前同一账号的失败记录"
-          : "已关联到先前同一账号的开通记录"
-        : "已提交");
-
-    const [updated] = await db
-      .update(orders)
-      .set({
-        payStatus: order.payStatus === "unpaid" ? "paid" : order.payStatus,
-        fulfillStatus: status,
-        upstreamRequestId: res.request_id,
-        message,
-        deliveredCodesJson: JSON.stringify([]), // never expose code on recharge
-        paidAt: order.paidAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        accountEmail: account.email || order.accountEmail,
-        credMode: account.mode,
-      })
-      .where(eq(orders.id, order.id))
-      .returning();
-
-    // 创建响应若已是终态，必须立刻处理卡密（去重失败时尤其容易漏解锁）
-    if (status === "success" || status === "skipped") {
-      await markCodeUsed(code);
-    } else if (status === "failed" || status === "unknown") {
-      await releaseLockedCode(code);
-    }
-    // pending / processing 等：保持 locked，等 webhook / 轮询
-
-    if (updated) {
-      await appendStatusHistory(
-        updated.id,
-        updated.fulfillStatus,
-        updated.message,
-        deduped ? "upstream-dedupe" : "submit",
-      );
-      if (isTerminalStatus(updated.fulfillStatus)) {
-        await notifyIfTerminal(updated);
-      }
-    }
-
-    return updated;
-  } catch (err) {
-    await releaseLockedCode(code);
-    const message = err instanceof Error ? err.message : "提交上游失败";
-    await db
-      .update(orders)
-      .set({
-        fulfillStatus: "failed",
-        message,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(orders.id, order.id));
-    await appendStatusHistory(order.id, "failed", message, "submit");
-    await notifyIfTerminal({
-      orderNo: order.orderNo,
-      fulfillStatus: "failed",
-      message,
-      upstreamRequestId: order.upstreamRequestId,
-      upstreamPlan: order.upstreamPlan,
-    });
-    throw err;
-  }
 }
 
 export async function applyUpstreamStatus(opts: {
@@ -444,20 +441,51 @@ export async function reconcileStuckLocks() {
   return { released, used, checked: locked.length };
 }
 
+async function pollDirectCardplatformOrder(order: typeof orders.$inferSelect) {
+  const parsed = parseCardplatformRequestId(order.upstreamRequestId || "");
+  if (!parsed) throw new Error("卡台兑换请求标识无效");
+  const result = await pollCardplatformResult(order.upstreamRequestId || "");
+  const status = result.status;
+  const message = result.message;
+  const terminalSuccess = status === "success" || status === "skipped";
+  const terminalFailure = status === "failed";
+  await db.transaction(async (tx) => {
+    await tx
+      .update(orders)
+      .set({
+        fulfillStatus: status,
+        message,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(orders.id, order.id));
+    if (terminalSuccess || terminalFailure) {
+      await tx
+        .update(issuedCdks)
+        .set({
+          status: terminalSuccess ? "used" : "unused",
+          usedAt: terminalSuccess ? new Date().toISOString() : null,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(issuedCdks.redemptionOrderId, order.id));
+    }
+  });
+  await appendStatusHistory(order.id, status, message, "cardplatform-poll");
+}
+
 export async function pollRechargeByRequestId(requestId: string) {
   await bootDb();
   const rid = requestId.trim();
   if (!rid) throw new Error("缺少 request_id");
-  const client = await getUpstreamClient();
-  const res = await client.getRecharge(rid);
-  await applyUpstreamStatus({
-    requestId: res.request_id || rid,
-    clientReference: res.client_reference,
-    status: res.status,
-    message: res.message,
+  if (!rid.startsWith("cp:")) {
+    throw new Error("旧上游兑换已停用，请用卡台兑换单号查询");
+  }
+  const directOrders = await db.query.orders.findMany({
+    where: eq(orders.upstreamRequestId, rid),
+    limit: 20,
   });
+  for (const order of directOrders) await pollDirectCardplatformOrder(order);
   return db.query.orders.findMany({
-    where: eq(orders.upstreamRequestId, res.request_id || rid),
+    where: eq(orders.upstreamRequestId, rid),
     limit: 20,
   });
 }
@@ -468,17 +496,13 @@ export async function pollRechargeIfNeeded(orderNo: string) {
     where: eq(orders.orderNo, orderNo),
   });
   if (!order?.upstreamRequestId) return order;
-  if (isTerminalStatus(order.fulfillStatus)) return order;
-
-  const client = await getUpstreamClient();
-  const res = await client.getRecharge(order.upstreamRequestId);
-  await applyUpstreamStatus({
-    requestId: res.request_id,
-    clientReference: res.client_reference,
-    status: res.status,
-    message: res.message,
-  });
-
+  if (!order.upstreamRequestId.startsWith("cp:")) {
+    return order;
+  }
+  if (["success", "failed", "skipped"].includes(order.fulfillStatus)) {
+    return order;
+  }
+  await pollDirectCardplatformOrder(order);
   return db.query.orders.findFirst({ where: eq(orders.orderNo, orderNo) });
 }
 
@@ -492,7 +516,12 @@ export async function pollInFlightOrders(limit = 25) {
       and(
         eq(orders.kind, "recharge"),
         sql`${orders.upstreamRequestId} IS NOT NULL AND ${orders.upstreamRequestId} != ''`,
-        sql`${orders.fulfillStatus} NOT IN ('success', 'failed', 'skipped', 'unknown', 'fulfilled')`,
+        sql`(${orders.fulfillStatus} NOT IN ('success', 'failed', 'skipped', 'unknown', 'fulfilled')
+          OR (
+            ${orders.upstreamRequestId} LIKE 'cp:%'
+            AND ${orders.fulfillStatus} = 'unknown'
+            AND ${orders.createdAt} >= datetime('now', '-1 day')
+          ))`,
       ),
     )
     .orderBy(desc(orders.id))

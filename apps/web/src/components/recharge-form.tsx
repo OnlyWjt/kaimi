@@ -51,9 +51,9 @@ function appendProgressEvent(
   return [...prev, { status: st, message, at: new Date().toISOString() }];
 }
 
-export function RechargeForm() {
+export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
   const [step, setStep] = useState<"code" | "session">("code");
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState(initialCode);
   const [validated, setValidated] = useState<Validated | null>(null);
   const [email, setEmail] = useState("");
   const [credMode, setCredMode] = useState<"session" | "mailbox">("session");
@@ -68,7 +68,11 @@ export function RechargeForm() {
   const [autoPoll, setAutoPoll] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const sessionOk = Boolean(preview?.ok && preview.source === "upstream");
+  const sessionOk = Boolean(preview?.ok && preview.source === "cardplatform");
+
+  useEffect(() => {
+    if (initialCode.trim()) setCode(initialCode.trim());
+  }, [initialCode]);
 
   const refreshProgress = useCallback(async (orderNo: string, quiet = false) => {
     if (!orderNo.trim()) return;
@@ -166,6 +170,7 @@ export function RechargeForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           session: session.trim(),
+          code: code.trim(),
           planKey: validated?.planKey,
         }),
       });
@@ -201,7 +206,7 @@ export function RechargeForm() {
         return;
       }
       if (!sessionOk) {
-        setError("请先点击「预检 Session」，通过主站校验后再兑换");
+        setError("请先点击「预检 Session」，通过卡台校验后再兑换");
         return;
       }
     }
@@ -213,11 +218,15 @@ export function RechargeForm() {
         const checkRes = await fetch("/api/recharge/session-check", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ session: session.trim(), planKey: validated.planKey }),
+          body: JSON.stringify({
+            session: session.trim(),
+            code: code.trim(),
+            planKey: validated.planKey,
+          }),
         });
         const checkData = (await checkRes.json()) as SessionPreview;
         setPreview(checkData);
-        if (!checkData.ok || checkData.source !== "upstream") {
+        if (!checkData.ok || checkData.source !== "cardplatform") {
           throw new Error(checkData.errors?.[0] || "Session 预检未通过，请修正后再提交");
         }
         accountEmail = (checkData.email || preview?.email || email).trim();

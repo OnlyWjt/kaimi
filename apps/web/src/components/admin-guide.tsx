@@ -1,6 +1,14 @@
 "use client";
 
-type GuideTab = "overview" | "orders" | "cdks" | "purchase" | "integration" | "appearance";
+type GuideTab =
+  | "overview"
+  | "orders"
+  | "cdks"
+  | "integration"
+  | "selection"
+  | "commerce"
+  | "agents"
+  | "appearance";
 
 const SECTIONS = [
   { id: "flow", title: "怎么跑起来" },
@@ -35,15 +43,15 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
             怎么跑起来
           </h2>
           <p className="text-sm leading-relaxed text-[var(--km-fg-muted)]">
-            Kaimi 是你自己的兑换门户。货和开通在主站 danewcdk，本站负责收卡密、提交开通、给客户查进度。
+            Kaimi 是多代理即时发卡门户：客户在代理店铺付款，平台向卡台生成一张新卡密，客户再回本站兑换开通。
           </p>
           <ol className="km-guide-steps">
-            <li>客户在外部发卡店买到卡密</li>
-            <li>回到本站「开始兑换」，校验卡密后提交 Session 或邮箱密码</li>
-            <li>本站把开通请求交给主站，客户用订单号查进度</li>
+            <li>接好卡台和易支付，填可被外网访问的本站地址，再给代理分配可售套餐</li>
+            <li>客户打开 /s/店铺名，选套餐、填自己的邮箱、付款</li>
+            <li>到账后本页会显示「正在生成卡密」；出码后出现卡密和兑换链接，点「去兑换」即可</li>
           </ol>
           <p className="text-sm text-[var(--km-fg-muted)]">
-            内部发卡页默认关着，只作调试。日常卖卡用「外观」里的购买外链。
+            易支付必须能访问你的公网地址。填 localhost，支付成功也不会回调、不会发卡。
           </p>
         </section>
 
@@ -58,16 +66,21 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
           </div>
           <ol className="km-guide-steps">
             <li>
-              在「接入 danewcdk」填主站地址、API Key、Webhook 签名，再填本站公网地址。
+              在「接入卡台」加主台/备台、填协议和 Key，把出口 IP 加进卡台白名单；再到「选卡配置」设优先级和兑换策略。
             </li>
-            <li>把页面上的 Webhook 回调复制到主站代理设置，然后点连通检测。</li>
-            <li>同步套餐。没有库存就去「进货」向主站下单，付完后本站会按单号自动入库。</li>
             <li>
-              到「外观」改站点名、主题，填购买卡密外链。兑换页公告和页脚说明也可在这里改。
+              到「即时发卡」填本站公网地址（https://你的域名，不要 localhost）、易支付网关/PID/密钥和手续费。保存后看一眼异步通知地址，应是
+              公网域名/api/webhooks/epay。
+            </li>
+            <li>
+              到「代理管理」设套餐默认成本，创建代理并勾选可售套餐。代理用 /login 登录后，自己改零售价和店铺主题。
+            </li>
+            <li>
+              到「外观」改整站名和默认主题。代理店铺主题由代理自己选，兑换页公告也可在外观里改。
             </li>
           </ol>
           <p className="text-sm text-[var(--km-fg-muted)]">
-            Webhook 签名必须填。空签名会被拒绝，开通结果就只能靠本站轮询。
+            兑换走卡台 public CDK 接口，不再对接 danewcdk Agent。付款发码会带选卡偏好。
           </p>
         </section>
 
@@ -78,21 +91,27 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm">
               <p className="font-medium">购买卡密</p>
-              <p className="mt-1 text-[var(--km-fg-muted)]">跳转你配置的外链付款，拿到完整卡密后再回本站。</p>
+              <p className="mt-1 text-[var(--km-fg-muted)]">
+                打开代理给的 /s/店铺名。选套餐，填自己的接收邮箱，选支付宝或微信后付款。多人同时买互不影响。
+              </p>
+            </div>
+            <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm">
+              <p className="font-medium">拿卡密 / 查自己的单</p>
+              <p className="mt-1 text-[var(--km-fg-muted)]">
+                支付完成页会转圈等待出码，好了会显示卡密和兑换链接。换设备时，在店铺页用当时填的邮箱点「用邮箱查询我的订单」。
+              </p>
             </div>
             <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm">
               <p className="font-medium">开始兑换</p>
               <p className="mt-1 text-[var(--km-fg-muted)]">
-                先校验卡密识别套餐。Session 必须预检通过才会出现「提交兑换」；也可以改用邮箱密码。
+                点兑换链接会带上卡密。先校验识别套餐；Session 预检通过后才能提交，也可以改用邮箱密码。
               </p>
             </div>
             <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm">
-              <p className="font-medium">订单进度</p>
-              <p className="mt-1 text-[var(--km-fg-muted)]">用订单号查看开通到哪一步。处理中会自动刷新。</p>
-            </div>
-            <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm">
-              <p className="font-medium">卡密查询</p>
-              <p className="mt-1 text-[var(--km-fg-muted)]">输入完整卡密，看是否已使用、绑了哪笔订单。</p>
+              <p className="font-medium">订单进度 / 卡密查询</p>
+              <p className="mt-1 text-[var(--km-fg-muted)]">
+                开通进度用兑换订单号查。卡密查询输入完整卡密，看是否已使用。
+              </p>
             </div>
           </div>
         </section>
@@ -109,10 +128,19 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
               按订单号、邮箱、卡密后四位筛。未结束的单可「重拉」，也可导出 CSV。
             </GuideJump>
             <GuideJump title="卡密查询" onClick={() => onGo("cdks")}>
-              默认脱敏，点「显示」后再复制。可核销、禁用、启用，或从主站同步。
+              这里列的是店铺已经售出的卡密，不是旧库存池。默认脱敏，点「显示」后再复制。可核销、禁用、启用。
             </GuideJump>
-            <GuideJump title="进货" onClick={() => onGo("purchase")}>
-              向主站下单补货，支付宝或微信。付完后按进货单号自动入库，不必再点同步。
+            <GuideJump title="接入卡台" onClick={() => onGo("integration")}>
+              多账户、协议、Webhook 和出口 IP。客户付款后由卡台即时发码。
+            </GuideJump>
+            <GuideJump title="选卡配置" onClick={() => onGo("selection")}>
+              产品在线状态、自动选卡优先级、本站兑换策略和卡健康。
+            </GuideJump>
+            <GuideJump title="即时发卡" onClick={() => onGo("commerce")}>
+              公网地址、易支付、店铺订单、复制查单链接、返佣结算。已发卡订单即可生成结算单。
+            </GuideJump>
+            <GuideJump title="代理管理" onClick={() => onGo("agents")}>
+              新建代理、默认成本、弹窗勾选套餐。代理从 /login 登录后改零售价和店铺主题。
             </GuideJump>
           </div>
           <p className="text-sm text-[var(--km-fg-muted)]">
@@ -163,7 +191,40 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
               </table>
             </div>
             <div>
-              <p className="mb-2 text-sm font-medium">订单</p>
+              <p className="mb-2 text-sm font-medium">店铺订单</p>
+              <table className="km-table">
+                <colgroup>
+                  <col style={{ width: "32%" }} />
+                  <col />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>状态</th>
+                    <th>含义</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>未支付</td>
+                    <td>还没到账，或易支付回调没打到公网地址</td>
+                  </tr>
+                  <tr>
+                    <td>已支付 / 发卡中</td>
+                    <td>钱已到，正在向卡台要卡密，客户页会转圈等待</td>
+                  </tr>
+                  <tr>
+                    <td>已发卡</td>
+                    <td>卡密已生成，可进结算；客户可用邮箱再查回</td>
+                  </tr>
+                  <tr>
+                    <td>已付未发</td>
+                    <td>卡台发码失败，可在即时发卡里重试发卡</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div>
+              <p className="mb-2 text-sm font-medium">兑换订单</p>
               <table className="km-table">
                 <colgroup>
                   <col style={{ width: "32%" }} />
@@ -178,7 +239,7 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
                 <tbody>
                   <tr>
                     <td>排队中 / 处理中</td>
-                    <td>主站还在开通，等回调或轮询</td>
+                    <td>卡台还在开通，等轮询 result</td>
                   </tr>
                   <tr>
                     <td>成功 / 已完成</td>
@@ -204,15 +265,39 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
           </h2>
           <dl className="space-y-3 text-sm">
             <div>
+              <dt className="font-medium">付了款但没有卡密 / 提示订单不存在</dt>
+              <dd className="mt-1 text-[var(--km-fg-muted)]">
+                先看易支付通知地址是不是 localhost。必须填公网地址并保存。客户回到订单页会自动确认到账并调卡台；出码前会显示「正在生成卡密」。后台也可点「重试发卡」或「复制查单链接」发给客户。
+              </dd>
+            </div>
+            <div>
+              <dt className="font-medium">两个人同时买，怎么查自己的单</dt>
+              <dd className="mt-1 text-[var(--km-fg-muted)]">
+                店铺页用各自填写的接收邮箱点「用邮箱查询我的订单」，只列出这个邮箱在本店的单。不要用「最近一笔」这种按浏览器记的方式。
+              </dd>
+            </div>
+            <div>
+              <dt className="font-medium">生成结算单是空的</dt>
+              <dd className="mt-1 text-[var(--km-fg-muted)]">
+                只有已支付且已发卡的订单会进结算。日期用付款当天所在周期。易支付查手续费失败（例如 No Act）时按后台费率估算，不再卡住结算单。金额是售价减成本和手续费，不是整笔售价。
+              </dd>
+            </div>
+            <div>
+              <dt className="font-medium">复制查单链接报错</dt>
+              <dd className="mt-1 text-[var(--km-fg-muted)]">
+                用 http://IP 打开后台时，浏览器可能没有剪贴板权限。现在会自动改用兼容复制；还是失败会弹出链接，手动拷即可。
+              </dd>
+            </div>
+            <div>
               <dt className="font-medium">客户说卡密无效</dt>
               <dd className="mt-1 text-[var(--km-fg-muted)]">
                 到「卡密查询」看状态。已禁用、已核销、占用中都不能再兑。库存对账只动「未使用」，不会误伤已售出。
               </dd>
             </div>
             <div>
-              <dt className="font-medium">订单一直处理中</dt>
+              <dt className="font-medium">兑换订单一直处理中</dt>
               <dd className="mt-1 text-[var(--km-fg-muted)]">
-                先确认 Webhook 回调已填到主站。再到订单页「重拉」或「轮询进行中」。总览有未结束单时也会提示。
+                到订单页「重拉」或「轮询进行中」，本站会向卡台拉兑换进度。总览有未结束单时也会提示。
               </dd>
             </div>
             <div>
@@ -224,13 +309,7 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
             <div>
               <dt className="font-medium">Session 预检过不了</dt>
               <dd className="mt-1 text-[var(--km-fg-muted)]">
-                让客户打开 chatgpt.com/api/auth/session，复制整页 JSON。预检必须走主站通过后才能提交。
-              </dd>
-            </div>
-            <div>
-              <dt className="font-medium">想收到开通结果通知</dt>
-              <dd className="mt-1 text-[var(--km-fg-muted)]">
-                在接入页填终态通知地址，或 Telegram Token 和 Chat ID。只有成功、失败这类终态才会推。
+                让客户打开 chatgpt.com/api/auth/session，复制整页 JSON。预检必须走卡台 preflight 通过后才能提交。
               </dd>
             </div>
           </dl>

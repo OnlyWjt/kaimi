@@ -16,7 +16,6 @@
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./src/*"],
-      "@kaimi/upstream": ["../../packages/upstream/src/index.ts"],
       "@kaimi/themes": ["../../packages/themes/src/index.ts"]
     }
   },

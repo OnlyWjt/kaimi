@@ -3,7 +3,6 @@ import { z } from "zod";
 import { createCodeOrder } from "@/lib/orders";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { isShopEnabled } from "@/lib/storefront";
-import { UpstreamError } from "@kaimi/upstream";
 
 const schema = z.object({
   productId: z.number().int().positive(),
@@ -31,7 +30,6 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "下单失败";
-    const status = err instanceof UpstreamError ? err.status : 400;
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }

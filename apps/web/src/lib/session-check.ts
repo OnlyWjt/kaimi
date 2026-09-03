@@ -1,7 +1,5 @@
-/** ChatGPT Session 预检：本地格式 + 主站 POST /agent/session/check */
-
-import { getUpstreamClient } from "@/lib/upstream";
-import { UpstreamError } from "@kaimi/upstream";
+import { preflightRedeemableCdk } from "@/lib/cardplatform/redeem";
+import { nestedString } from "@/lib/cardplatform/issued-redemption";
 
 export type SessionSummary = {
   email?: string;
@@ -22,7 +20,7 @@ export type SessionCheckResult = {
   errorCode?: string;
   errors: string[];
   warnings: string[];
-  source: "local" | "upstream";
+  source: "local" | "cardplatform";
 };
 
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -36,7 +34,7 @@ function pickString(...vals: unknown[]): string | undefined {
   return undefined;
 }
 
-/** 本地快速校验：合法 JSON + accessToken，失败则不必打主站 */
+/** 本地快速校验：合法 JSON + accessToken，失败则不必打卡台 */
 export function checkChatGPTSessionLocal(raw: string): SessionCheckResult {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -117,82 +115,70 @@ export function checkChatGPTSession(raw: string): SessionCheckResult {
 }
 
 /**
- * 兑换前完整预检：本地格式 → 主站 /agent/session/check。
- * 只有主站 ok=true 才算通过（才能提交兑换）。
+ * 兑换前完整预检：本地格式 → 卡台 /api/v1/cdk/preflight。
+ * 只有卡台 ok 才算通过。
  */
-export async function verifySessionForRedeem(raw: string): Promise<SessionCheckResult> {
+export async function verifySessionForRedeem(
+  raw: string,
+  code?: string,
+): Promise<SessionCheckResult> {
   const local = checkChatGPTSessionLocal(raw);
   if (!local.ok) return local;
+  if (!code?.trim()) {
+    return {
+      ...local,
+      ok: false,
+      errors: ["请先校验卡密，再预检 Session"],
+      source: "local",
+    };
+  }
 
   try {
-    const upstream = await getUpstreamClient();
-    const res = await upstream.checkSession({ session: raw.trim() });
-
-    if (!res.ok) {
-      const msg =
-        res.error ||
-        (res.error_code === "SESSION_INVALID"
-          ? "Session 无效或已过期，请重新登录后复制"
-          : "Session 校验未通过");
-      return {
-        ok: false,
-        email: res.email || local.email,
-        name: local.name,
-        hasAccessToken: local.hasAccessToken,
-        planHint:
-          typeof res.summary?.plan_type === "string" ? res.summary.plan_type : local.planHint,
-        summary: res.summary,
-        errorCode: res.error_code,
-        errors: [msg],
-        warnings: [],
-        source: "upstream",
-      };
-    }
-
-    const summary = res.summary;
+    const preflight = await preflightRedeemableCdk({
+      code: code.trim(),
+      account: { mode: "session", session: raw.trim(), email: local.email },
+    });
+    const email =
+      preflight.accountEmail ||
+      nestedString(preflight.preflight, "email", "account_email") ||
+      local.email;
     const planHint =
-      (typeof summary?.plan_type === "string" && summary.plan_type) || local.planHint;
+      nestedString(preflight.preflight, "plan_type", "plan", "plan_key") ||
+      local.planHint;
     const warnings: string[] = [];
-    if (summary && summary.has_active_subscription === false) {
+    const subscription = preflight.preflight.has_active_subscription;
+    if (subscription === false) {
       warnings.push("当前账号没有有效订阅。");
     }
 
     return {
       ok: true,
-      email: res.email || (typeof summary?.email === "string" ? summary.email : undefined) || local.email,
+      email,
       name: local.name,
       hasAccessToken: true,
       planHint,
-      summary,
+      summary: {
+        email,
+        plan_type: planHint,
+        has_active_subscription:
+          typeof subscription === "boolean" ? subscription : undefined,
+      },
       errors: [],
       warnings,
-      source: "upstream",
+      source: "cardplatform",
     };
   } catch (err) {
-    if (err instanceof UpstreamError && err.status === 401) {
-      return {
-        ok: false,
-        email: local.email,
-        name: local.name,
-        hasAccessToken: local.hasAccessToken,
-        planHint: local.planHint,
-        errorCode: "UNAUTHORIZED",
-        errors: ["上游 API Key 无效或已吊销，请检查后台接入配置"],
-        warnings: [],
-        source: "upstream",
-      };
-    }
-    const message = err instanceof Error ? err.message : "上游 Session 校验失败";
+    const message = err instanceof Error ? err.message : "卡台 Session 预检失败";
     return {
       ok: false,
       email: local.email,
       name: local.name,
       hasAccessToken: local.hasAccessToken,
       planHint: local.planHint,
-      errorCode: "UPSTREAM_ERROR",
+      errorCode: "CARDPLATFORM_ERROR",
       errors: [message],
       warnings: [],
-      source: "upstream",
+      source: "cardplatform",
     };
   }
 }

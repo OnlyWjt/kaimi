@@ -199,6 +199,15 @@ a {
   box-shadow: none;
 }
 
+.km-btn-danger {
+  background: var(--km-danger);
+  color: #fff;
+}
+
+.km-btn-danger:hover {
+  box-shadow: 0 10px 28px color-mix(in oklab, var(--km-danger) 26%, transparent);
+}
+
 .km-btn-muted {
   background: var(--km-bg-muted);
   color: var(--km-fg-muted);
@@ -274,6 +283,227 @@ a {
 
 .km-input::placeholder {
   color: color-mix(in oklab, var(--km-fg-muted) 70%, transparent);
+}
+
+select.km-input {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  padding-right: 2.55rem;
+  background-color: var(--km-bg-elevated);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--km-fg-muted) 50%),
+    linear-gradient(135deg, var(--km-fg-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 1.2rem) calc(50% - 0.12rem),
+    calc(100% - 0.8rem) calc(50% - 0.12rem);
+  background-size: 6px 6px;
+  background-repeat: no-repeat;
+}
+
+select.km-input option {
+  background: var(--km-bg-elevated);
+  color: var(--km-fg);
+}
+
+[data-theme="aurora"] select.km-input,
+[data-theme="ink"] select.km-input {
+  color-scheme: dark;
+}
+
+.km-themed-page {
+  min-height: 100vh;
+  background-color: var(--km-bg);
+  background-image: var(--km-hero-glow);
+  background-attachment: fixed;
+  background-size: 140% 140%, 130% 130%, 150% 150%;
+}
+
+.km-shop {
+  display: grid;
+  gap: 1.25rem;
+}
+
+@media (min-width: 900px) {
+  .km-shop {
+    grid-template-columns: minmax(0, 1.25fr) minmax(20rem, 0.75fr);
+    align-items: start;
+    gap: 1.5rem;
+  }
+
+  .km-shop-pay {
+    position: sticky;
+    top: 1.25rem;
+  }
+}
+
+.km-plan-pick {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in oklab, var(--km-border) 88%, transparent);
+  background: color-mix(in oklab, var(--km-bg-elevated) 96%, transparent);
+  padding: 1.05rem 1.15rem;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.km-plan-pick:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklab, var(--km-fg) 22%, var(--km-border));
+}
+
+.km-plan-pick-active {
+  border-color: var(--km-fg);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--km-fg) 10%, transparent);
+}
+
+.km-shop-pay {
+  border-radius: 20px;
+  border: 1px solid color-mix(in oklab, var(--km-border) 88%, transparent);
+  background: color-mix(in oklab, var(--km-bg-elevated) 96%, transparent);
+  box-shadow: var(--km-shadow);
+  padding: 1.35rem 1.4rem;
+}
+
+.km-pay-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.km-pay-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.78rem 0.85rem;
+  border-radius: 14px;
+  border: 1.5px solid color-mix(in oklab, var(--km-border) 88%, transparent);
+  background: color-mix(in oklab, var(--km-bg-muted) 55%, var(--km-bg-elevated));
+  color: var(--km-fg);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.km-pay-row:hover {
+  border-color: color-mix(in oklab, var(--km-fg) 18%, var(--km-border));
+}
+
+.km-pay-row[data-channel="alipay"][aria-checked="true"] {
+  border-color: #1677ff;
+  background: color-mix(in oklab, #1677ff 8%, var(--km-bg-elevated));
+  box-shadow: 0 0 0 3px color-mix(in oklab, #1677ff 12%, transparent);
+}
+
+.km-pay-row[data-channel="wxpay"][aria-checked="true"] {
+  border-color: #07c160;
+  background: color-mix(in oklab, #07c160 8%, var(--km-bg-elevated));
+  box-shadow: 0 0 0 3px color-mix(in oklab, #07c160 12%, transparent);
+}
+
+.km-pay-logo {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex-shrink: 0;
+  place-items: center;
+  border-radius: 10px;
+}
+
+.km-pay-logo-alipay {
+  background: #1677ff;
+  color: #fff;
+}
+
+.km-pay-logo-wxpay {
+  background: #07c160;
+  color: #fff;
+}
+
+.km-pay-radio {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-left: auto;
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 1.5px solid color-mix(in oklab, var(--km-fg) 22%, var(--km-border));
+  display: grid;
+  place-items: center;
+}
+
+.km-pay-radio::after {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.km-pay-row[data-channel="alipay"][aria-checked="true"] .km-pay-radio {
+  border-color: #1677ff;
+}
+
+.km-pay-row[data-channel="alipay"][aria-checked="true"] .km-pay-radio::after {
+  background: #1677ff;
+}
+
+.km-pay-row[data-channel="wxpay"][aria-checked="true"] .km-pay-radio {
+  border-color: #07c160;
+}
+
+.km-pay-row[data-channel="wxpay"][aria-checked="true"] .km-pay-radio::after {
+  background: #07c160;
+}
+
+.km-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+@media (min-width: 640px) {
+  .km-theme-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.km-theme-swatch {
+  /* 用各主题自己的圆角，这样选择器里能直接看出形状差异。 */
+  border-radius: var(--km-radius);
+  border: 2px solid var(--km-border);
+  background: var(--km-bg-elevated);
+  color: var(--km-fg);
+  padding: 0.85rem 0.8rem;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: none;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+/* 主色圆点：几套主题最明显的区别在按钮颜色上，先在色板里露出来。 */
+.km-theme-dot {
+  display: inline-block;
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 999px;
+  background: var(--km-accent);
+  border: 1px solid color-mix(in oklab, var(--km-fg) 20%, transparent);
+  flex-shrink: 0;
+}
+
+.km-theme-swatch:hover {
+  border-color: color-mix(in oklab, var(--km-fg) 35%, var(--km-border));
+}
+
+.km-theme-swatch[aria-pressed="true"] {
+  border-color: var(--km-accent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--km-accent) 28%, transparent);
 }
 
 /* —— Panels —— */
@@ -490,6 +720,95 @@ a {
   color: var(--km-warning);
 }
 
+.km-toast-stack {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 80;
+  display: grid;
+  gap: 0.6rem;
+  width: min(24rem, calc(100vw - 2rem));
+  pointer-events: none;
+}
+
+.km-toast {
+  pointer-events: auto;
+  display: grid;
+  gap: 0.2rem;
+  width: 100%;
+  text-align: left;
+  border-radius: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--km-border);
+  background: var(--km-bg-elevated);
+  box-shadow: var(--km-shadow);
+  color: var(--km-fg);
+  cursor: pointer;
+}
+
+.km-toast-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.km-toast-text {
+  font-size: 0.9rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.km-toast-ok {
+  border-color: color-mix(in oklab, var(--km-success) 40%, var(--km-border));
+}
+
+.km-toast-ok .km-toast-label {
+  color: var(--km-success);
+}
+
+.km-toast-err {
+  border-color: color-mix(in oklab, var(--km-danger) 45%, var(--km-border));
+}
+
+.km-toast-err .km-toast-label {
+  color: var(--km-danger);
+}
+
+.km-toast-info .km-toast-label {
+  color: var(--km-fg-muted);
+}
+
+.km-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: color-mix(in oklab, #171717 42%, transparent);
+}
+
+.km-modal {
+  width: min(40rem, 100%);
+  max-height: min(90vh, 52rem);
+  overflow: auto;
+  border-radius: 1.25rem;
+  border: 1px solid var(--km-border);
+  background: var(--km-bg-elevated);
+  box-shadow: var(--km-shadow);
+  padding: 1.4rem 1.5rem;
+}
+
+.km-modal-wide {
+  width: min(56rem, 100%);
+}
+
+.km-modal-ask {
+  width: min(28rem, 100%);
+}
+
 @keyframes km-rise {
   from {
     opacity: 0;
@@ -517,6 +836,29 @@ a {
 
 .km-rise-delay {
   animation-delay: 90ms;
+}
+
+.km-order-wait {
+  display: grid;
+  justify-items: center;
+  gap: 0.7rem;
+  padding: 1.15rem 0.4rem 0.2rem;
+  text-align: center;
+}
+
+.km-spinner {
+  width: 2.15rem;
+  height: 2.15rem;
+  border-radius: 999px;
+  border: 3px solid color-mix(in oklab, var(--km-fg) 14%, transparent);
+  border-top-color: var(--km-fg);
+  animation: km-spin 0.75s linear infinite;
+}
+
+@keyframes km-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 640px) {

@@ -1,19 +1,12 @@
 import { NextResponse } from "next/server";
-import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, like, or, sql } from "drizzle-orm";
+import { isThemeId } from "@kaimi/themes";
 import { db } from "@/db";
-import { cdkPool, orders, storefronts } from "@/db/schema";
+import { agents, cdkPool, issuedCdks, orders, storefronts, storeOrders } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb, getAppConfig, getSetting, setSetting } from "@/lib/config";
-import { decryptSecret, encryptSecret, maskCode } from "@/lib/crypto";
-import {
-  countByStatus,
-  countUnused,
-  disableCode,
-  enableCode,
-  syncCdksFromUpstream,
-  syncPlansFromUpstream,
-  voidCode,
-} from "@/lib/inventory";
+import { decryptSecret, encryptSecret, hashLookupValue, maskCode } from "@/lib/crypto";
+import { countByStatus } from "@/lib/inventory";
 import {
   countInFlightRecharges,
   getStatusHistory,
@@ -22,9 +15,12 @@ import {
   pollRechargeIfNeeded,
   reconcileStuckLocks,
 } from "@/lib/orders";
-import { watchPurchaseOrder } from "@/lib/purchase-sync";
-import { getUpstreamClient } from "@/lib/upstream";
-import { UpstreamError } from "@kaimi/upstream";
+import { getDefaultCardplatformAccount } from "@/lib/cardplatform/config";
+import {
+  getPublicBaseUrl,
+  isPublicHttpUrl,
+  normalizePublicBaseUrl,
+} from "@/lib/public-url";
 
 async function guard() {
   try {
@@ -35,13 +31,32 @@ async function guard() {
   }
 }
 
-function publicBaseFromReq(req: Request) {
-  const env = process.env.KAIMI_PUBLIC_BASE_URL?.replace(/\/+$/, "");
-  if (env) return env;
-  const proto = req.headers.get("x-forwarded-proto") || "http";
-  const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost:3100";
-  return `${proto}://${host}`.replace(/\/+$/, "");
+async function mutateIssuedCdk(
+  id: number,
+  next: (current: typeof issuedCdks.$inferSelect) => {
+    status: string;
+    usedAt?: string | null;
+  },
+) {
+  const current = await db.query.issuedCdks.findFirst({
+    where: eq(issuedCdks.id, id),
+  });
+  if (!current) throw new Error("卡密不存在");
+  const patch = next(current);
+  if (patch.status === current.status && patch.usedAt === undefined) return current;
+  const now = new Date().toISOString();
+  const [updated] = await db
+    .update(issuedCdks)
+    .set({
+      status: patch.status,
+      usedAt: patch.usedAt === undefined ? current.usedAt : patch.usedAt,
+      updatedAt: now,
+    })
+    .where(eq(issuedCdks.id, id))
+    .returning();
+  return updated ?? current;
 }
+
 
 function maskKey(key: string) {
   const plain = decryptSecret(key);
@@ -70,12 +85,12 @@ export async function GET(req: Request) {
       limit: 12,
     });
     const inflightCount = await countInFlightRecharges();
+    const cardAccount = await getDefaultCardplatformAccount();
     return NextResponse.json({
       setupCompleted: cfg.setupCompleted,
       paymentMode: cfg.paymentMode,
-      upstreamBaseUrl: cfg.upstreamBaseUrl,
-      hasUpstreamKey: Boolean(cfg.upstreamApiKey),
-      hasWebhookSecret: Boolean(cfg.webhookSecret),
+      hasCardplatform: Boolean(cardAccount),
+      cardplatformSiteBase: cardAccount?.siteBase || "",
       unusedStock: stock.unused ?? 0,
       lockedCount: stock.locked ?? 0,
       inflightCount,
@@ -181,44 +196,72 @@ export async function GET(req: Request) {
     const page = Math.max(1, Number(searchParams.get("page") || "1") || 1);
     const pageSize = Math.min(100, Math.max(1, Number(searchParams.get("page_size") || "20") || 20));
     const conditions = [];
-    if (status) conditions.push(eq(cdkPool.status, status));
-    if (q) conditions.push(like(cdkPool.code, `%${q}%`));
+    if (status) conditions.push(eq(issuedCdks.status, status));
+    if (q) {
+      conditions.push(
+        or(
+          like(storeOrders.orderNo, `%${q}%`),
+          like(issuedCdks.planKey, `%${q}%`),
+          like(issuedCdks.codePrefix, `%${q}%`),
+          eq(issuedCdks.codeHash, hashLookupValue(q.toUpperCase())),
+        ),
+      );
+    }
     const where = conditions.length ? and(...conditions) : undefined;
 
     const [{ total }] = await db
       .select({ total: sql<number>`count(*)` })
-      .from(cdkPool)
+      .from(issuedCdks)
+      .innerJoin(storeOrders, eq(storeOrders.id, issuedCdks.orderId))
       .where(where);
 
-    const list = await db.query.cdkPool.findMany({
-      where,
-      orderBy: [desc(cdkPool.id)],
-      limit: pageSize,
-      offset: (page - 1) * pageSize,
-    });
+    const list = await db
+      .select({
+        id: issuedCdks.id,
+        planKey: issuedCdks.planKey,
+        status: issuedCdks.status,
+        codeEncrypted: issuedCdks.codeEncrypted,
+        orderId: issuedCdks.orderId,
+        orderNo: storeOrders.orderNo,
+        agentName: agents.displayName,
+        issuedAt: issuedCdks.issuedAt,
+        usedAt: issuedCdks.usedAt,
+        updatedAt: issuedCdks.updatedAt,
+      })
+      .from(issuedCdks)
+      .innerJoin(storeOrders, eq(storeOrders.id, issuedCdks.orderId))
+      .innerJoin(agents, eq(agents.id, issuedCdks.agentId))
+      .where(where)
+      .orderBy(desc(issuedCdks.id))
+      .limit(pageSize)
+      .offset((page - 1) * pageSize);
+
     return NextResponse.json({
       list: list.map((c) => ({
         id: c.id,
         planKey: c.planKey,
         status: c.status,
-        codeMasked: maskCode(c.code),
+        codeMasked: maskCode(decryptSecret(c.codeEncrypted)),
         orderId: c.orderId,
-        source: c.source,
-        lockedAt: c.lockedAt,
-        soldAt: c.soldAt,
+        orderNo: c.orderNo,
+        agentName: c.agentName,
+        source: "shop",
+        issuedAt: c.issuedAt,
         usedAt: c.usedAt,
         updatedAt: c.updatedAt,
       })),
       page,
       page_size: pageSize,
       total: Number(total) || 0,
-      unused: await countUnused(),
     });
   }
 
   if (section === "integration") {
     const cfg = await getAppConfig();
-    const publicBase = (await getSetting("public_base_url")) || publicBaseFromReq(req);
+    const storedPublicBase = normalizePublicBaseUrl(
+      await getSetting("public_base_url"),
+    );
+    const publicBase = storedPublicBase || (await getPublicBaseUrl(req));
     const syncIntervalMinutes = Number(await getSetting("sync_interval_minutes", "15")) || 0;
     const syncLastAt = await getSetting("sync_last_at", "");
     const syncLastRaw = await getSetting("sync_last_result", "");
@@ -231,19 +274,13 @@ export async function GET(req: Request) {
     } catch {
       syncLastResult = "";
     }
+    const cardAccount = await getDefaultCardplatformAccount();
     return NextResponse.json({
-      upstreamBaseUrl: cfg.upstreamBaseUrl,
-      apiKeyHint: maskKey(cfg.upstreamApiKey),
-      apiKeyConfigured: Boolean(cfg.upstreamApiKey),
-      webhookSecretHint: maskKey(cfg.webhookSecret),
-      webhookSecretConfigured: Boolean(cfg.webhookSecret),
       publicBaseUrl: publicBase.replace(/\/+$/, ""),
-      webhookCallbackUrl: `${publicBase.replace(/\/+$/, "")}/api/webhook`,
-      agentApiBase: cfg.upstreamBaseUrl
-        ? `${cfg.upstreamBaseUrl.replace(/\/+$/, "")}/api/v1/agent`
-        : "",
       setupCompleted: cfg.setupCompleted,
       paymentMode: "manual",
+      hasCardplatform: Boolean(cardAccount),
+      cardplatformSiteBase: cardAccount?.siteBase || "",
       syncIntervalMinutes,
       syncLastAt,
       syncLastResult,
@@ -254,80 +291,19 @@ export async function GET(req: Request) {
     });
   }
 
-  if (section === "purchase") {
-    try {
-      const client = await getUpstreamClient();
-      const page = Math.max(1, Number(searchParams.get("page") || "1") || 1);
-      const data = await client.listOrders({ page, page_size: 20 });
-      const plans = await client.fetchPlans().catch(() => []);
-      const { getPurchaseImportLast } = await import("@/lib/purchase-sync");
-      return NextResponse.json({
-        ok: true,
-        list: data.list || [],
-        total: data.total || 0,
-        page: data.page || page,
-        plans,
-        lastImport: await getPurchaseImportLast(),
-      });
-    } catch (err) {
-      return NextResponse.json(
-        { ok: false, error: err instanceof Error ? err.message : "拉取进货订单失败", list: [], plans: [] },
-        { status: 502 },
-      );
-    }
-  }
-
-  if (section === "deliveries") {
-    try {
-      const client = await getUpstreamClient();
-      const data = await client.listWebhookDeliveries({ page: 1, page_size: 30 });
-      return NextResponse.json({ ok: true, list: data.list || [], total: data.total || 0 });
-    } catch (err) {
-      return NextResponse.json(
-        { ok: false, error: err instanceof Error ? err.message : "拉取投递失败", list: [] },
-        { status: 502 },
-      );
-    }
-  }
-
-  if (section === "records") {
-    try {
-      const client = await getUpstreamClient();
-      const q = searchParams.get("q")?.trim() || "";
-      const data = await client.listRecords({
-        email: q.includes("@") ? q : undefined,
-        cdk: q && !q.includes("@") ? q : undefined,
-        page: 1,
-        page_size: 30,
-      });
-      return NextResponse.json({ ok: true, list: data.list || [], total: data.total || 0 });
-    } catch (err) {
-      return NextResponse.json(
-        { ok: false, error: err instanceof Error ? err.message : "拉取 records 失败", list: [] },
-        { status: 502 },
-      );
-    }
-  }
-
   if (section === "appearance" || section === "storefronts") {
     const list = await db.query.storefronts.findMany();
     const siteTheme = await getSetting("site_theme", "snow");
     const siteName = await getSetting("site_name", "Kaimi");
-    const buyCdkUrl = await getSetting("buy_cdk_url", "");
     const shopEnabled = (await getSetting("shop_enabled", "0")) === "1";
-    return NextResponse.json({ list, siteTheme, siteName, buyCdkUrl, shopEnabled });
+    return NextResponse.json({ list, siteTheme, siteName, shopEnabled });
   }
 
   if (section === "plans") {
-    try {
-      const client = await getUpstreamClient();
-      const list = await client.fetchPlans();
-      return NextResponse.json({ list, ok: true });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "拉取套餐失败";
-      const code = err instanceof UpstreamError ? err.errorCode : undefined;
-      return NextResponse.json({ error: message, error_code: code, ok: false }, { status: 502 });
-    }
+    return NextResponse.json(
+      { error: "请到「接入卡台」同步卡台套餐", ok: false },
+      { status: 410 },
+    );
   }
 
   return NextResponse.json({ error: "unknown section" }, { status: 400 });
@@ -342,17 +318,17 @@ export async function POST(req: Request) {
   const action = String(body.action || "");
 
   if (action === "save_integration" || action === "save_settings") {
-    if (body.upstreamBaseUrl) {
-      await setSetting("upstream_base_url", String(body.upstreamBaseUrl).replace(/\/+$/, ""));
-    }
-    if (body.upstreamApiKey) {
-      await setSetting("upstream_api_key", encryptSecret(String(body.upstreamApiKey).trim()));
-    }
-    if (body.webhookSecret) {
-      await setSetting("webhook_secret", encryptSecret(String(body.webhookSecret).trim()));
-    }
-    if (body.publicBaseUrl) {
-      await setSetting("public_base_url", String(body.publicBaseUrl).replace(/\/+$/, ""));
+    if (body.publicBaseUrl !== undefined) {
+      const publicBaseUrl = normalizePublicBaseUrl(String(body.publicBaseUrl || ""));
+      if (publicBaseUrl && !isPublicHttpUrl(publicBaseUrl)) {
+        return NextResponse.json(
+          { error: "本站公网地址不能是 localhost，易支付无法回调本地地址" },
+          { status: 400 },
+        );
+      }
+      if (publicBaseUrl) {
+        await setSetting("public_base_url", publicBaseUrl);
+      }
     }
     if (body.paymentMode) {
       await setSetting("payment_mode", "manual");
@@ -374,42 +350,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  if (action === "test_connection" || action === "ping") {
-    try {
-      const client = await getUpstreamClient();
-      const list = await client.fetchPlans();
-      return NextResponse.json({
-        ok: true,
-        message: `连通成功，可售套餐 ${list.length} 个`,
-        plans: list.map((p) => ({
-          key: p.key,
-          name: p.label || p.name || p.key,
-          price_yuan: p.price_yuan,
-        })),
-      });
-    } catch (err) {
-      return NextResponse.json(
-        {
-          ok: false,
-          message: err instanceof Error ? err.message : "连通失败",
-          error_code: err instanceof UpstreamError ? err.errorCode : undefined,
-        },
-        { status: 502 },
-      );
-    }
-  }
-
-  if (action === "sync_stock") {
-    try {
-      const result = await syncCdksFromUpstream();
-      const locks = await reconcileStuckLocks();
-      return NextResponse.json({ ok: true, ...result, locks });
-    } catch (err) {
-      return NextResponse.json(
-        { ok: false, error: err instanceof Error ? err.message : "同步失败" },
-        { status: 502 },
-      );
-    }
+  if (action === "test_connection" || action === "ping" || action === "sync_stock") {
+    return NextResponse.json(
+      { ok: false, error: "旧 danewcdk 上游已移除，请到「接入卡台」测试连接并同步套餐" },
+      { status: 410 },
+    );
   }
 
   if (action === "reconcile_locks") {
@@ -425,20 +370,22 @@ export async function POST(req: Request) {
   }
 
   if (action === "sync_plans") {
-    try {
-      const result = await syncPlansFromUpstream();
-      return NextResponse.json({ ok: true, ...result });
-    } catch (err) {
-      return NextResponse.json(
-        { ok: false, error: err instanceof Error ? err.message : "同步失败" },
-        { status: 502 },
-      );
-    }
+    return NextResponse.json(
+      { ok: false, error: "请使用「接入卡台」里的测试连接并同步套餐" },
+      { status: 410 },
+    );
   }
 
   if (action === "void_cdk") {
     try {
-      const row = await voidCode(Number(body.id));
+      const row = await mutateIssuedCdk(Number(body.id), (current) => {
+        if (current.status === "used") return current;
+        if (current.status === "disabled") {
+          throw new Error("已禁用的卡密请先启用再核销");
+        }
+        const now = new Date().toISOString();
+        return { status: "used", usedAt: now };
+      });
       return NextResponse.json({ ok: true, status: row.status });
     } catch (err) {
       return NextResponse.json(
@@ -450,7 +397,10 @@ export async function POST(req: Request) {
 
   if (action === "disable_cdk") {
     try {
-      const row = await disableCode(Number(body.id));
+      const row = await mutateIssuedCdk(Number(body.id), (current) => {
+        if (current.status === "used") throw new Error("已核销卡密不能禁用");
+        return { status: "disabled" };
+      });
       return NextResponse.json({ ok: true, status: row.status });
     } catch (err) {
       return NextResponse.json(
@@ -461,9 +411,15 @@ export async function POST(req: Request) {
   }
 
   if (action === "reveal_cdk") {
-    const row = await db.query.cdkPool.findFirst({ where: eq(cdkPool.id, Number(body.id)) });
+    const row = await db.query.issuedCdks.findFirst({
+      where: eq(issuedCdks.id, Number(body.id)),
+    });
     if (!row) return NextResponse.json({ error: "卡密不存在" }, { status: 404 });
-    return NextResponse.json({ ok: true, id: row.id, code: row.code });
+    return NextResponse.json({
+      ok: true,
+      id: row.id,
+      code: decryptSecret(row.codeEncrypted),
+    });
   }
 
   if (action === "poll_order") {
@@ -507,53 +463,20 @@ export async function POST(req: Request) {
     }
   }
 
-  if (action === "create_purchase") {
-    try {
-      const client = await getUpstreamClient();
-      const plan = String(body.plan || "").trim();
-      const count = Math.max(1, Math.min(200, Math.floor(Number(body.count) || 1)));
-      const payType = body.payType === "wxpay" ? "wxpay" : "alipay";
-      if (!plan) return NextResponse.json({ error: "请选择套餐" }, { status: 400 });
-      const data = await client.createOrder({ plan, count, pay_type: payType });
-      if (data.order?.order_no) await watchPurchaseOrder(data.order.order_no);
-      return NextResponse.json({
-        ok: true,
-        order: data.order,
-        pay_url: data.pay_url,
-        message: `进货单 ${data.order?.order_no || ""} 已创建`,
-      });
-    } catch (err) {
-      return NextResponse.json(
-        { ok: false, error: err instanceof Error ? err.message : "进货下单失败" },
-        { status: 502 },
-      );
-    }
+  if (action === "create_purchase" || action === "repay_purchase") {
+    return NextResponse.json(
+      { error: "即时发卡模式已关闭主站进货，请到商务配置使用卡台即时发码" },
+      { status: 409 },
+    );
   }
 
-  if (action === "repay_purchase") {
-    try {
-      const client = await getUpstreamClient();
-      const orderNo = String(body.orderNo || "").trim();
-      if (!orderNo) return NextResponse.json({ error: "缺少进货单号" }, { status: 400 });
-      const data = await client.repayOrder(orderNo);
-      await watchPurchaseOrder(orderNo);
-      return NextResponse.json({
-        ok: true,
-        order: data.order,
-        pay_url: data.pay_url,
-        message: "已重新拉起支付",
-      });
-    } catch (err) {
-      return NextResponse.json(
-        { ok: false, error: err instanceof Error ? err.message : "重新支付失败" },
-        { status: 502 },
-      );
-    }
-  }
 
   if (action === "enable_cdk") {
     try {
-      const row = await enableCode(Number(body.id));
+      const row = await mutateIssuedCdk(Number(body.id), (current) => {
+        if (current.status !== "disabled") throw new Error("仅已禁用卡密可启用");
+        return { status: "unused" };
+      });
       return NextResponse.json({ ok: true, status: row.status });
     } catch (err) {
       return NextResponse.json(
@@ -566,12 +489,15 @@ export async function POST(req: Request) {
   if (action === "save_appearance" || action === "save_storefront") {
     // Site-wide brand/theme (admin 整站外观). Do not overwrite when saving a storefront card.
     if (!body.id) {
-      if (body.siteTheme) await setSetting("site_theme", String(body.siteTheme));
+      if (body.siteTheme) {
+        const theme = String(body.siteTheme);
+        if (!isThemeId(theme)) {
+          return NextResponse.json({ error: "主题不存在" }, { status: 400 });
+        }
+        await setSetting("site_theme", theme);
+      }
       if (body.siteName !== undefined && body.siteName !== null) {
         await setSetting("site_name", String(body.siteName));
-      }
-      if (body.buyCdkUrl !== undefined && body.buyCdkUrl !== null) {
-        await setSetting("buy_cdk_url", String(body.buyCdkUrl).trim());
       }
       if (body.shopEnabled !== undefined) {
         await setSetting("shop_enabled", body.shopEnabled ? "1" : "0");

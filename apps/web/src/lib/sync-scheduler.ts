@@ -1,19 +1,25 @@
-import { getAppConfig, getSetting, setSetting } from "@/lib/config";
-import { syncCdksFromUpstream, syncPlansFromUpstream } from "@/lib/inventory";
+import { getSetting, setSetting } from "@/lib/config";
 import { pollInFlightOrders, reconcileStuckLocks } from "@/lib/orders";
-import { pollPurchasesAndImport } from "@/lib/purchase-sync";
+import { retryPendingStoreOrders } from "@/lib/fulfillment/fulfill-store-order";
+import { reconcilePendingPaymentFees } from "@/lib/payments/reconcile";
+import { processBackgroundJobs } from "@/lib/background-jobs";
+import { sanitizeLog } from "@/lib/log";
+import { refreshOpsHealth } from "@/lib/ops-health";
+import { syncEnabledAccountProducts } from "@/lib/cardplatform/products";
+import { reconcileIssuedCdkStatuses } from "@/lib/cardplatform/reconcile-issued";
 
 const DEFAULT_MINUTES = 15;
-const PURCHASE_INTERVAL_MS = 30_000;
+const TICK_INTERVAL_MS = 30_000;
 
 type SchedulerState = {
   started: boolean;
-  running: boolean;
   tickRunning: boolean;
-  lastRunMs: number;
-  lastPurchaseMs: number;
   lastInflightMs: number;
+  lastProductSyncMs: number;
+  lastIssuedReconcileMs?: number;
 };
+
+const ISSUED_RECONCILE_INTERVAL_MS = 120_000;
 
 const schedulerGlobal = globalThis as typeof globalThis & {
   __kaimiSyncSchedulerState?: SchedulerState;
@@ -22,11 +28,9 @@ const state =
   schedulerGlobal.__kaimiSyncSchedulerState ??
   (schedulerGlobal.__kaimiSyncSchedulerState = {
     started: false,
-    running: false,
     tickRunning: false,
-    lastRunMs: 0,
-    lastPurchaseMs: 0,
     lastInflightMs: 0,
+    lastProductSyncMs: 0,
   });
 
 export async function getSyncIntervalMinutes() {
@@ -37,43 +41,13 @@ export async function getSyncIntervalMinutes() {
 }
 
 export async function runScheduledSync(reason = "timer") {
-  if (state.running) return { skipped: true as const, reason: "busy" };
-  state.running = true;
-  try {
-    const cfg = await getAppConfig();
-    if (!cfg.upstreamBaseUrl || !cfg.upstreamApiKey) {
-      return { skipped: true as const, reason: "upstream_not_configured" };
-    }
-
-    const plans = await syncPlansFromUpstream().catch((err) => {
-      console.error("[kaimi-sync] plans failed", reason, err);
-      return { upserted: 0, total: 0, error: String(err) };
-    });
-    const stock = await syncCdksFromUpstream().catch((err) => {
-      console.error("[kaimi-sync] stock failed", reason, err);
-      return { imported: 0, error: String(err) };
-    });
-
-    state.lastRunMs = Date.now();
-    const at = new Date(state.lastRunMs).toISOString();
-    await setSetting("sync_last_at", at);
-    await setSetting(
-      "sync_last_result",
-      JSON.stringify({
-        at,
-        reason,
-        plans,
-        stock,
-      }),
-    );
-
-    console.log(
-      `[kaimi-sync] ${reason}: plans=${(plans as { upserted?: number }).upserted ?? 0} stock_imported=${(stock as { imported?: number }).imported ?? 0} stock_disabled=${(stock as { disabled?: number }).disabled ?? 0}`,
-    );
-    return { ok: true as const, plans, stock, at };
-  } finally {
-    state.running = false;
-  }
+  const at = new Date().toISOString();
+  await setSetting("sync_last_at", at);
+  await setSetting(
+    "sync_last_result",
+    JSON.stringify({ at, reason, note: "cardplatform_only" }),
+  );
+  return { ok: true as const, at };
 }
 
 async function maybeTick() {
@@ -83,6 +57,21 @@ async function maybeTick() {
     const now = Date.now();
     if (now - state.lastInflightMs >= 60_000 || state.lastInflightMs === 0) {
       state.lastInflightMs = now;
+      try {
+        const jobs = await processBackgroundJobs();
+        if (jobs.completed > 0 || jobs.failed > 0) {
+          console.log(
+            `[kaimi-sync] background jobs: completed=${jobs.completed} failed=${jobs.failed}`,
+          );
+        }
+      } catch (err) {
+        console.warn("[kaimi-sync] background jobs failed", sanitizeLog(err));
+      }
+      try {
+        await refreshOpsHealth();
+      } catch (err) {
+        console.warn("[kaimi-sync] ops health failed", sanitizeLog(err));
+      }
       try {
         const poll = await pollInFlightOrders();
         if (poll.checked > 0) {
@@ -96,36 +85,60 @@ async function maybeTick() {
       } catch (err) {
         console.warn("[kaimi-sync] reconcile locks failed", err);
       }
-    }
-
-    if (
-      now - state.lastPurchaseMs >= PURCHASE_INTERVAL_MS ||
-      state.lastPurchaseMs === 0
-    ) {
-      state.lastPurchaseMs = now;
       try {
-        const purchase = await pollPurchasesAndImport();
-        if ("ok" in purchase && purchase.ok) {
+        const fulfillment = await retryPendingStoreOrders();
+        if (fulfillment.checked > 0) {
           console.log(
-            `[kaimi-sync] purchase import: +${purchase.imported} restored=${purchase.restored} orders=${purchase.orders}`,
+            `[kaimi-sync] store fulfillment: checked=${fulfillment.checked} delivered=${fulfillment.delivered}`,
           );
         }
       } catch (err) {
-        console.warn("[kaimi-sync] purchase import failed", err);
+        console.warn("[kaimi-sync] store fulfillment failed", err);
+      }
+      try {
+        const fees = await reconcilePendingPaymentFees();
+        if (fees.checked > 0) {
+          console.log(
+            `[kaimi-sync] payment fees: checked=${fees.checked} reconciled=${fees.reconciled}`,
+          );
+        }
+      } catch (err) {
+        console.warn("[kaimi-sync] payment fee reconcile failed", err);
+      }
+      const lastReconcile = state.lastIssuedReconcileMs ?? 0;
+      if (now - lastReconcile >= ISSUED_RECONCILE_INTERVAL_MS || lastReconcile === 0) {
+        state.lastIssuedReconcileMs = now;
+        try {
+          const results = await reconcileIssuedCdkStatuses();
+          const updated = results.reduce((sum, item) => sum + item.updated, 0);
+          const failed = results.filter((item) => item.error).length;
+          if (updated > 0 || failed > 0) {
+            console.log(
+              `[kaimi-sync] issued cdk reconcile: updated=${updated} failed=${failed}`,
+            );
+          }
+        } catch (err) {
+          console.warn("[kaimi-sync] issued cdk reconcile failed", sanitizeLog(err));
+        }
+      }
+      if (now - state.lastProductSyncMs >= 180_000 || state.lastProductSyncMs === 0) {
+        state.lastProductSyncMs = now;
+        try {
+          const synced = await syncEnabledAccountProducts();
+          const ok = synced.filter((item) => !("error" in item)).length;
+          console.log(
+            `[kaimi-sync] card products: accounts=${synced.length} ok=${ok}`,
+          );
+        } catch (err) {
+          console.warn("[kaimi-sync] card product sync failed", sanitizeLog(err));
+        }
       }
     }
-
-    const minutes = await getSyncIntervalMinutes();
-    if (minutes <= 0) return;
-    const due = Date.now() - state.lastRunMs >= minutes * 60_000;
-    if (!due && state.lastRunMs > 0) return;
-    await runScheduledSync(state.lastRunMs === 0 ? "boot" : "timer");
   } finally {
     state.tickRunning = false;
   }
 }
 
-/** Start background sync loop once per process. Setting sync_interval_minutes=0 disables. */
 export function ensureSyncScheduler() {
   if (state.started) return;
   state.started = true;
@@ -135,7 +148,7 @@ export function ensureSyncScheduler() {
     await maybeTick();
     const handle = setInterval(() => {
       void maybeTick();
-    }, PURCHASE_INTERVAL_MS);
+    }, TICK_INTERVAL_MS);
     try {
       handle.unref?.();
     } catch {
