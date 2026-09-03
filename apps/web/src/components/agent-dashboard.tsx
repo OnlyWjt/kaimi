@@ -66,7 +66,13 @@ type AgentSettlement = {
   paidAt: string | null;
 };
 
-export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfile }) {
+export function AgentDashboard({
+  initialProfile,
+  redeemUrl,
+}: {
+  initialProfile: AgentProfile;
+  redeemUrl: string;
+}) {
   const router = useRouter();
   const [slug, setSlug] = useState(initialProfile.currentSlug);
   const [savedSlug, setSavedSlug] = useState(initialProfile.currentSlug);
@@ -317,6 +323,9 @@ export function AgentDashboard({ initialProfile }: { initialProfile: AgentProfil
         <div className="flex flex-wrap gap-2">
           <a className="km-btn" href={`/s/${savedSlug}`} target="_blank" rel="noreferrer">
             打开店铺
+          </a>
+          <a className="km-btn km-btn-ghost" href={redeemUrl} target="_blank" rel="noreferrer">
+            兑换卡密
           </a>
           <a className="km-btn km-btn-ghost" href="/agent/guide">
             使用说明

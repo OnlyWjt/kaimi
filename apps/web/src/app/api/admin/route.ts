@@ -3,6 +3,7 @@ import { and, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { isThemeId } from "@kaimi/themes";
 import { db } from "@/db";
 import { agents, cdkPool, issuedCdks, orders, storefronts, storeOrders } from "@/db/schema";
+import { getAgentRedeemUrl, normalizeAgentRedeemUrl } from "@/lib/agent-redeem";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb, getAppConfig, getSetting, setSetting } from "@/lib/config";
 import { decryptSecret, encryptSecret, hashLookupValue, maskCode } from "@/lib/crypto";
@@ -299,6 +300,10 @@ export async function GET(req: Request) {
     return NextResponse.json({ list, siteTheme, siteName, shopEnabled });
   }
 
+  if (section === "agent_portal") {
+    return NextResponse.json({ redeemUrl: await getAgentRedeemUrl() });
+  }
+
   if (section === "plans") {
     return NextResponse.json(
       { error: "请到「接入卡台」同步卡台套餐", ok: false },
@@ -348,6 +353,18 @@ export async function POST(req: Request) {
     }
     await setSetting("setup_completed", "1");
     return NextResponse.json({ ok: true });
+  }
+
+  if (action === "save_agent_portal") {
+    const redeemUrl = normalizeAgentRedeemUrl(String(body.redeemUrl || ""));
+    if (!redeemUrl) {
+      return NextResponse.json(
+        { error: "兑换页面地址要填 http:// 或 https:// 开头的完整网址" },
+        { status: 400 },
+      );
+    }
+    await setSetting("agent_redeem_url", redeemUrl);
+    return NextResponse.json({ ok: true, redeemUrl });
   }
 
   if (action === "test_connection" || action === "ping" || action === "sync_stock") {

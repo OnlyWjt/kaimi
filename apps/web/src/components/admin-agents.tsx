@@ -45,6 +45,7 @@ export function AdminAgents() {
   const [agentPlans, setAgentPlans] = useState<AgentPlanRow[]>([]);
   const [overrideDraft, setOverrideDraft] = useState<Record<string, string>>({});
   const [plansLoading, setPlansLoading] = useState(false);
+  const [redeemUrl, setRedeemUrl] = useState("");
   const [form, setForm] = useState({
     username: "",
     password: "",
@@ -64,19 +65,22 @@ export function AdminAgents() {
   async function load() {
     setLoading(true);
     try {
-      const [agentsRes, plansRes] = await Promise.all([
+      const [agentsRes, plansRes, portalRes] = await Promise.all([
         fetch("/api/admin/agents", { cache: "no-store" }),
         fetch("/api/admin/plans", { cache: "no-store" }),
+        fetch("/api/admin?section=agent_portal", { cache: "no-store" }),
       ]);
-      const [agentsData, plansData] = await Promise.all([
+      const [agentsData, plansData, portalData] = await Promise.all([
         agentsRes.json(),
         plansRes.json(),
+        portalRes.json(),
       ]);
       if (!agentsRes.ok) throw new Error(agentsData.error || "代理列表加载失败");
       if (!plansRes.ok) throw new Error(plansData.error || "套餐加载失败");
       const nextCatalog = (plansData.list || []) as CatalogPlan[];
       setList(agentsData.list || []);
       setCatalog(nextCatalog);
+      setRedeemUrl(String(portalData.redeemUrl || ""));
       setCostDraft(
         Object.fromEntries(
           nextCatalog.map((item) => [
@@ -198,6 +202,32 @@ export function AdminAgents() {
       toast(`${agent.displayName} 的密码已重置，记得发给对方`);
     } catch (reason) {
       toast(reason instanceof Error ? reason.message : "密码重置失败", "err");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function saveRedeemUrl() {
+    setBusy("redeem-url");
+    try {
+      const response = await fetch("/api/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "save_agent_portal", redeemUrl }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "兑换页面地址保存失败",
+        );
+      }
+      setRedeemUrl(String(data.redeemUrl || redeemUrl));
+      toast("兑换页面地址已保存");
+    } catch (reason) {
+      toast(
+        reason instanceof Error ? reason.message : "兑换页面地址保存失败",
+        "err",
+      );
     } finally {
       setBusy("");
     }
@@ -343,6 +373,26 @@ export function AdminAgents() {
             </button>
           </div>
         </div>
+        <label className="block space-y-1 text-sm">
+          <span>兑换页面地址</span>
+          <input
+            className="km-input w-full"
+            placeholder="https://cdk.example.com/agent"
+            value={redeemUrl}
+            onChange={(event) => setRedeemUrl(event.target.value)}
+          />
+          <span className="block text-xs text-[var(--km-fg-muted)]">
+            代理后台的「兑换卡密」按钮跳这里。页面在卡台那边，换域名改这里就行。
+          </span>
+        </label>
+        <button
+          type="button"
+          className="km-btn"
+          disabled={Boolean(busy)}
+          onClick={() => void saveRedeemUrl()}
+        >
+          {busy === "redeem-url" ? "保存中…" : "保存兑换页面地址"}
+        </button>
       </section>
 
       <section className="km-panel space-y-4">

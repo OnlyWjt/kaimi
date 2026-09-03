@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { agents, users } from "@/db/schema";
 import { AgentDashboard } from "@/components/agent-dashboard";
+import { getAgentRedeemUrl } from "@/lib/agent-redeem";
 import { getSession } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { resolveThemeId } from "@/lib/storefront";
@@ -27,10 +28,11 @@ export default async function AgentPage() {
   if (!profile) redirect("/login");
 
   const themeId = resolveThemeId(profile.themeId);
+  const redeemUrl = await getAgentRedeemUrl();
   return (
     <main className="km-themed-page">
       <section className="km-shell py-10">
-        <AgentDashboard initialProfile={{ ...profile, themeId }} />
+        <AgentDashboard initialProfile={{ ...profile, themeId }} redeemUrl={redeemUrl} />
       </section>
     </main>
   );
