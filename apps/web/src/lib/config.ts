@@ -15,6 +15,11 @@ export async function bootDb() {
   assertRuntimeSecrets();
   if (!bootPromise) {
     bootPromise = (async () => {
+      // WAL 下读不会被写阻塞。后台调度器每 30 秒就要写一次库（健康快照、任务锁、订单更新），
+      // 默认的 rollback journal 模式会让这些写把并发的读挡住。
+      await client.execute("PRAGMA journal_mode = WAL");
+      // 真的撞上锁时等一会儿，而不是立刻抛 SQLITE_BUSY。
+      await client.execute("PRAGMA busy_timeout = 5000");
       await client.execute("PRAGMA foreign_keys = ON");
       await ensureSchema();
       booted = true;

@@ -44,6 +44,19 @@ export async function getOpsHealth(): Promise<OpsHealth | null> {
   }
 }
 
+/**
+ * 给后台读接口用：直接吃缓存。
+ *
+ * 后台调度器每 30 秒会调一次 refreshOpsHealth()，缓存一直是新的；读接口再去打一次卡台
+ * 余额接口，只会让管理员每次进页面都干等一个上游往返。要立刻刷新有 POST refresh。
+ */
+export async function getOpsHealthCached(): Promise<OpsHealth> {
+  const current = await getOpsHealth();
+  if (current) return current;
+  // 没有缓存（刚启动、调度器还没跑过）才现取一次。
+  return refreshOpsHealth();
+}
+
 /** 关店的真实原因（余额、网关）是运营的事，买家只会看到这句。 */
 const CLOSED_PUBLIC_REASON = "店铺暂时停止售卖，请稍后再来或联系店主。";
 

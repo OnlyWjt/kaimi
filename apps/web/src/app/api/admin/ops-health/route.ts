@@ -3,7 +3,11 @@ import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
-import { refreshOpsHealth, setManualSalesClosed } from "@/lib/ops-health";
+import {
+  getOpsHealthCached,
+  refreshOpsHealth,
+  setManualSalesClosed,
+} from "@/lib/ops-health";
 
 const schema = z.object({
   action: z.enum(["refresh", "close_sales", "open_sales"]),
@@ -22,7 +26,7 @@ export async function GET() {
   const { denied } = await authorize();
   if (denied) return denied;
   await bootDb();
-  return NextResponse.json({ health: await refreshOpsHealth() });
+  return NextResponse.json({ health: await getOpsHealthCached() });
 }
 
 export async function POST(req: Request) {
