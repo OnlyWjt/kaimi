@@ -3,7 +3,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { toast } from "@/components/toast";
+import { readApiJson } from "@/lib/http-error";
 import { yuanTextFromCents } from "@/lib/money";
+import {
+  looksLikeStoreQueryToken,
+  pickStoreQueryToken,
+} from "@/lib/store-order-access";
 
 type StoreOrderResult = {
   orderNo: string;
@@ -15,6 +20,7 @@ type StoreOrderResult = {
   code: string | null;
   rechargePath?: string;
   rechargeUrl?: string;
+  queryToken?: string;
 };
 
 const PAY_LABEL: Record<string, string> = {
@@ -45,31 +51,31 @@ export function StoreOrderResultPanel({
 
   useEffect(() => {
     const storageKey = `kaimi-order-token:${orderNo}`;
-    const resolvedToken = token || window.sessionStorage.getItem(storageKey) || "";
-    if (!resolvedToken) {
-      setError("缺少订单查询凭证，请从支付完成页面重新进入");
-      return;
-    }
-    window.sessionStorage.setItem(storageKey, resolvedToken);
-    if (token) {
-      window.history.replaceState(
-        null,
-        "",
-        `${window.location.pathname}${window.location.hash}`,
-      );
+    const search = new URLSearchParams(window.location.search);
+    const resolvedToken =
+      pickStoreQueryToken(search) ||
+      (looksLikeStoreQueryToken(token) ? token : "") ||
+      window.sessionStorage.getItem(storageKey) ||
+      "";
+    if (resolvedToken) {
+      search.set("qt", resolvedToken);
+      window.sessionStorage.setItem(storageKey, resolvedToken);
     }
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let failures = 0;
     async function load() {
       try {
-        const response = await fetch(
-          `/api/public/store-orders/${encodeURIComponent(orderNo)}?token=${encodeURIComponent(resolvedToken)}`,
-          { cache: "no-store" },
+        const data = await readApiJson<StoreOrderResult>(
+          await fetch(
+            `/api/public/store-orders/${encodeURIComponent(orderNo)}?${search.toString()}`,
+            { cache: "no-store" },
+          ),
         );
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "订单查询失败");
         if (stopped) return;
+        if (data.queryToken && looksLikeStoreQueryToken(data.queryToken)) {
+          window.sessionStorage.setItem(storageKey, data.queryToken);
+        }
         setOrder(data);
         setError("");
         failures = 0;
@@ -84,7 +90,15 @@ export function StoreOrderResultPanel({
         }
       } catch (reason) {
         if (!stopped) {
-          setError(reason instanceof Error ? reason.message : "订单查询失败");
+          const message =
+            reason instanceof Error ? reason.message : "订单查询失败";
+          setError(message);
+          if (
+            message.includes("不存在") ||
+            message.includes("凭证")
+          ) {
+            return;
+          }
           failures += 1;
           timer = setTimeout(load, Math.min(3000 * failures, 15_000));
         }

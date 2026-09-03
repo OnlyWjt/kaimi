@@ -214,7 +214,21 @@ export async function queryEpayOrder(
   } catch {
     throw new Error("易支付查单网络请求失败");
   }
-  const raw = (await response.json()) as Record<string, unknown>;
+  const text = await response.text();
+  let raw: Record<string, unknown> = {};
+  if (text.trim()) {
+    try {
+      raw = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      throw new Error(
+        text.includes("<")
+          ? `易支付查单返回了网页而不是 JSON（HTTP ${response.status}）`
+          : `易支付查单响应无效（HTTP ${response.status}）`,
+      );
+    }
+  } else {
+    throw new Error(`易支付查单没有返回内容（HTTP ${response.status}）`);
+  }
   if (!response.ok || Number(raw.code) !== 1) {
     throw new Error(String(raw.msg || `易支付查单失败（HTTP ${response.status}）`));
   }

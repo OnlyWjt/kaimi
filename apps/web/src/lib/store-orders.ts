@@ -20,19 +20,15 @@ import {
   type PaymentChannel,
 } from "@/lib/payments/fees";
 import { assertStoreSalesOpen } from "@/lib/ops-health";
+import { getPublicBaseUrl } from "@/lib/public-url";
 
-function publicBaseFromRequest(req: Request) {
-  const env = process.env.KAIMI_PUBLIC_BASE_URL?.trim().replace(/\/+$/, "");
-  if (env) return env;
+async function publicBaseFromRequest(req: Request) {
+  const base = await getPublicBaseUrl(req);
+  if (base) return base;
   if (process.env.NODE_ENV === "production") {
     throw new Error("生产环境必须配置 KAIMI_PUBLIC_BASE_URL");
   }
-  const proto = req.headers.get("x-forwarded-proto") || "http";
-  const host =
-    req.headers.get("x-forwarded-host") ||
-    req.headers.get("host") ||
-    "localhost:3100";
-  return `${proto}://${host}`.replace(/\/+$/, "");
+  return "http://localhost:3100";
 }
 
 export async function createStoreOrder(input: {
@@ -110,7 +106,7 @@ export async function createStoreOrder(input: {
 
   const orderNo = newOrderNo("KS");
   const queryToken = crypto.randomBytes(24).toString("base64url");
-  const base = publicBaseFromRequest(input.request);
+  const base = await publicBaseFromRequest(input.request);
   const fulfillmentIdempotencyKey = `kaimi-order-${orderNo}`;
   const createdAt = new Date().toISOString();
   const [order] = await db
@@ -145,7 +141,7 @@ export async function createStoreOrder(input: {
     name: `CDK ${offer.name}`,
     moneyCents: offer.retailPriceCents,
     notifyUrl: `${base}/api/webhooks/epay`,
-    returnUrl: `${base}/shop/order/${orderNo}?token=${encodeURIComponent(queryToken)}`,
+    returnUrl: `${base}/shop/order/${orderNo}?qt=${encodeURIComponent(queryToken)}`,
     channel: input.channel,
     clientIp:
       input.request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||

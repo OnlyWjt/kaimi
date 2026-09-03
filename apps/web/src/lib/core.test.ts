@@ -15,6 +15,11 @@ import {
 import { buildEarningsWorkbook } from "./earnings-export";
 import { periodBoundary } from "./period";
 import {
+  epayParamsFromSearch,
+  looksLikeStoreQueryToken,
+  pickStoreQueryToken,
+} from "./store-order-access";
+import {
   CardplatformClient,
   filterSellablePlans,
   htmlOrInvalidResponse,
@@ -114,6 +119,22 @@ describe("epay signing", () => {
         params,
       ),
     ).toEqual({ ok: true });
+  });
+});
+
+describe("store order access", () => {
+  it("accepts kaimi query tokens and ignores payment gateway tokens", () => {
+    expect(looksLikeStoreQueryToken("abcdefghijklmnopqrstuvwx")).toBe(true);
+    expect(looksLikeStoreQueryToken("eyJhbGciOiJIUzI1NiJ9.abc")).toBe(false);
+    expect(looksLikeStoreQueryToken("short")).toBe(false);
+    const search = new URLSearchParams(
+      "token=not-a-kaimi-token&qt=abcdefghijklmnopqrstuvwx&out_trade_no=KS1&sign=abc",
+    );
+    expect(pickStoreQueryToken(search)).toBe("abcdefghijklmnopqrstuvwx");
+    expect(epayParamsFromSearch(search)).toEqual({
+      out_trade_no: "KS1",
+      sign: "abc",
+    });
   });
 });
 
