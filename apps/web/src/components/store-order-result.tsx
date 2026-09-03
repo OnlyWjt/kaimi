@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { toast } from "@/components/toast";
 import { copyText } from "@/lib/copy-text";
@@ -11,6 +11,12 @@ import {
   looksLikeStoreQueryToken,
   pickStoreQueryToken,
 } from "@/lib/store-order-access";
+import {
+  elapsedSeconds,
+  formatWaitLabel,
+  sessionWaitStorage,
+  waitAnchor,
+} from "@/lib/wait-clock";
 
 type StoreOrderResult = {
   orderNo: string;
@@ -25,22 +31,40 @@ type StoreOrderResult = {
   queryToken?: string;
 };
 
+function useWaitSeconds(orderNo: string) {
+  // 服务端渲染没有会话存储，锚点为 0，挂载后在 effect 里补上。
+  const [anchor, setAnchor] = useState(() => {
+    const storage = sessionWaitStorage();
+    return storage ? waitAnchor(orderNo, storage) : 0;
+  });
+  // 初始值直接由锚点算出。等计时器首次触发的话，重挂快于间隔就会一直显示 0 秒。
+  const [seconds, setSeconds] = useState(() => elapsedSeconds(anchor));
+
+  useEffect(() => {
+    let current = anchor;
+    if (!current) {
+      current = waitAnchor(orderNo, sessionWaitStorage());
+      setAnchor(current);
+    }
+    const tick = () => setSeconds(elapsedSeconds(current));
+    tick();
+    const timer = window.setInterval(tick, 500);
+    return () => window.clearInterval(timer);
+  }, [anchor, orderNo]);
+
+  return seconds;
+}
+
 function OrderWait({
+  orderNo,
   title,
   detail,
 }: {
+  orderNo: string;
   title: string;
   detail: string;
 }) {
-  const startedAt = useRef(Date.now());
-  const [seconds, setSeconds] = useState(0);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setSeconds(Math.max(0, Math.floor((Date.now() - startedAt.current) / 1000)));
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, []);
+  const seconds = useWaitSeconds(orderNo);
 
   return (
     <div className="km-order-wait" role="status" aria-live="polite">
@@ -50,7 +74,7 @@ function OrderWait({
         {detail}
       </p>
       <p className="text-xs text-[var(--km-fg-muted)]">
-        已等待 {seconds} 秒，请不要关闭本页
+        已等待 {formatWaitLabel(seconds)}，请不要关闭本页
       </p>
     </div>
   );
@@ -141,7 +165,11 @@ export function StoreOrderResultPanel({
   if (!order) {
     return (
       <div className="km-panel mx-auto max-w-[560px]">
-        <OrderWait title="正在确认订单" detail="支付完成后会自动开始生成卡密，请稍候。" />
+        <OrderWait
+          orderNo={orderNo}
+          title="正在确认订单"
+          detail="支付完成后会自动开始生成卡密，请稍候。"
+        />
       </div>
     );
   }
@@ -205,6 +233,7 @@ export function StoreOrderResultPanel({
         </p>
       ) : order.payStatus === "paid" ? (
         <OrderWait
+          orderNo={orderNo}
           title="正在生成卡密，请稍候"
           detail={
             order.message ||
