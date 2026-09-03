@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { isThemeId, type ThemeId } from "@kaimi/themes";
 import { db } from "@/db";
 import { storefronts } from "@/db/schema";
-import { bootDb, getSetting } from "@/lib/config";
+import { getSetting, getSettings } from "@/lib/config";
 
 export type SiteAppearance = {
   siteName: string;
@@ -17,12 +17,13 @@ export function resolveThemeId(value?: string | null): ThemeId {
 
 /** Site-wide brand + theme from admin 外观 (controls public pages). */
 export async function getSiteAppearance(): Promise<SiteAppearance> {
-  await bootDb();
-  const siteName = (await getSetting("site_name", "Kaimi")).trim() || "Kaimi";
-  const raw = await getSetting("site_theme", "snow");
-  const themeId = resolveThemeId(raw);
-  const shopEnabled = (await getSetting("shop_enabled", "0")) === "1";
-  return { siteName, themeId, shopEnabled };
+  // 每次页面渲染都会走到这里（布局和页面各一次），所以三个配置项一次读完。
+  const values = await getSettings(["site_name", "site_theme", "shop_enabled"]);
+  return {
+    siteName: (values.get("site_name") || "Kaimi").trim() || "Kaimi",
+    themeId: resolveThemeId(values.get("site_theme")),
+    shopEnabled: values.get("shop_enabled") === "1",
+  };
 }
 
 export async function isShopEnabled() {
@@ -30,7 +31,7 @@ export async function isShopEnabled() {
 }
 
 export async function getStorefront(kind: "shop" | "recharge") {
-  await bootDb();
+  // getSiteAppearance 内部已经 bootDb 过了。
   const appearance = await getSiteAppearance();
   const row = await db.query.storefronts.findFirst({
     where: eq(storefronts.kind, kind),
