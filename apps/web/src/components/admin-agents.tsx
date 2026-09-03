@@ -42,6 +42,7 @@ export function AdminAgents() {
   const [selectedAgent, setSelectedAgent] = useState<AgentRow | null>(null);
   const [agentPlans, setAgentPlans] = useState<AgentPlanRow[]>([]);
   const [overrideDraft, setOverrideDraft] = useState<Record<string, string>>({});
+  const [plansLoading, setPlansLoading] = useState(false);
   const [form, setForm] = useState({
     username: "",
     password: "",
@@ -93,6 +94,17 @@ export function AdminAgents() {
     void load();
   }, []);
 
+  useEffect(() => {
+    if (!selectedAgent && !createOpen) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      if (selectedAgent) closePlans();
+      else setCreateOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedAgent, createOpen]);
+
   async function createAgent() {
     setBusy("create");
     try {
@@ -143,28 +155,42 @@ export function AdminAgents() {
     await load();
   }
 
+  function closePlans() {
+    setSelectedAgent(null);
+    setAgentPlans([]);
+    setOverrideDraft({});
+    setPlansLoading(false);
+  }
+
   async function loadAgentPlans(agent: AgentRow) {
     setSelectedAgent(agent);
-    const response = await fetch(`/api/admin/agents/${agent.id}/plans`, {
-      cache: "no-store",
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      toast(data.error || "套餐加载失败", "err");
-      return;
+    setPlansLoading(true);
+    try {
+      const response = await fetch(`/api/admin/agents/${agent.id}/plans`, {
+        cache: "no-store",
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "套餐加载失败");
+      }
+      const rows = (data.list || []) as AgentPlanRow[];
+      setAgentPlans(rows);
+      setOverrideDraft(
+        Object.fromEntries(
+          rows.map((item) => [
+            item.planKey,
+            item.costOverrideCents == null
+              ? ""
+              : yuanTextFromCents(item.costOverrideCents),
+          ]),
+        ),
+      );
+    } catch (reason) {
+      toast(reason instanceof Error ? reason.message : "套餐加载失败", "err");
+      closePlans();
+    } finally {
+      setPlansLoading(false);
     }
-    const rows = (data.list || []) as AgentPlanRow[];
-    setAgentPlans(rows);
-    setOverrideDraft(
-      Object.fromEntries(
-        rows.map((item) => [
-          item.planKey,
-          item.costOverrideCents == null
-            ? ""
-            : yuanTextFromCents(item.costOverrideCents),
-        ]),
-      ),
-    );
   }
 
   async function saveDefaultPrices() {
@@ -427,84 +453,116 @@ export function AdminAgents() {
       </section>
 
       {selectedAgent ? (
-        <section className="km-panel space-y-4">
-          <div>
-            <h2 className="text-xl font-semibold">{selectedAgent.displayName} 的可售套餐</h2>
-            <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-              勾选后代理才能卖。成本留空则用上面的默认成本。零售价由代理自己在
-              <a className="mx-1 underline" href="/login">/login</a>
-              登录后改。
-            </p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-[var(--km-border)]">
-                  <th className="py-2 pr-3">允许销售</th>
-                  <th className="py-2 pr-3">套餐</th>
-                  <th className="py-2 pr-3">默认成本</th>
-                  <th className="py-2 pr-3">代理成本覆盖</th>
-                  <th className="py-2">当前零售价</th>
-                </tr>
-              </thead>
-              <tbody>
-                {agentPlans.map((plan) => (
-                  <tr key={plan.planKey} className="border-b border-[var(--km-border)]">
-                    <td className="py-2 pr-3">
-                      <input
-                        type="checkbox"
-                        checked={plan.enabled}
-                        onChange={(event) =>
-                          setAgentPlans((current) =>
-                            current.map((item) =>
-                              item.planKey === plan.planKey
-                                ? { ...item, enabled: event.target.checked }
-                                : item,
-                            ),
-                          )
-                        }
-                      />
-                    </td>
-                    <td className="py-2 pr-3">
-                      {plan.name}
-                      <span className="ml-2 font-mono text-xs text-[var(--km-fg-muted)]">
-                        {plan.planKey}
-                      </span>
-                    </td>
-                    <td className="py-2 pr-3">
-                      ¥{yuanTextFromCents(plan.globalCostPriceCents)}
-                    </td>
-                    <td className="py-2 pr-3">
-                      <input
-                        className="km-input w-28"
-                        inputMode="decimal"
-                        placeholder="留空用默认"
-                        value={overrideDraft[plan.planKey] ?? ""}
-                        onChange={(event) =>
-                          setOverrideDraft((current) => ({
-                            ...current,
-                            [plan.planKey]: event.target.value,
-                          }))
-                        }
-                      />
-                    </td>
-                    <td className="py-2">
-                      ¥{yuanTextFromCents(plan.retailPriceCents)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <button
-            type="button"
-            className="km-btn"
-            disabled={Boolean(busy)}
-            onClick={() => void saveAgentPlans()}
+        <div className="km-modal-backdrop" onClick={closePlans}>
+          <div
+            className="km-modal km-modal-wide"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-labelledby="agent-plans-title"
           >
-            {busy === "agent-plans" ? "保存中…" : "保存该代理套餐"}
-          </button>
-        </section>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 id="agent-plans-title" className="text-xl font-semibold">
+                  {selectedAgent.displayName} 的可售套餐
+                </h2>
+                <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
+                  勾选后代理才能卖。成本留空则用页面上的默认成本。零售价由代理自己在
+                  <a className="mx-1 underline" href="/login" target="_blank" rel="noreferrer">
+                    /login
+                  </a>
+                  登录后改。
+                </p>
+              </div>
+              <button type="button" className="km-btn km-btn-ghost" onClick={closePlans}>
+                关闭
+              </button>
+            </div>
+            {plansLoading ? (
+              <p className="mt-6 text-sm text-[var(--km-fg-muted)]">加载套餐…</p>
+            ) : (
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full min-w-[640px] text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-[var(--km-border)]">
+                      <th className="py-2 pr-3">允许销售</th>
+                      <th className="py-2 pr-3">套餐</th>
+                      <th className="py-2 pr-3">默认成本</th>
+                      <th className="py-2 pr-3">代理成本覆盖</th>
+                      <th className="py-2">当前零售价</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {agentPlans.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-[var(--km-fg-muted)]">
+                          还没有套餐，先同步卡台并保存默认价格。
+                        </td>
+                      </tr>
+                    ) : null}
+                    {agentPlans.map((plan) => (
+                      <tr key={plan.planKey} className="border-b border-[var(--km-border)]">
+                        <td className="py-2 pr-3">
+                          <input
+                            type="checkbox"
+                            checked={plan.enabled}
+                            onChange={(event) =>
+                              setAgentPlans((current) =>
+                                current.map((item) =>
+                                  item.planKey === plan.planKey
+                                    ? { ...item, enabled: event.target.checked }
+                                    : item,
+                                ),
+                              )
+                            }
+                          />
+                        </td>
+                        <td className="py-2 pr-3">
+                          {plan.name}
+                          <span className="ml-2 font-mono text-xs text-[var(--km-fg-muted)]">
+                            {plan.planKey}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-3">
+                          ¥{yuanTextFromCents(plan.globalCostPriceCents)}
+                        </td>
+                        <td className="py-2 pr-3">
+                          <input
+                            className="km-input w-28"
+                            inputMode="decimal"
+                            placeholder="留空用默认"
+                            value={overrideDraft[plan.planKey] ?? ""}
+                            onChange={(event) =>
+                              setOverrideDraft((current) => ({
+                                ...current,
+                                [plan.planKey]: event.target.value,
+                              }))
+                            }
+                          />
+                        </td>
+                        <td className="py-2">
+                          ¥{yuanTextFromCents(plan.retailPriceCents)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" className="km-btn km-btn-ghost" onClick={closePlans}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="km-btn"
+                disabled={Boolean(busy) || plansLoading}
+                onClick={() => void saveAgentPlans()}
+              >
+                {busy === "agent-plans" ? "保存中…" : "保存套餐"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {createOpen ? (

@@ -571,6 +571,10 @@ a {
   padding: 1.4rem 1.5rem;
 }
 
+.km-modal-wide {
+  width: min(56rem, 100%);
+}
+
 @keyframes km-rise {
   from {
     opacity: 0;
