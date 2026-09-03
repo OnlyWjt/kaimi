@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { users } from "@/db/schema";
-import { getSession, loginUser, logoutUser } from "@/lib/auth";
+import { getSession, loginUser, logoutUser, reissueSession } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
@@ -90,6 +90,9 @@ export async function POST(req: Request) {
         updatedAt: now,
       })
       .where(eq(users.id, session.id));
+    // 改密码会让改动之前签发的会话全部作废，自己这条要换一张新的，
+    // 其他设备上的登录态则按预期被踢掉。
+    await reissueSession(session.id);
     return NextResponse.json({ ok: true });
   }
 

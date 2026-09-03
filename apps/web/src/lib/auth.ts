@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { users } from "@/db/schema";
 import { bootDb } from "@/lib/config";
 import { deriveSecretBytes } from "@/lib/crypto";
+import { isSessionStale } from "@/lib/session-freshness";
 
 const COOKIE = "kaimi_session";
 const LEGACY_ADMIN_COOKIE = "kaimi_admin";
@@ -23,21 +24,7 @@ function secretKey() {
   return deriveSecretBytes("jwt-signing");
 }
 
-async function authenticate(
-  username: string,
-  password: string,
-  requiredRole?: UserRole,
-) {
-  await bootDb();
-  const normalized = username.trim().toLowerCase();
-  const user = await db.query.users.findFirst({
-    where: eq(users.username, normalized),
-  });
-  if (!user || user.status !== "active") return null;
-  if (requiredRole && user.role !== requiredRole) return null;
-  const ok = await bcrypt.compare(password, user.passwordHash);
-  if (!ok) return null;
-
+async function signSessionCookie(user: typeof users.$inferSelect) {
   const role = user.role as UserRole;
   const token = await new SignJWT({
     sub: String(user.id),
@@ -59,6 +46,36 @@ async function authenticate(
     maxAge: 60 * 60 * 24 * 7,
   });
   jar.delete(LEGACY_ADMIN_COOKIE);
+}
+
+/**
+ * 改完密码要重新签发 cookie，否则新的 passwordChangedAt 会把自己这条会话
+ * 也判成过期，等于改一次密码就把自己踢下线。
+ */
+export async function reissueSession(userId: number) {
+  await bootDb();
+  const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
+  if (!user || user.status !== "active") return false;
+  await signSessionCookie(user);
+  return true;
+}
+
+async function authenticate(
+  username: string,
+  password: string,
+  requiredRole?: UserRole,
+) {
+  await bootDb();
+  const normalized = username.trim().toLowerCase();
+  const user = await db.query.users.findFirst({
+    where: eq(users.username, normalized),
+  });
+  if (!user || user.status !== "active") return null;
+  if (requiredRole && user.role !== requiredRole) return null;
+  const ok = await bcrypt.compare(password, user.passwordHash);
+  if (!ok) return null;
+
+  await signSessionCookie(user);
   await db
     .update(users)
     .set({ lastLoginAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
@@ -93,6 +110,7 @@ export async function getSession(): Promise<AuthSession | null> {
     await bootDb();
     const user = await db.query.users.findFirst({ where: eq(users.id, id) });
     if (!user || user.status !== "active") return null;
+    if (isSessionStale(user.passwordChangedAt, payload.iat)) return null;
     const role = user.role === "agent" ? "agent" : "super_admin";
     return {
       id: user.id,
