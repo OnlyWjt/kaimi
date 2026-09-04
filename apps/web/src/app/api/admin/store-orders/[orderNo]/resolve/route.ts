@@ -1,12 +1,21 @@
 import { NextResponse } from "next/server";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { agentEarnings, issuedCdks, storeOrders } from "@/db/schema";
+import {
+  agentEarnings,
+  fulfillmentAttempts,
+  issuedCdks,
+  storeOrders,
+} from "@/db/schema";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { encryptSecret, hashLookupValue } from "@/lib/crypto";
+import {
+  FULFILLMENT_ABANDONED_RESULT,
+  FULFILLMENT_FAILED_RESULTS,
+} from "@/lib/fulfillment/retry-policy";
 
 const schema = z.discriminatedUnion("action", [
   z.object({
@@ -56,12 +65,22 @@ export async function PATCH(
         { status: 400 },
       );
     }
+    const issued = await db
+      .select({ n: sql<number>`count(*)` })
+      .from(issuedCdks)
+      .where(eq(issuedCdks.orderId, order.id))
+      .then((rows) => Number(rows[0]?.n || 0));
+    // 买家手上已经有几张的单退回 partially_delivered，说成「一张都没发」是错的。
+    const nextStatus = issued > 0 ? "partially_delivered" : "paid_undelivered";
     const [updated] = await db
       .update(storeOrders)
       .set({
-        fulfillStatus: "paid_undelivered",
+        fulfillStatus: nextStatus,
         lastErrorCode: "",
-        lastErrorMessage: "管理员已核对卡台未发码，允许安全重试",
+        lastErrorMessage:
+          issued > 0
+            ? `管理员已核对卡台，已发出 ${issued} 张，剩余允许安全补发`
+            : "管理员已核对卡台未发码，允许安全重试",
         updatedAt: now,
       })
       .where(
@@ -74,6 +93,17 @@ export async function PATCH(
     if (!updated) {
       return NextResponse.json({ error: "订单状态已变化" }, { status: 409 });
     }
+    // 光把状态改回去没用：失败计数还满着，下一轮扫描会立刻把它打回 unknown。
+    // 人工已经核对过了，旧的失败记录不再计入预算。
+    await db
+      .update(fulfillmentAttempts)
+      .set({ result: FULFILLMENT_ABANDONED_RESULT })
+      .where(
+        and(
+          eq(fulfillmentAttempts.orderId, order.id),
+          inArray(fulfillmentAttempts.result, FULFILLMENT_FAILED_RESULTS),
+        ),
+      );
   } else {
     const resolution = parsed.data;
     if (!order.cardplatformAccountId) {
@@ -92,6 +122,15 @@ export async function PATCH(
         ) {
           throw new Error("订单状态已变化");
         }
+        // fulfillStoreOrder 补发时会做这一步：不查一遍就 onConflictDoNothing，
+        // 粘错成别的订单的卡密时会静默什么都不做，管理员以为补录成功了。
+        const codeHash = hashLookupValue(code.toUpperCase());
+        const clash = await tx.query.issuedCdks.findFirst({
+          where: eq(issuedCdks.codeHash, codeHash),
+        });
+        if (clash && clash.orderId !== order.id) {
+          throw new Error("这张卡密已经绑定在别的订单上，请核对后再补录");
+        }
         await tx
           .insert(issuedCdks)
           .values({
@@ -99,7 +138,7 @@ export async function PATCH(
             agentId: freshOrder.agentId,
             planKey: freshOrder.planKeySnapshot,
             codeEncrypted: encryptSecret(code),
-            codeHash: hashLookupValue(code.toUpperCase()),
+            codeHash,
             codePrefix: code.length >= 14 ? code.slice(0, 14) : "",
             cardplatformAccountId: freshOrder.cardplatformAccountId!,
             upstreamRef: resolution.upstreamRef,

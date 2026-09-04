@@ -11,6 +11,11 @@ import { getCardplatformClientById } from "@/lib/cardplatform/config";
 import { issuePrefFromAccount } from "@/lib/cardplatform/policy";
 import { encryptSecret, hashLookupValue } from "@/lib/crypto";
 import { issueIdempotencyKey } from "@/lib/fulfillment/issue-keys";
+import {
+  FULFILLMENT_FAILED_RESULTS,
+  fulfillmentRetryDelayMs,
+  fulfillmentRetryExhausted,
+} from "@/lib/fulfillment/retry-policy";
 
 const ISSUING_LEASE_MS = 5 * 60_000;
 
@@ -86,10 +91,22 @@ export async function fulfillStoreOrder(orderId: number) {
         })
         .from(fulfillmentAttempts)
         .where(eq(fulfillmentAttempts.orderId, order.id));
+      // 卡台明确回过几次空。零进展的重试要是继续用同一个键，上游缓存了那个空响应
+      // 就再也发不出卡来了。超时之类的未知结果不算在内，那种必须复用旧键。
+      const [{ emptyResponses }] = await db
+        .select({ emptyResponses: sql<number>`count(*)` })
+        .from(fulfillmentAttempts)
+        .where(
+          and(
+            eq(fulfillmentAttempts.orderId, order.id),
+            eq(fulfillmentAttempts.errorCode, "CARDPLATFORM_ISSUED_NONE"),
+          ),
+        );
       // 补发剩余必须换幂等键，否则卡台会重放上一次那几张。
       const idempotencyKey = issueIdempotencyKey(
         order.fulfillmentIdempotencyKey,
         alreadyIssued,
+        Number(emptyResponses || 0),
       );
       const [createdAttempt] = await db
         .insert(fulfillmentAttempts)
@@ -315,26 +332,28 @@ export async function retryPendingStoreOrders(limit = 10) {
   });
   let delivered = 0;
   let checked = 0;
-  const retryDelaysMs = [
-    0,
-    60_000,
-    3 * 60_000,
-    10 * 60_000,
-    30 * 60_000,
-    2 * 60 * 60_000,
-    6 * 60 * 60_000,
-    24 * 60 * 60_000,
-  ];
   for (const order of rows) {
     const last = await db.query.fulfillmentAttempts.findFirst({
       where: eq(fulfillmentAttempts.orderId, order.id),
       orderBy: [desc(fulfillmentAttempts.attemptNo)],
     });
+    // 预算和退避都按「真失败过几次」算。partial 是进展，不吃预算也不拉长等待，
+    // 否则卡台一次只回一张时，多张单会被自己的进展饿死在退避里。
+    const [{ failedAttempts }] = await db
+      .select({ failedAttempts: sql<number>`count(*)` })
+      .from(fulfillmentAttempts)
+      .where(
+        and(
+          eq(fulfillmentAttempts.orderId, order.id),
+          inArray(fulfillmentAttempts.result, FULFILLMENT_FAILED_RESULTS),
+        ),
+      );
+    const failures = Number(failedAttempts || 0);
     const issuingFresh =
       order.fulfillStatus === "issuing" &&
       new Date(order.updatedAt).getTime() > Date.now() - ISSUING_LEASE_MS;
     if (issuingFresh) continue;
-    if (last?.attemptNo && last.attemptNo >= retryDelaysMs.length) {
+    if (fulfillmentRetryExhausted(failures)) {
       await db
         .update(storeOrders)
         .set({
@@ -353,9 +372,7 @@ export async function retryPendingStoreOrders(limit = 10) {
       continue;
     }
     if (last?.finishedAt) {
-      const delay =
-        retryDelaysMs[last.attemptNo] ??
-        retryDelaysMs[retryDelaysMs.length - 1]!;
+      const delay = fulfillmentRetryDelayMs(failures);
       if (Date.now() - new Date(last.finishedAt).getTime() < delay) continue;
     }
     checked += 1;
