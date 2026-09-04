@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_BATCH_REDEEM_LIMIT,
   HARD_MAX_BATCH_REDEEM_LIMIT,
+  batchRowIsCommitted,
   batchRowStateFromOrder,
   batchSubmitFailureState,
   canRetryBatchRow,
@@ -149,6 +150,40 @@ describe("canRetryBatchRow", () => {
     expect(canRetryBatchRow("submitting")).toBe(false);
     expect(canRetryBatchRow("running")).toBe(false);
     expect(canRetryBatchRow("success")).toBe(false);
+  });
+});
+
+describe("batchRowIsCommitted", () => {
+  it("已经交给卡台的行不能被重新校验冲掉", () => {
+    expect(batchRowIsCommitted("submitting")).toBe(true);
+    expect(batchRowIsCommitted("running")).toBe(true);
+    expect(batchRowIsCommitted("success")).toBe(true);
+    expect(batchRowIsCommitted("unknown")).toBe(true);
+  });
+
+  it("还没提交的行可以重新校验", () => {
+    expect(batchRowIsCommitted("pending")).toBe(false);
+    expect(batchRowIsCommitted("checking")).toBe(false);
+    expect(batchRowIsCommitted("ready")).toBe(false);
+    expect(batchRowIsCommitted("invalid")).toBe(false);
+    expect(batchRowIsCommitted("failed")).toBe(false);
+  });
+
+  it("可重试和已托付是互斥的：没有哪一行既能重试又不许动", () => {
+    const states = [
+      "pending",
+      "checking",
+      "invalid",
+      "ready",
+      "submitting",
+      "running",
+      "success",
+      "failed",
+      "unknown",
+    ] as const;
+    for (const state of states) {
+      expect(canRetryBatchRow(state) && batchRowIsCommitted(state)).toBe(false);
+    }
   });
 });
 

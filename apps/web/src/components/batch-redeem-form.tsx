@@ -6,6 +6,7 @@ import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
 import { copyText } from "@/lib/copy-text";
 import {
+  batchRowIsCommitted,
   batchRowStateFromOrder,
   batchSubmitFailureState,
   canRetryBatchRow,
@@ -183,14 +184,21 @@ export function BatchRedeemForm({
     const byCode = new Map(previous.map((row) => [row.code, row]));
     return list.map<Row>((item) => {
       const before = byCode.get(item.code);
+      // 校验不通过但带回了单号，说明这张已经在兑换了：接着轮询就行，绝不重提。
+      // 提交时断了网的人就是靠这条路把那几张接回进度里的。
+      const state: BatchRowState = item.ok
+        ? "ready"
+        : item.orderNo
+          ? "running"
+          : "invalid";
       return {
         code: item.code,
         codeMasked: item.codeMasked || item.code,
-        state: item.ok ? "ready" : "invalid",
+        state,
         planName: item.planName || "",
         message: item.ok ? "" : item.error,
-        // 已经在兑换中的卡会带回原来的单号，直接接着轮询，绝不重提。
-        orderNo: item.orderNo || (item.ok ? "" : before?.orderNo || ""),
+        // 校验通过说明这张还没用过，之前那笔失败单的单号是旧的，别再挂着。
+        orderNo: item.ok ? "" : item.orderNo,
         accountEmail: before?.accountEmail || "",
       };
     });
@@ -213,13 +221,14 @@ export function BatchRedeemForm({
       if (!res.ok) throw new Error(data.error || "校验失败");
       const list = (data.list || []) as ValidateRow[];
       setRows((current) => {
-        const next = applyValidated(list, current);
-        // 已经在跑或已经出结果的行不能被重新校验覆盖掉。
-        const settled = current.filter(
-          (row) => !next.some((item) => item.code === row.code) || !canRetryBatchRow(row.state),
+        const committed = new Map(
+          current
+            .filter((row) => batchRowIsCommitted(row.state))
+            .map((row) => [row.code, row]),
         );
-        const keep = new Map(settled.map((row) => [row.code, row]));
-        return next.map((row) => keep.get(row.code) ?? row);
+        return applyValidated(list, current).map(
+          (row) => committed.get(row.code) ?? row,
+        );
       });
       setChecked(true);
     } catch (reason) {

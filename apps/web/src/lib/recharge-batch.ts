@@ -121,7 +121,7 @@ export async function readRechargeBatchOrders(
   orderNos: string[],
 ): Promise<BatchOrderRow[]> {
   await bootDb();
-  const wanted = orderNos.map((no) => no.trim()).filter(Boolean);
+  const wanted = [...new Set(orderNos.map((no) => no.trim()).filter(Boolean))];
   if (!wanted.length) return [];
 
   const known = await db.query.orders.findMany({

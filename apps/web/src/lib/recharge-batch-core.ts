@@ -87,6 +87,19 @@ export function canRetryBatchRow(state: BatchRowState) {
 }
 
 /**
+ * 这一行已经交给卡台了。重新校验整批时不能把它冲回「待校验」——它有单号、可能
+ * 正在开通，也可能已经开通完了，只能继续查。
+ */
+export function batchRowIsCommitted(state: BatchRowState) {
+  return (
+    state === "submitting" ||
+    state === "running" ||
+    state === "success" ||
+    state === "unknown"
+  );
+}
+
+/**
  * 批量提交没能拿到逐张结果时，这一批算失败还是算未知。
  *
  * 只有两种情况可以确定「什么都没发生」：服务端明确逐张回了结果，或者请求在建单之前
