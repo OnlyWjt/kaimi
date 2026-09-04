@@ -3,7 +3,11 @@ import { z } from "zod";
 import { enforceBatchRateLimit } from "@/lib/batch-rate-limit";
 import { getBatchRedeemLimit } from "@/lib/batch-redeem-limit";
 import { sanitizeLog } from "@/lib/log";
-import { openRechargeOrder, type OpenedRechargeOrder } from "@/lib/orders";
+import {
+  openRechargeOrder,
+  RedeemInFlightError,
+  type OpenedRechargeOrder,
+} from "@/lib/orders";
 import { driveRechargeBatch } from "@/lib/recharge-batch";
 import { clampRedeemCodes } from "@/lib/recharge-batch-core";
 import type { AgentCredential } from "@/lib/recharge-types";
@@ -96,10 +100,11 @@ export async function POST(req: Request) {
         pending.push({ opened, code });
         list.push({ code, ok: true, orderNo: opened.order.orderNo, error: "" });
       } catch (error) {
+        // 已经在兑换的卡带上原来那笔单号：界面据此接着轮询，不给重试入口。
         list.push({
           code,
           ok: false,
-          orderNo: "",
+          orderNo: error instanceof RedeemInFlightError ? error.orderNo : "",
           error: error instanceof Error ? error.message : "兑换订单创建失败",
         });
       }

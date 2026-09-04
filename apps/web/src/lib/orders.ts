@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   cdkPool,
@@ -7,7 +7,7 @@ import {
   orders,
   products,
 } from "@/db/schema";
-import { bootDb, getAppConfig } from "@/lib/config";
+import { bootDb, getAppConfig, getSetting, setSetting } from "@/lib/config";
 import { newOrderNo } from "@/lib/ids";
 import {
   markCodeUsed,
@@ -16,6 +16,7 @@ import {
   reserveCodes,
 } from "@/lib/inventory";
 import { notifyOrderTerminal } from "@/lib/notify";
+import { recordOpsAlert } from "@/lib/ops-health";
 import type { AgentCredential } from "@/lib/recharge-types";
 import { isTerminalStatus } from "@/lib/recharge-types";
 import {
@@ -59,6 +60,26 @@ export async function getStatusHistory(orderId: number) {
     orderBy: [asc(orderStatusHistory.id)],
     limit: 80,
   });
+}
+
+const MAX_STATUS_HISTORY_PER_ORDER = 80;
+
+/** 批量取历史。批量进度一轮最多 200 单，逐单查会在轮询路径上堆出 200 次往返。 */
+export async function getStatusHistories(orderIds: number[]) {
+  const out = new Map<number, Array<typeof orderStatusHistory.$inferSelect>>();
+  if (!orderIds.length) return out;
+  const rows = await db
+    .select()
+    .from(orderStatusHistory)
+    .where(inArray(orderStatusHistory.orderId, orderIds))
+    .orderBy(asc(orderStatusHistory.id));
+  for (const row of rows) {
+    const list = out.get(row.orderId) || [];
+    if (list.length >= MAX_STATUS_HISTORY_PER_ORDER) continue;
+    list.push(row);
+    out.set(row.orderId, list);
+  }
+  return out;
 }
 
 async function notifyIfTerminal(order: {
@@ -158,6 +179,31 @@ export type OpenedRechargeOrder = {
 };
 
 /**
+ * 这张卡已经在兑换了，不是「失败」。
+ *
+ * 带上那笔 RC 单号，调用方就能让界面接着轮询而不是给出重试按钮——卡台可能已经扣过费，
+ * 重提就是让客户被扣两次。
+ */
+export class RedeemInFlightError extends Error {
+  readonly orderNo: string;
+
+  constructor(orderNo: string, message = "该卡密兑换处理中，请稍后查询") {
+    super(message);
+    this.name = "RedeemInFlightError";
+    this.orderNo = orderNo;
+  }
+}
+
+/** 这张卡挂着的那笔兑换单号；查不到就返回空串。 */
+async function redemptionOrderNo(redemptionOrderId: number | null | undefined) {
+  if (!redemptionOrderId) return "";
+  const order = await db.query.orders
+    .findFirst({ where: eq(orders.id, redemptionOrderId) })
+    .catch(() => null);
+  return order?.orderNo || "";
+}
+
+/**
  * 建单阶段：只碰本地库，不打卡台。
  *
  * 批量提交必须能立刻把 N 张的单号还给前端——每次卡台调用最长 45 秒，20 张的
@@ -175,7 +221,9 @@ export async function openRechargeOrder(input: {
   if (issued) {
     if (issued.status === "used") throw new Error("该卡密已使用");
     if (issued.status === "locked" || issued.status === "redeeming") {
-      throw new Error("该卡密兑换处理中，请稍后查询");
+      throw new RedeemInFlightError(
+        await redemptionOrderNo(issued.redemptionOrderId),
+      );
     }
     if (issued.status === "disabled") throw new Error("该卡密已禁用");
   }
@@ -189,7 +237,16 @@ export async function openRechargeOrder(input: {
         and(eq(issuedCdks.id, issued.id), eq(issuedCdks.status, "unused")),
       )
       .returning();
-    if (!claimed) throw new Error("该卡密已使用或正在兑换");
+    // 抢锁输了：这一瞬间别人已经把它拿走了，同样是「兑换处理中」而不是失败。
+    if (!claimed) {
+      const current = await db.query.issuedCdks.findFirst({
+        where: eq(issuedCdks.id, issued.id),
+      });
+      if (current?.status === "used") throw new Error("该卡密已使用");
+      throw new RedeemInFlightError(
+        await redemptionOrderNo(current?.redemptionOrderId),
+      );
+    }
   }
 
   const planKey = input.planKey || issued?.planKey || "";
@@ -503,9 +560,87 @@ export async function releaseCodesForOrder(orderId: number) {
   }
 }
 
+/**
+ * issued_cdks 上的锁最短要放多久才敢碰。
+ *
+ * 抢锁到发出兑换之间要走 preview + preflight + redeem，每步最长 45 秒。留足余量，
+ * 免得把一张正在跑的卡当成僵尸给放了。
+ */
+const STUCK_LOCK_LEASE_MS = 10 * 60_000;
+
+/**
+ * 修补：本站发出去的卡卡在 locked，而那笔兑换单已经终态或压根不存在。
+ *
+ * reconcileStuckLocks 原来只走 cdk_pool，看不到 issued_cdks，所以 after() 被重新部署
+ * 打断、或者某条泳道整个塌掉时，那些卡会永远停在 locked——既卖不掉也兑不了，
+ * pollInFlightOrders 又因为 upstream_request_id 是空的而把它们滤掉了。
+ *
+ * 只碰 locked，不碰 redeeming：redeeming 意味着兑换确实发出去过，那种只能等轮询给出终态。
+ */
+async function reconcileStuckIssuedLocks() {
+  const staleBefore = new Date(Date.now() - STUCK_LOCK_LEASE_MS).toISOString();
+  const rows = await db.query.issuedCdks.findMany({
+    where: and(
+      eq(issuedCdks.status, "locked"),
+      lte(issuedCdks.updatedAt, staleBefore),
+    ),
+    limit: 200,
+  });
+  let released = 0;
+  let used = 0;
+  for (const row of rows) {
+    const order = row.redemptionOrderId
+      ? await db.query.orders.findFirst({
+          where: eq(orders.id, row.redemptionOrderId),
+        })
+      : null;
+    const status = order?.fulfillStatus || "";
+    if (status === "success" || status === "skipped") {
+      await db
+        .update(issuedCdks)
+        .set({
+          status: "used",
+          usedAt: row.usedAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(and(eq(issuedCdks.id, row.id), eq(issuedCdks.status, "locked")));
+      used += 1;
+      continue;
+    }
+    // 卡还是 locked 且这一单没有 request_id：driveRechargeOrder 的 catch 从来没跑过，
+    // 说明兑换请求压根没发出去。这两个条件同时成立才敢说「什么都没发生」。
+    const neverSent = Boolean(order) && !order!.upstreamRequestId;
+    if (!order || status === "failed" || neverSent) {
+      await db
+        .update(issuedCdks)
+        .set({
+          status: "unused",
+          redemptionOrderId: null,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(and(eq(issuedCdks.id, row.id), eq(issuedCdks.status, "locked")));
+      released += 1;
+      if (order && status !== "failed") {
+        const message = "兑换没有发出，卡密已退回，可以重新兑换";
+        await db
+          .update(orders)
+          .set({
+            fulfillStatus: "failed",
+            message,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(and(eq(orders.id, order.id), eq(orders.fulfillStatus, status)));
+        await appendStatusHistory(order.id, "failed", message, "reconcile");
+      }
+    }
+  }
+  return { released, used, checked: rows.length };
+}
+
 /** 修补：订单已 failed/unknown/success，但卡密仍 locked */
 export async function reconcileStuckLocks() {
   await bootDb();
+  const issuedResult = await reconcileStuckIssuedLocks();
   const locked = await db.query.cdkPool.findMany({
     where: eq(cdkPool.status, "locked"),
   });
@@ -536,7 +671,11 @@ export async function reconcileStuckLocks() {
       released += 1;
     }
   }
-  return { released, used, checked: locked.length };
+  return {
+    released: released + issuedResult.released,
+    used: used + issuedResult.used,
+    checked: locked.length + issuedResult.checked,
+  };
 }
 
 async function pollDirectCardplatformOrder(order: typeof orders.$inferSelect) {
@@ -612,6 +751,47 @@ export async function pollRechargeIfNeeded(orderNo: string) {
   return db.query.orders.findFirst({ where: eq(orders.orderNo, orderNo) });
 }
 
+/**
+ * unknown 的兑换单要兜底核对多久。
+ *
+ * 原来只有 1 天：过了这个点单子就永远停在 unknown、卡永远停在 redeeming，再没人去查。
+ * 卡台的 review 合法地能挂上好一阵，所以放宽到 14 天；还是没结果的那些不再自动查，
+ * 但必须让运营知道。
+ */
+const UNKNOWN_RECHECK_DAYS = 14;
+const UNKNOWN_STALE_ALERT_KEY = "recharge_unknown_stale_alert_at";
+const UNKNOWN_STALE_ALERT_INTERVAL_MS = 6 * 60 * 60_000;
+
+/** 超出兜底窗口还在 unknown 的单没人管了，报一次运维告警。 */
+async function alertStaleUnknownRecharges() {
+  const rows = await db
+    .select({ c: sql<number>`count(*)` })
+    .from(orders)
+    .where(
+      and(
+        eq(orders.kind, "recharge"),
+        eq(orders.fulfillStatus, "unknown"),
+        sql`${orders.upstreamRequestId} LIKE 'cp:%'`,
+        sql`${orders.createdAt} < datetime('now', ${`-${UNKNOWN_RECHECK_DAYS} day`})`,
+      ),
+    );
+  const stale = Number(rows[0]?.c ?? 0);
+  if (!stale) return;
+  const last = Date.parse(await getSetting(UNKNOWN_STALE_ALERT_KEY, ""));
+  if (
+    Number.isFinite(last) &&
+    Date.now() - last < UNKNOWN_STALE_ALERT_INTERVAL_MS
+  ) {
+    return;
+  }
+  await setSetting(UNKNOWN_STALE_ALERT_KEY, new Date().toISOString());
+  await recordOpsAlert({
+    level: "warning",
+    code: "recharge.unknown.stale",
+    message: `有 ${stale} 笔兑换单超过 ${UNKNOWN_RECHECK_DAYS} 天仍是「结果待确认」，卡密还锁在兑换中，请到卡台人工核对`,
+  });
+}
+
 /** 非终态且已有 request_id 的开通单：服务端兜底拉主站状态 */
 export async function pollInFlightOrders(limit = 25) {
   await bootDb();
@@ -626,7 +806,7 @@ export async function pollInFlightOrders(limit = 25) {
           OR (
             ${orders.upstreamRequestId} LIKE 'cp:%'
             AND ${orders.fulfillStatus} = 'unknown'
-            AND ${orders.createdAt} >= datetime('now', '-1 day')
+            AND ${orders.createdAt} >= datetime('now', ${`-${UNKNOWN_RECHECK_DAYS} day`})
           ))`,
       ),
     )
@@ -644,6 +824,9 @@ export async function pollInFlightOrders(limit = 25) {
       console.warn("[kaimi] poll inflight failed", order.orderNo, err);
     }
   }
+  await alertStaleUnknownRecharges().catch((err) =>
+    console.warn("[kaimi] stale unknown alert skipped", err),
+  );
   return { checked: list.length, polled, errors };
 }
 
