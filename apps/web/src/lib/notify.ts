@@ -1,5 +1,5 @@
 import { getSetting } from "@/lib/config";
-import { sanitizeLog } from "@/lib/log";
+import { maskRequestId, sanitizeLog } from "@/lib/log";
 
 type NotifyPayload = {
   orderNo: string;
@@ -10,10 +10,11 @@ type NotifyPayload = {
 };
 
 export async function notifyOrderTerminal(payload: NotifyPayload) {
+  const maskedRequestId = maskRequestId(payload.requestId);
   const text = [
     `[Kaimi] 订单 ${payload.orderNo} → ${payload.status}`,
     payload.plan ? `套餐 ${payload.plan}` : "",
-    payload.requestId ? `request_id ${payload.requestId}` : "",
+    maskedRequestId ? `request_id ${maskedRequestId}` : "",
     payload.message || "",
   ]
     .filter(Boolean)
@@ -28,6 +29,7 @@ export async function notifyOrderTerminal(payload: NotifyPayload) {
         body: JSON.stringify({
           event: "order.terminal",
           ...payload,
+          requestId: maskedRequestId,
           text,
         }),
       });

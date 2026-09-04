@@ -157,8 +157,10 @@ export function parseRedeemResult(payload: unknown): RedeemResult {
         key: timelineEventKey(raw, index),
         step: pick(record, "step", "step_key", "name").toLowerCase(),
         category: pick(record, "category", "level", "kind").toLowerCase(),
-        // public_message 是给终端用户看的那句；缺了就退到状态流转，再缺就留空。
-        message: pick(record, "public_message", "message", "to_status"),
+        // 只收 public_message。这条时间线买家也看得到，而只有 public_message 是上游
+        // 保证脱敏过的；message / to_status 里出现过内部错误码和状态机名字。
+        // 管理端要看全的，去调试面板读原始报文。
+        message: pick(record, "public_message"),
         at: eventTime(record),
         seq: index,
       };

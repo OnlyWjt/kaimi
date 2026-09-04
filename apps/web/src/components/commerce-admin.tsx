@@ -767,7 +767,13 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
                     {order.agentName} · {order.productName}
                   </td>
                   <td className="py-2 pr-3">
-                    ¥{((order.grossCents ?? order.retailPriceCents) / 100).toFixed(2)}
+                    {/* gross_cents 是 NOT NULL DEFAULT 0，?? 永远不触发，
+                        老单回填失败时会渲染成 ¥0.00，所以用 || 兜住 0。 */}
+                    ¥
+                    {(
+                      (order.grossCents ||
+                        order.retailPriceCents * (order.quantity || 1)) / 100
+                    ).toFixed(2)}
                     {(order.quantity || 1) > 1 ? (
                       <span className="km-badge ml-2">×{order.quantity}</span>
                     ) : null}

@@ -97,11 +97,16 @@ describe("parseRedeemResult 订单字段", () => {
     expect(parseRedeemResult({ events: "boom" }).events).toEqual([]);
   });
 
-  it("public_message 缺失时退到 to_status", () => {
+  it("public_message 缺失时留空，不拿 message / to_status 顶上", () => {
+    // 这条时间线买家也看得到，只有 public_message 是上游保证脱敏的；
+    // to_status 是状态机名字，message 里出现过内部错误码。
     const { events } = parseRedeemResult({
-      events: [{ step: "payment", to_status: "paid" }],
+      events: [
+        { step: "payment", to_status: "paid", message: "internal: E_PRECHARGE_42" },
+      ],
     });
-    expect(events[0]!.message).toBe("paid");
+    expect(events[0]!.step).toBe("payment");
+    expect(events[0]!.message).toBe("");
   });
 
   it("按 created_at 升序排，时间缺失时保持上游顺序", () => {

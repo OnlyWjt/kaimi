@@ -9,7 +9,6 @@ import {
 } from "./config";
 import { observeFromPublicResult } from "./health";
 import { parseRedeemResult } from "@/lib/redeem-timeline-core";
-import { injectRedeemCardPolicy } from "./policy";
 import {
   cardplatformMessage,
   findIssuedCdkByCode,
@@ -153,35 +152,6 @@ export async function preflightRedeemableCdk(input: {
       nestedString(result.payload, "email", "account_email") ||
       input.account.email ||
       "",
-  };
-}
-
-export async function redeemCardplatformCdk(input: {
-  code: string;
-  account: AgentCredential;
-  clientRequestId: string;
-}) {
-  const prepared = await preflightRedeemableCdk(input);
-  const { client, accountId } = await resolveRedeemClient(
-    prepared.redeemable.code,
-  );
-  const redeemed = await client.redeemCdk(
-    await injectRedeemCardPolicy(
-      {
-        redemption_token: prepared.redemptionToken,
-        preflight_token: prepared.preflightToken,
-        client_request_id: input.clientRequestId,
-      },
-      accountId,
-    ),
-  );
-  return {
-    ...prepared,
-    redeemed,
-    status: mapCardplatformStatus(redeemed.payload, redeemed.ok),
-    message:
-      nestedString(redeemed.payload, "message", "msg") ||
-      (redeemed.ok ? "已提交卡台处理" : cardplatformMessage(redeemed.payload)),
   };
 }
 

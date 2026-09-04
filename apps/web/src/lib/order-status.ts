@@ -14,23 +14,6 @@ export const ORDER_PIPELINE_STEPS = [
   "processing",
 ] as const;
 
-export function orderStatusLabel(status: string) {
-  const map: Record<string, string> = {
-    pending: "排队中",
-    issuing: "发卡中",
-    preparing: "准备中",
-    submitted: "已提交",
-    processing: "开通处理中",
-    success: "已成功",
-    failed: "失败",
-    skipped: "无需开通",
-    unknown: "结果待确认",
-    fulfilled: "已完成",
-    running: "处理中",
-  };
-  return map[status] || status;
-}
-
 export function isOrderTerminalStatus(status: string) {
   return ORDER_TERMINAL_STATUSES.has(status);
 }

@@ -5,7 +5,6 @@ import {
   ORDER_PIPELINE_STEPS,
   isOrderTerminalStatus,
   normalizeOrderStatus,
-  orderStatusLabel,
   pipelineStepIndex,
 } from "@/lib/order-status";
 import { COARSE_STAGE_KEYS, coarseStageIndex } from "@/lib/redeem-timeline-core";
@@ -127,7 +126,7 @@ export function OrderProgressPanel({
           ) : null}
           {status ? (
             <span className={`km-badge ${success ? "km-badge-ok" : failed ? "km-badge-bad" : "km-badge-wait"}`}>
-              {orderStatusLabel(status)}
+              {publicStatusLabel(status, "fulfill")}
             </span>
           ) : null}
         </div>
@@ -212,7 +211,7 @@ export function OrderProgressPanel({
                 <div
                   className={`pb-3 text-sm ${current ? "font-medium" : done ? "" : "text-[var(--km-fg-muted)]"}`}
                 >
-                  {orderStatusLabel(step)}
+                  {publicStatusLabel(step, "fulfill")}
                   {current && polling ? (
                     <span className="ml-2 text-xs font-normal text-[var(--km-fg-muted)]">进行中…</span>
                   ) : null}
@@ -237,7 +236,7 @@ export function OrderProgressPanel({
               className={`text-sm ${terminal ? "font-medium" : "text-[var(--km-fg-muted)]"}`}
               style={terminal ? { color: success ? "var(--km-success)" : "var(--km-danger)" } : undefined}
             >
-              {terminal ? orderStatusLabel(status) : "开通结果"}
+              {terminal ? publicStatusLabel(status, "fulfill") : "开通结果"}
             </div>
           </li>
         </ol>
@@ -294,7 +293,9 @@ export function OrderProgressPanel({
             {[...events].reverse().map((ev, i) => (
               <li key={`${ev.at}-${ev.status}-${i}`} className="flex gap-2">
                 <span className="shrink-0 font-mono text-[var(--km-fg-muted)]">{formatTime(ev.at)}</span>
-                <span className="font-medium">{orderStatusLabel(ev.status)}</span>
+                <span className="font-medium">
+                  {publicStatusLabel(ev.status, "fulfill")}
+                </span>
                 {ev.message ? <span className="text-[var(--km-fg-muted)]">{ev.message}</span> : null}
               </li>
             ))}

@@ -498,7 +498,8 @@ export function htmlOrInvalidResponse(raw: string, status: number) {
     sample.includes("<!doctype html") ||
     sample.includes("<html")
   ) {
-    return `卡台返回了 HTML 而非 JSON (HTTP ${status})，请检查 API 地址与密钥`;
+    // 这句会经 order.message 落到买家眼前，所以不放「检查 API 地址与密钥」这种运维指令。
+    return `卡台返回了 HTML 而非 JSON (HTTP ${status})`;
   }
   return `卡台返回了无效响应（HTTP ${status}）`;
 }
