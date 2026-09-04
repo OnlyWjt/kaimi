@@ -1,15 +1,15 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { issuedCdks } from "@/db/schema";
+import {
+  canApplyUpstreamCdkStatus,
+  mapUpstreamCdkStatus,
+} from "./issued-status-core";
 
-/** 上游 CDK 生命周期 → 本站 issued_cdks.status；空串表示不动这一行。 */
-export function mapUpstreamCdkStatus(raw: string) {
-  const status = raw.trim().toLowerCase();
-  if (status === "consumed" || status === "used") return "used";
-  if (status === "disabled") return "disabled";
-  if (status === "unused") return "unused";
-  return "";
-}
+export {
+  canApplyUpstreamCdkStatus,
+  mapUpstreamCdkStatus,
+} from "./issued-status-core";
 
 /** 回写一张已发卡密的状态。回调和对账轮询共用，重复投递不会改坏数据。 */
 export async function applyIssuedCdkStatus(input: {
@@ -28,20 +28,20 @@ export async function applyIssuedCdkStatus(input: {
       eq(issuedCdks.cardplatformAccountId, accountId),
     ),
   });
-  if (!row || row.status === mapped) return false;
-  // 已核销或已禁用的卡不许退回可售。
-  if (mapped === "unused" && (row.status === "used" || row.status === "disabled")) {
-    return false;
-  }
+  if (!row) return false;
+  if (!canApplyUpstreamCdkStatus(row.status, mapped)) return false;
 
   const now = new Date().toISOString();
-  await db
+  // 带上读到的旧状态做比较写：读完到写之间本地可能刚把这张卡抢成 locked，
+  // 那一手必须赢，不能被这条回写覆盖掉。
+  const updated = await db
     .update(issuedCdks)
     .set({
       status: mapped,
       usedAt: mapped === "used" ? row.usedAt || now : row.usedAt,
       updatedAt: now,
     })
-    .where(eq(issuedCdks.id, row.id));
-  return true;
+    .where(and(eq(issuedCdks.id, row.id), eq(issuedCdks.status, row.status)))
+    .returning();
+  return updated.length > 0;
 }
