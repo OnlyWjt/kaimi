@@ -4,6 +4,12 @@ import { isThemeId } from "@kaimi/themes";
 import { db } from "@/db";
 import { agents, cdkPool, issuedCdks, orders, storefronts, storeOrders } from "@/db/schema";
 import { getAgentRedeemUrl, normalizeAgentRedeemUrl } from "@/lib/agent-redeem";
+import {
+  HARD_MAX_ORDER_QUANTITY,
+  MAX_ORDER_QUANTITY_SETTING,
+  getMaxOrderQuantity,
+  normalizeMaxOrderQuantity,
+} from "@/lib/store-quantity";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb, getAppConfig, getSetting, setSetting } from "@/lib/config";
 import { decryptSecret, encryptSecret, hashLookupValue, maskCode } from "@/lib/crypto";
@@ -304,6 +310,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ redeemUrl: await getAgentRedeemUrl() });
   }
 
+  if (section === "store_rules") {
+    return NextResponse.json({
+      maxOrderQuantity: await getMaxOrderQuantity(),
+      hardMaxOrderQuantity: HARD_MAX_ORDER_QUANTITY,
+    });
+  }
+
   if (section === "plans") {
     return NextResponse.json(
       { error: "请到「接入卡台」同步卡台套餐", ok: false },
@@ -365,6 +378,13 @@ export async function POST(req: Request) {
     }
     await setSetting("agent_redeem_url", redeemUrl);
     return NextResponse.json({ ok: true, redeemUrl });
+  }
+
+  if (action === "save_store_rules") {
+    // 前端填错也不至于放出天量订单：normalize 会夹到 1..HARD_MAX_ORDER_QUANTITY。
+    const maxOrderQuantity = normalizeMaxOrderQuantity(body.maxOrderQuantity);
+    await setSetting(MAX_ORDER_QUANTITY_SETTING, String(maxOrderQuantity));
+    return NextResponse.json({ ok: true, maxOrderQuantity });
   }
 
   if (action === "test_connection" || action === "ping" || action === "sync_stock") {

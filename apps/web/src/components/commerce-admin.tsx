@@ -33,7 +33,10 @@ type StoreOrder = {
   orderNo: string;
   agentName: string;
   productName: string;
+  quantity: number;
   retailPriceCents: number;
+  grossCents: number;
+  issuedCount: number;
   payStatus: string;
   fulfillStatus: string;
   feeReconcileStatus: string;
@@ -88,6 +91,7 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
       wxpay: { ...emptyRule },
     },
   });
+  const [maxOrderQuantity, setMaxOrderQuantity] = useState("5");
   const [agents, setAgents] = useState<AgentOption[]>([]);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [storeOrders, setStoreOrders] = useState<StoreOrder[]>([]);
@@ -103,21 +107,23 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
 
   async function load() {
     setLoaded(false);
-    const [paymentRes, agentsRes, settlementsRes, ordersRes, jobsRes, healthRes] = await Promise.all([
+    const [paymentRes, agentsRes, settlementsRes, ordersRes, jobsRes, healthRes, rulesRes] = await Promise.all([
       fetch("/api/admin/payment", { cache: "no-store" }),
       fetch("/api/admin/agents", { cache: "no-store" }),
       fetch("/api/admin/settlements", { cache: "no-store" }),
       fetch("/api/admin/store-orders?pageSize=100", { cache: "no-store" }),
       fetch("/api/admin/jobs", { cache: "no-store" }),
       fetch("/api/admin/ops-health", { cache: "no-store" }),
+      fetch("/api/admin?section=store_rules", { cache: "no-store" }),
     ]);
-    const [paymentData, agentData, settlementData, orderData, jobsData, healthData] = await Promise.all([
+    const [paymentData, agentData, settlementData, orderData, jobsData, healthData, rulesData] = await Promise.all([
       paymentRes.json(),
       agentsRes.json(),
       settlementsRes.json(),
       ordersRes.json(),
       jobsRes.json(),
       healthRes.json(),
+      rulesRes.json(),
     ]);
     if (
       !paymentRes.ok ||
@@ -125,7 +131,8 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
       !settlementsRes.ok ||
       !ordersRes.ok ||
       !jobsRes.ok ||
-      !healthRes.ok
+      !healthRes.ok ||
+      !rulesRes.ok
     ) {
       throw new Error("配置加载失败，已禁止保存，请重试");
     }
@@ -161,6 +168,9 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
     if (ordersRes.ok) setStoreOrders(orderData.list || []);
     if (jobsRes.ok) setBackgroundJobs(jobsData.list || []);
     if (healthRes.ok) setHealth(healthData.health || null);
+    if (rulesRes.ok) {
+      setMaxOrderQuantity(String(rulesData.maxOrderQuantity || 5));
+    }
     setLoaded(true);
   }
 
@@ -200,6 +210,17 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
     if (data) {
       setPayment((current) => ({ ...current, key: "" }));
       await load();
+    }
+  }
+
+  async function saveStoreRules() {
+    const data = await submit("/api/admin", {
+      action: "save_store_rules",
+      maxOrderQuantity: Number(maxOrderQuantity || 0),
+    });
+    if (data) {
+      setMaxOrderQuantity(String(data.maxOrderQuantity));
+      setMessage(`买家一次最多可以买 ${data.maxOrderQuantity} 张`);
     }
   }
 
@@ -496,6 +517,29 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
       ) : null}
 
       <section className="km-panel space-y-4">
+        <h2 className="text-xl font-semibold">下单规则</h2>
+        <label className="block space-y-1 text-sm">
+          <span>一次最多买几张</span>
+          <input
+            className="km-input w-40"
+            inputMode="numeric"
+            value={maxOrderQuantity}
+            onChange={(event) => setMaxOrderQuantity(event.target.value)}
+          />
+          <span className="block text-xs text-[var(--km-fg-muted)]">
+            买家在店铺页能选的最大数量，默认 5 张，最多 50 张。卡台库存不够时会先发出一部分，剩下的自动补发。
+          </span>
+        </label>
+        <button
+          className="km-btn km-btn-primary"
+          disabled={busy || !loaded}
+          onClick={saveStoreRules}
+        >
+          保存下单规则
+        </button>
+      </section>
+
+      <section className="km-panel space-y-4">
         <h2 className="text-xl font-semibold">易支付商户与手续费</h2>
         <p className="text-sm text-[var(--km-fg-muted)]">
           易支付会从外网访问「异步通知地址」。这里不能填 localhost，否则支付成功也不会发卡。
@@ -704,13 +748,21 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
                     {order.agentName} · {order.productName}
                   </td>
                   <td className="py-2 pr-3">
-                    ¥{(order.retailPriceCents / 100).toFixed(2)}
+                    ¥{((order.grossCents ?? order.retailPriceCents) / 100).toFixed(2)}
+                    {(order.quantity || 1) > 1 ? (
+                      <span className="km-badge ml-2">×{order.quantity}</span>
+                    ) : null}
                   </td>
                   <td className="py-2 pr-3">
                     {adminStatusLabel(order.payStatus, "pay")}
                   </td>
                   <td className="py-2 pr-3" title={order.lastErrorMessage}>
                     {adminStatusLabel(order.fulfillStatus, "fulfill")}
+                    {(order.quantity || 1) > 1 ? (
+                      <span className="ml-2 text-xs text-[var(--km-fg-muted)]">
+                        已出 {order.issuedCount ?? 0}/{order.quantity}
+                      </span>
+                    ) : null}
                   </td>
                   <td className="py-2 pr-3">
                     {adminStatusLabel(order.feeReconcileStatus, "fee")}
@@ -718,9 +770,11 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
                   <td className="py-2">
                     <div className="flex flex-wrap gap-2">
                       {order.payStatus === "paid" &&
-                      ["paid_undelivered", "issuing"].includes(
-                        order.fulfillStatus,
-                      ) ? (
+                      [
+                        "paid_undelivered",
+                        "partially_delivered",
+                        "issuing",
+                      ].includes(order.fulfillStatus) ? (
                         <button
                           className="km-btn km-btn-ghost"
                           disabled={busy}
@@ -728,7 +782,9 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
                         >
                           {order.fulfillStatus === "issuing"
                             ? "恢复履约"
-                            : "重试发卡"}
+                            : order.fulfillStatus === "partially_delivered"
+                              ? "补发剩余"
+                              : "重试发卡"}
                         </button>
                       ) : null}
                       {order.fulfillStatus === "unknown" ? (

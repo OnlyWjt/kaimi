@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { agents, storeOrders } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth";
@@ -23,8 +23,15 @@ export async function GET(req: Request) {
       agentId: storeOrders.agentId,
       agentName: agents.displayName,
       productName: storeOrders.productNameSnapshot,
+      quantity: storeOrders.quantity,
       retailPriceCents: storeOrders.retailPriceCents,
       agentCostCents: storeOrders.agentCostCents,
+      grossCents: storeOrders.grossCents,
+      agentCostTotalCents: storeOrders.agentCostTotalCents,
+      // 部分发卡的订单要看出「已出几张」，卡密行数才是真相。
+      issuedCount: sql<number>`(
+        select count(*) from issued_cdks where issued_cdks.order_id = ${storeOrders.id}
+      )`,
       paymentChannel: storeOrders.paymentChannel,
       finalPaymentFeeCents: storeOrders.finalPaymentFeeCents,
       agentEarningCents: storeOrders.agentEarningCents,
