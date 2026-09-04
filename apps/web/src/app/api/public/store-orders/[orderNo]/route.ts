@@ -1,5 +1,5 @@
 import { after, NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { issuedCdks, storeOrders } from "@/db/schema";
 import { bootDb } from "@/lib/config";
@@ -23,40 +23,51 @@ async function serializePublicOrder(
   order: typeof storeOrders.$inferSelect,
   req: Request,
 ) {
-  const cdk =
-    order.fulfillStatus === "delivered"
-      ? await db.query.issuedCdks.findFirst({
+  // 一单可能多张，也可能只出了一部分，所以付过款就把已发的都取出来。
+  const cdks =
+    order.payStatus === "paid"
+      ? await db.query.issuedCdks.findMany({
           where: eq(issuedCdks.orderId, order.id),
+          orderBy: [asc(issuedCdks.id)],
         })
-      : null;
-  const code = cdk ? decryptSecret(cdk.codeEncrypted) : null;
-  const rechargePath = code
-    ? `/recharge?code=${encodeURIComponent(code)}`
-    : "/recharge";
+      : [];
+  const codes = cdks.map((row) => decryptSecret(row.codeEncrypted));
+  // 兑换链接只能带一张卡密，多张时给买家一个干净的兑换页地址，逐张自己粘。
+  const rechargePath =
+    codes.length === 1
+      ? `/recharge?code=${encodeURIComponent(codes[0]!)}`
+      : "/recharge";
   const origin = await getPublicBaseUrl(req);
   const queryToken = order.queryTokenEncrypted
     ? decryptSecret(order.queryTokenEncrypted)
     : "";
+  const quantity = Math.max(1, order.quantity);
   return {
     orderNo: order.orderNo,
     productName: order.productNameSnapshot,
-    amountCents: order.retailPriceCents,
+    quantity,
+    unitPriceCents: order.retailPriceCents,
+    amountCents: order.grossCents,
+    issuedCount: codes.length,
     paymentChannel: order.paymentChannel,
     payStatus: order.payStatus,
     fulfillStatus: order.fulfillStatus,
     message:
-      order.fulfillStatus === "paid_undelivered"
-        ? "支付成功，正在重试发卡"
-        : order.fulfillStatus === "unknown"
-          ? "支付成功，订单正在人工核对"
-          : order.payStatus === "paid" && order.fulfillStatus !== "delivered"
-            ? "支付成功，正在生成卡密"
-            : "",
-    code,
+      order.fulfillStatus === "partially_delivered"
+        ? `已出 ${codes.length}/${quantity} 张，剩下的正在继续生成`
+        : order.fulfillStatus === "paid_undelivered"
+          ? "支付成功，正在重试发卡"
+          : order.fulfillStatus === "unknown"
+            ? "支付成功，订单正在人工核对"
+            : order.payStatus === "paid" && order.fulfillStatus !== "delivered"
+              ? "支付成功，正在生成卡密"
+              : "",
+    code: codes[0] ?? null,
+    codes,
     queryToken,
     rechargePath,
     rechargeUrl: origin ? `${origin}${rechargePath}` : rechargePath,
-    cdkStatus: cdk?.status ?? null,
+    cdkStatus: cdks[0]?.status ?? null,
     paidAt: order.paidAt,
     deliveredAt: order.deliveredAt,
   };

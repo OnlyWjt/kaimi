@@ -21,11 +21,14 @@ import {
 type StoreOrderResult = {
   orderNo: string;
   productName: string;
+  quantity?: number;
+  unitPriceCents?: number;
   amountCents: number;
   payStatus: string;
   fulfillStatus: string;
   message: string;
   code: string | null;
+  codes?: string[];
   rechargePath?: string;
   rechargeUrl?: string;
   queryToken?: string;
@@ -178,37 +181,77 @@ export function StoreOrderResultPanel({
   const rechargeUrl =
     order.rechargeUrl ||
     (typeof window !== "undefined" ? `${window.location.origin}${rechargePath}` : rechargePath);
+  const codes = order.codes?.length
+    ? order.codes
+    : order.code
+      ? [order.code]
+      : [];
+  const quantity = Math.max(1, order.quantity || 1);
+  const pending = quantity - codes.length;
 
   return (
     <div className="km-panel km-rise mx-auto max-w-[560px] space-y-5">
       <div>
         <h2 className="text-xl font-semibold">{order.productName}</h2>
         <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-          ¥{yuanTextFromCents(order.amountCents)} · 支付{" "}
+          ¥{yuanTextFromCents(order.amountCents)}
+          {quantity > 1 ? ` · ${quantity} 张` : ""} · 支付{" "}
           {publicStatusLabel(order.payStatus, "pay")} · 发卡{" "}
           {publicStatusLabel(order.fulfillStatus, "fulfill")}
         </p>
         <p className="mt-1 font-mono text-xs text-[var(--km-fg-muted)]">{order.orderNo}</p>
       </div>
-      {order.code ? (
+      {codes.length ? (
         <>
           <div className="space-y-2">
-            <p className="font-medium">卡密</p>
+            <p className="font-medium">
+              卡密{quantity > 1 ? `（已出 ${codes.length}/${quantity}）` : ""}
+            </p>
             <p className="text-sm text-[var(--km-fg-muted)]">请保存，丢失后只能用本页或邮箱查单找回。</p>
-            <div className="break-all rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 font-mono text-sm">
-              {order.code}
-            </div>
+            {codes.map((item) => (
+              <div
+                key={item}
+                className="break-all rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 font-mono text-sm"
+              >
+                {item}
+              </div>
+            ))}
             <button
               type="button"
               className="km-btn km-btn-ghost w-full"
-              onClick={() => void copy(order.code || "", "卡密已复制")}
+              onClick={() =>
+                void copy(
+                  codes.join("\n"),
+                  codes.length > 1 ? `${codes.length} 张卡密已复制` : "卡密已复制",
+                )
+              }
             >
-              复制卡密
+              {codes.length > 1 ? "复制全部卡密" : "复制卡密"}
             </button>
           </div>
+          {pending > 0 ? (
+            order.fulfillStatus === "unknown" ? (
+              <p className="text-sm text-[var(--km-fg-muted)]">
+                上面这几张已经可以用了。剩下 {pending} 张我们正在确认，确认好会显示在本页。请不要重复付款。
+              </p>
+            ) : (
+              <OrderWait
+                orderNo={orderNo}
+                title={`还有 ${pending} 张正在生成`}
+                detail={
+                  order.message ||
+                  "上面这几张已经可以用了。剩下的出好会自动显示在本页，不用刷新。"
+                }
+              />
+            )
+          ) : null}
           <div className="space-y-2">
             <p className="font-medium">兑换链接</p>
-            <p className="text-sm text-[var(--km-fg-muted)]">打开后会带上这张卡密，直接校验即可兑换。</p>
+            <p className="text-sm text-[var(--km-fg-muted)]">
+              {codes.length > 1
+                ? "打开后把上面的卡密逐张粘进去校验兑换。"
+                : "打开后会带上这张卡密，直接校验即可兑换。"}
+            </p>
             <div className="break-all rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 font-mono text-xs">
               {rechargeUrl}
             </div>

@@ -13,6 +13,7 @@ import { StoreCheckout } from "@/components/store-checkout";
 import { normalizeAgentSlug } from "@/lib/agent-slug";
 import { bootDb } from "@/lib/config";
 import { getStoreSalesGate } from "@/lib/ops-health";
+import { getMaxOrderQuantity } from "@/lib/store-quantity";
 import { resolveThemeId } from "@/lib/storefront";
 
 export default async function AgentStorePage({
@@ -100,6 +101,7 @@ export default async function AgentStorePage({
             slug={agent.currentSlug}
             plans={sellablePlans}
             channels={channels}
+            maxQuantity={await getMaxOrderQuantity()}
           />
         ) : null}
       </section>

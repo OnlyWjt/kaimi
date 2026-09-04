@@ -18,6 +18,7 @@ const CHANNEL_HINT: Record<"alipay" | "wxpay", string> = {
 type EmailOrder = {
   orderNo: string;
   productName: string;
+  quantity?: number;
   amountCents: number;
   payStatus: string;
   fulfillStatus: string;
@@ -55,12 +56,16 @@ export function StoreCheckout({
   slug,
   plans,
   channels,
+  maxQuantity,
 }: {
   slug: string;
   plans: ShopPlan[];
   channels: Array<"alipay" | "wxpay">;
+  maxQuantity: number;
 }) {
+  const maxQty = Math.max(1, Math.trunc(maxQuantity) || 1);
   const [planKey, setPlanKey] = useState(plans[0]?.planKey || "");
+  const [quantity, setQuantity] = useState(1);
   const [email, setEmail] = useState("");
   const [channel, setChannel] = useState<"alipay" | "wxpay">(
     channels[0] || "alipay",
@@ -72,6 +77,13 @@ export function StoreCheckout({
   const [myOrders, setMyOrders] = useState<EmailOrder[] | null>(null);
 
   const selected = plans.find((item) => item.planKey === planKey) || plans[0];
+  const totalCents = (selected?.retailPriceCents || 0) * quantity;
+
+  /** 数量框允许手输，越界的值在这里夹回来，不让买家提交一个必定被拒的单。 */
+  function changeQuantity(next: number) {
+    if (!Number.isFinite(next)) return;
+    setQuantity(Math.min(maxQty, Math.max(1, Math.trunc(next))));
+  }
 
   useEffect(() => {
     try {
@@ -102,6 +114,7 @@ export function StoreCheckout({
             planKey: selected.planKey,
             channel,
             customerEmail: email,
+            quantity,
           }),
         }),
       );
@@ -192,9 +205,52 @@ export function StoreCheckout({
           <p className="text-sm text-[var(--km-fg-muted)]">当前选择</p>
           <h2 className="mt-1 text-xl font-semibold">{selected?.name}</h2>
           <p className="mt-2 text-3xl font-semibold tracking-tight">
-            ¥{yuanTextFromCents(selected?.retailPriceCents || 0)}
+            ¥{yuanTextFromCents(totalCents)}
           </p>
+          {quantity > 1 ? (
+            <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
+              单价 ¥{yuanTextFromCents(selected?.retailPriceCents || 0)} ×{" "}
+              {quantity} 张
+            </p>
+          ) : null}
         </div>
+        {maxQty > 1 ? (
+          <div className="space-y-1.5 text-sm">
+            <span>购买数量</span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="km-btn km-btn-ghost"
+                aria-label="减少数量"
+                disabled={quantity <= 1}
+                onClick={() => changeQuantity(quantity - 1)}
+              >
+                −
+              </button>
+              <input
+                className="km-input w-20 text-center"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={maxQty}
+                value={quantity}
+                onChange={(event) => changeQuantity(Number(event.target.value))}
+              />
+              <button
+                type="button"
+                className="km-btn km-btn-ghost"
+                aria-label="增加数量"
+                disabled={quantity >= maxQty}
+                onClick={() => changeQuantity(quantity + 1)}
+              >
+                +
+              </button>
+              <span className="text-xs text-[var(--km-fg-muted)]">
+                一次最多 {maxQty} 张
+              </span>
+            </div>
+          </div>
+        ) : null}
         <label className="block space-y-1.5 text-sm">
           <span>接收邮箱</span>
           <input
@@ -272,6 +328,7 @@ export function StoreCheckout({
                     <p className="mt-1 text-xs text-[var(--km-fg-muted)]">
                       {publicStatusLabel(item.payStatus, "pay")} ·{" "}
                       {publicStatusLabel(item.fulfillStatus, "fulfill")}
+                      {(item.quantity || 1) > 1 ? ` · ${item.quantity} 张` : ""}
                     </p>
                   </div>
                   <p className="shrink-0 text-sm font-semibold">
