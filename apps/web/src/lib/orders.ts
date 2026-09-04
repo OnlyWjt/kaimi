@@ -31,6 +31,7 @@ import {
   findIssuedCdkByCode,
   nestedString,
 } from "@/lib/cardplatform/issued-redemption";
+import { injectRedeemCardPolicy } from "@/lib/cardplatform/policy";
 
 export async function appendStatusHistory(
   orderId: number,
@@ -269,11 +270,19 @@ export async function driveRechargeOrder(input: {
     redemptionToken = prepared.redemptionToken;
     const { client } = await resolveRedeemClient(prepared.redeemable.code);
     redeemStarted = true;
-    const redeemed = await client.redeemCdk({
-      redemption_token: prepared.redemptionToken,
-      preflight_token: prepared.preflightToken,
-      client_request_id: opened.order.orderNo,
-    });
+    // 后台配的选卡策略和拉黑名单只有注进 redeem body 才生效。这里以前是直接调
+    // client.redeemCdk，所以「严格按偏好选卡」「不许自动换卡」「排除这些卡」对客户
+    // 兑换全都没起过作用。
+    const redeemed = await client.redeemCdk(
+      await injectRedeemCardPolicy(
+        {
+          redemption_token: prepared.redemptionToken,
+          preflight_token: prepared.preflightToken,
+          client_request_id: opened.order.orderNo,
+        },
+        accountId,
+      ),
+    );
     const status = mapCardplatformStatus(redeemed.payload, redeemed.ok);
     const message =
       nestedString(redeemed.payload, "message", "msg") ||
