@@ -452,6 +452,9 @@ export function BatchRedeemForm({
           。重复的卡密会自动合并。
         </p>
         {note ? <p className="text-xs text-[var(--km-fg-muted)]">{note}</p> : null}
+        {error && !checked ? (
+          <p className="text-sm text-[var(--km-danger)]">{error}</p>
+        ) : null}
         <button
           type="button"
           className="km-btn w-full"
