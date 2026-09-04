@@ -75,6 +75,57 @@ const BATCH_ROW_STATUS: Record<string, string> = {
   unknown: "结果待确认",
 };
 
+/**
+ * 卡台处理明细里的步骤键。上游随时可能加新步骤，认不出来的一律走兜底文案，
+ * 绝不能把 `credential_check` 这种英文键抖到客户和代理眼前。
+ */
+const REDEEM_STEP: Record<string, string> = {
+  queued: "排队受理",
+  credential_check: "凭证校验",
+  pricing: "计价",
+  checkout: "开卡/绑卡",
+  payment: "支付扣款",
+  subscription: "订阅生效",
+  invoice: "账单",
+  renewal: "续费处理",
+  reconcile: "对账确认",
+  completed: "完成",
+};
+
+/** 明细每一行右边那个小标签，卡台用它区分这一步是成了、挂了还是还在跑。 */
+const REDEEM_EVENT_CATEGORY: Record<string, string> = {
+  success: "成功",
+  completed: "成功",
+  ok: "成功",
+  failed: "失败",
+  error: "失败",
+  warning: "注意",
+  review: "待核对",
+  pending: "处理中",
+  running: "处理中",
+  info: "信息",
+};
+
+/** 卡台 `order.stage` 与本站粗粒度四段进度条共用一张表，四段的键是 accept/card/pay/done。 */
+const REDEEM_STAGE: Record<string, string> = {
+  accept: "受理",
+  card: "开卡/资金",
+  pay: "支付",
+  done: "开通",
+  queued: "排队受理",
+  dispatch: "派发",
+  credential_check: "凭证校验",
+  pricing: "计价",
+  checkout: "开卡/绑卡",
+  await_funds: "等待资金",
+  payment: "支付扣款",
+  paid: "已扣款",
+  invoice: "账单",
+  subscription: "订阅生效",
+  reconcile: "对账确认",
+  completed: "已开通",
+};
+
 const SETTLEMENT_STATUS: Record<string, string> = {
   pending_payment: "待返佣",
   paid: "已返佣",
@@ -89,8 +140,8 @@ const JOB_STATUS: Record<string, string> = {
   retrying: "重试中",
 };
 
-// 批量行状态刻意不并进 ALL：pending / failed / unknown 这几个键在 FULFILL_STATUS
-// 里另有说法，混进来会把订单页的文案改掉。
+// 批量行状态和卡台明细的三张表刻意不并进 ALL：pending / failed / completed / running
+// 这些键在 FULFILL_STATUS 里另有说法，混进来会把订单页的文案改掉。
 const ALL: Record<string, string> = {
   ...CDK_STATUS,
   ...PAY_STATUS,
@@ -107,6 +158,9 @@ export type StatusDomain =
   | "settlement"
   | "job"
   | "batch"
+  | "redeemStep"
+  | "redeemEvent"
+  | "redeemStage"
   | "any";
 
 const DOMAINS: Record<StatusDomain, Record<string, string>> = {
@@ -117,6 +171,9 @@ const DOMAINS: Record<StatusDomain, Record<string, string>> = {
   settlement: SETTLEMENT_STATUS,
   job: JOB_STATUS,
   batch: BATCH_ROW_STATUS,
+  redeemStep: REDEEM_STEP,
+  redeemEvent: REDEEM_EVENT_CATEGORY,
+  redeemStage: REDEEM_STAGE,
   any: ALL,
 };
 
