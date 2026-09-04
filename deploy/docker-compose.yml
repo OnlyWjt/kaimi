@@ -10,8 +10,10 @@ services:
       KAIMI_DATABASE_URL: file:/app/apps/web/data/kaimi.db
     volumes:
       - kaimi_data:/app/apps/web/data
-    ports:
-      - "3100:3100"
+    # 不对外映射 3100：只让 caddy 进得来。直连应用端口的请求可以随便伪造
+    # X-Forwarded-For，按 IP 的限流就形同虚设。
+    expose:
+      - "3100"
 
   caddy:
     image: caddy:2.9-alpine
