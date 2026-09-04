@@ -50,6 +50,13 @@ import { sanitizeLog } from "./log";
 import { messageFromApiBody } from "./http-error";
 import { centsFromYuanText, yuanTextFromCents } from "./money";
 import { isIpv4, isIpv6 } from "./network/egress";
+import { issueIdempotencyKey } from "./fulfillment/issue-keys";
+import {
+  DEFAULT_MAX_ORDER_QUANTITY,
+  HARD_MAX_ORDER_QUANTITY,
+  normalizeMaxOrderQuantity,
+  resolveOrderQuantity,
+} from "./store-quantity-core";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -93,10 +100,85 @@ describe("payment fees", () => {
     expect(calculateAgentEarningCents(108_000, 103_000, fee)).toBe(4_352);
   });
 
+  it("一单多张时比例费率按总额抽，固定手续费只收一次", () => {
+    const rule = { ratePpm: 6_000, fixedFeeCents: 10 };
+    const unitPriceCents = 1_000;
+    const feeForOne = calculatePaymentFeeCents(unitPriceCents, rule);
+    const feeForFive = calculatePaymentFeeCents(unitPriceCents * 5, rule);
+    expect(feeForOne).toBe(16);
+    expect(feeForFive).toBe(40);
+    // 按单价逐张算再相加会把固定费收 5 次，这里证明整单只收了一次。
+    expect(feeForFive).toBeLessThan(feeForOne * 5);
+    expect(feeForFive - rule.fixedFeeCents).toBe(
+      (feeForOne - rule.fixedFeeCents) * 5,
+    );
+  });
+
+  it("一单多张的收益按总额减总成本再减整单手续费", () => {
+    const rule = { ratePpm: 6_000, fixedFeeCents: 10 };
+    const grossCents = 1_000 * 5;
+    const costCents = 800 * 5;
+    const fee = calculatePaymentFeeCents(grossCents, rule);
+    expect(fee).toBe(40);
+    expect(calculateAgentEarningCents(grossCents, costCents, fee)).toBe(960);
+  });
+
   it("formats and parses money without floating-point arithmetic", () => {
     expect(moneyYuan(108_001)).toBe("1080.01");
     expect(parseMoneyYuan("1080.01")).toBe(108_001);
     expect(() => parseMoneyYuan("1.001")).toThrow("invalid money");
+  });
+});
+
+describe("购买数量", () => {
+  it("后台上限填坏了回落到默认值，再高也夹在硬上限内", () => {
+    expect(normalizeMaxOrderQuantity("")).toBe(DEFAULT_MAX_ORDER_QUANTITY);
+    expect(normalizeMaxOrderQuantity("abc")).toBe(DEFAULT_MAX_ORDER_QUANTITY);
+    expect(normalizeMaxOrderQuantity(0)).toBe(DEFAULT_MAX_ORDER_QUANTITY);
+    expect(normalizeMaxOrderQuantity(-3)).toBe(DEFAULT_MAX_ORDER_QUANTITY);
+    expect(normalizeMaxOrderQuantity("8")).toBe(8);
+    expect(normalizeMaxOrderQuantity(9_999)).toBe(HARD_MAX_ORDER_QUANTITY);
+  });
+
+  it("买家没传数量按 1 张，越界的数量不静默改小而是拒掉", () => {
+    expect(resolveOrderQuantity(undefined, 5)).toBe(1);
+    expect(resolveOrderQuantity(null, 5)).toBe(1);
+    expect(resolveOrderQuantity(3, 5)).toBe(3);
+    expect(resolveOrderQuantity(5, 5)).toBe(5);
+    expect(resolveOrderQuantity(6, 5)).toBeNull();
+    expect(resolveOrderQuantity(0, 5)).toBeNull();
+    expect(resolveOrderQuantity(2.5, 5)).toBeNull();
+    expect(resolveOrderQuantity("2", 5)).toBe(2);
+  });
+
+  it("上限本身越界时也按夹过的上限判数量", () => {
+    // 后台填 9999 只会被当成 50，买家仍然买不到 51 张。
+    expect(resolveOrderQuantity(HARD_MAX_ORDER_QUANTITY, 9_999)).toBe(
+      HARD_MAX_ORDER_QUANTITY,
+    );
+    expect(resolveOrderQuantity(HARD_MAX_ORDER_QUANTITY + 1, 9_999)).toBeNull();
+    expect(resolveOrderQuantity(1, 0)).toBe(1);
+    expect(resolveOrderQuantity(6, 0)).toBeNull();
+  });
+});
+
+describe("补发剩余的幂等键", () => {
+  it("一张都没发时沿用订单级的键，老订单重试行为不变", () => {
+    expect(issueIdempotencyKey("kaimi-order-KS1", 0)).toBe("kaimi-order-KS1");
+  });
+
+  it("已经入库几张之后换键，卡台才会真的再发新卡", () => {
+    expect(issueIdempotencyKey("kaimi-order-KS1", 3)).toBe(
+      "kaimi-order-KS1-r3",
+    );
+    // 同一批剩余重试多少次都是同一个键，重放是安全的。
+    expect(issueIdempotencyKey("kaimi-order-KS1", 3)).toBe(
+      issueIdempotencyKey("kaimi-order-KS1", 3),
+    );
+    // 入库数一变就是新键，不会拿回上一次那几张。
+    expect(issueIdempotencyKey("kaimi-order-KS1", 4)).not.toBe(
+      issueIdempotencyKey("kaimi-order-KS1", 3),
+    );
   });
 });
 
@@ -291,6 +373,129 @@ describe("external adapters", () => {
       preferred_segment_type: "product",
       preferred_segment_key: "P53780X",
     });
+  });
+
+  it("一次批量要 5 张只发一个请求、只用一个幂等键", async () => {
+    const fetchMock = vi.fn(async (...args: Parameters<typeof fetch>) => {
+      void args;
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          data: {
+            requested: 5,
+            issued: [1, 2, 3, 4, 5].map((n) => ({
+              id: n,
+              code: `GPTD-TEST-CODE-${n}`,
+              plan: "plus",
+              code_prefix: "GPTD-TEST",
+              fee_amount_minor: 100,
+            })),
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CardplatformClient({
+      siteBase: "https://card.invalid",
+      apiKey: "test-key",
+    });
+    const issued = await client.issueMany("plus", 5, "kaimi-order-KS1");
+    expect(issued.map((item) => item.code)).toEqual([
+      "GPTD-TEST-CODE-1",
+      "GPTD-TEST-CODE-2",
+      "GPTD-TEST-CODE-3",
+      "GPTD-TEST-CODE-4",
+      "GPTD-TEST-CODE-5",
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(new Headers(init.headers).get("Idempotency-Key")).toBe(
+      "kaimi-order-KS1",
+    );
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      plan: "plus",
+      count: 5,
+    });
+  });
+
+  it("卡台只发出一部分时按明确结果返回，不报错也不重试", async () => {
+    const fetchMock = vi.fn(async (...args: Parameters<typeof fetch>) => {
+      void args;
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          data: {
+            requested: 5,
+            issued: [
+              {
+                id: 7,
+                code: "GPTD-TEST-CODE-7",
+                plan: "plus",
+                code_prefix: "GPTD-TEST",
+                fee_amount_minor: 100,
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CardplatformClient({
+      siteBase: "https://card.invalid",
+      apiKey: "test-key",
+    });
+    const issued = await client.issueMany("plus", 5, "kaimi-order-KS2-r0");
+    expect(issued).toHaveLength(1);
+  });
+
+  it("一张都没发出来算明确失败，可以安全自动重试", async () => {
+    const fetchMock = vi.fn(async (...args: Parameters<typeof fetch>) => {
+      void args;
+      return new Response(
+        JSON.stringify({ code: 0, data: { requested: 2, issued: [] } }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CardplatformClient({
+      siteBase: "https://card.invalid",
+      apiKey: "test-key",
+    });
+    await expect(
+      client.issueMany("plus", 2, "kaimi-order-KS3"),
+    ).rejects.toMatchObject({
+      errorCode: "CARDPLATFORM_ISSUED_NONE",
+      outcomeUnknown: false,
+    });
+  });
+
+  it("返回的条目缺卡密时判为结果未知，交人工核对", async () => {
+    const fetchMock = vi.fn(async (...args: Parameters<typeof fetch>) => {
+      void args;
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          data: {
+            requested: 2,
+            issued: [
+              { id: 9, code: "GPTD-OK", plan: "plus", fee_amount_minor: 100 },
+              { id: 10, code: "", plan: "plus", fee_amount_minor: 100 },
+            ],
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CardplatformClient({
+      siteBase: "https://card.invalid",
+      apiKey: "test-key",
+    });
+    await expect(
+      client.issueMany("plus", 2, "kaimi-order-KS4"),
+    ).rejects.toMatchObject({ outcomeUnknown: true });
   });
 
   it("reads spendable balance from the card platform", async () => {
