@@ -30,8 +30,12 @@ export function rateLimitResponse(retryAfterSec = 60) {
 }
 
 export function enforceRateLimit(req: Request, name: string, limit: number, windowMs = 60_000) {
-  const ip = clientIp(req);
-  const r = rateLimit(`${name}:${ip}`, limit, windowMs);
+  return enforceRateLimitFor(`${name}:${clientIp(req)}`, limit, windowMs);
+}
+
+/** 按调用方给的 key 限流。登录用户按身份计额度，别让同一个出口 IP 的人互相挤。 */
+export function enforceRateLimitFor(key: string, limit: number, windowMs = 60_000) {
+  const r = rateLimit(key, limit, windowMs);
   if (!r.ok) return rateLimitResponse(r.retryAfterSec);
   return null;
 }

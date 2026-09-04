@@ -57,6 +57,24 @@ const FEE_STATUS: Record<string, string> = {
   manual_review: "待人工核对",
 };
 
+/**
+ * 批量兑换列表的行状态。
+ *
+ * 「失败」和「结果待确认」必须是两个词：失败可以重试，待确认只能等——卡台可能已经
+ * 扣过费了。这一栏的文案就是客户判断能不能重提的依据，混在一起会造成重复扣费。
+ */
+const BATCH_ROW_STATUS: Record<string, string> = {
+  pending: "待校验",
+  checking: "校验中",
+  invalid: "不可兑换",
+  ready: "可兑换",
+  submitting: "提交中",
+  running: "开通处理中",
+  success: "已成功",
+  failed: "失败",
+  unknown: "结果待确认",
+};
+
 const SETTLEMENT_STATUS: Record<string, string> = {
   pending_payment: "待返佣",
   paid: "已返佣",
@@ -71,6 +89,8 @@ const JOB_STATUS: Record<string, string> = {
   retrying: "重试中",
 };
 
+// 批量行状态刻意不并进 ALL：pending / failed / unknown 这几个键在 FULFILL_STATUS
+// 里另有说法，混进来会把订单页的文案改掉。
 const ALL: Record<string, string> = {
   ...CDK_STATUS,
   ...PAY_STATUS,
@@ -86,6 +106,7 @@ export type StatusDomain =
   | "fee"
   | "settlement"
   | "job"
+  | "batch"
   | "any";
 
 const DOMAINS: Record<StatusDomain, Record<string, string>> = {
@@ -95,6 +116,7 @@ const DOMAINS: Record<StatusDomain, Record<string, string>> = {
   fee: FEE_STATUS,
   settlement: SETTLEMENT_STATUS,
   job: JOB_STATUS,
+  batch: BATCH_ROW_STATUS,
   any: ALL,
 };
 
