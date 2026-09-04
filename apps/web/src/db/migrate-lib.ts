@@ -419,6 +419,8 @@ CREATE TABLE IF NOT EXISTS webhook_events (
   event_id TEXT NOT NULL,
   event_type TEXT NOT NULL DEFAULT '',
   payload_json TEXT NOT NULL DEFAULT '{}',
+  -- 下面紧跟着就要在 account_id 上建索引，建表时不带这一列，全新库会直接起不来。
+  account_id INTEGER NOT NULL DEFAULT 0,
   processed_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS webhook_events_event_id_uq ON webhook_events(event_id);
