@@ -92,6 +92,7 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
     },
   });
   const [maxOrderQuantity, setMaxOrderQuantity] = useState("5");
+  const [batchRedeemLimit, setBatchRedeemLimit] = useState("20");
   const [agents, setAgents] = useState<AgentOption[]>([]);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [storeOrders, setStoreOrders] = useState<StoreOrder[]>([]);
@@ -170,6 +171,7 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
     if (healthRes.ok) setHealth(healthData.health || null);
     if (rulesRes.ok) {
       setMaxOrderQuantity(String(rulesData.maxOrderQuantity || 5));
+      setBatchRedeemLimit(String(rulesData.batchRedeemLimit || 20));
     }
     setLoaded(true);
   }
@@ -217,10 +219,14 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
     const data = await submit("/api/admin", {
       action: "save_store_rules",
       maxOrderQuantity: Number(maxOrderQuantity || 0),
+      batchRedeemLimit: Number(batchRedeemLimit || 0),
     });
     if (data) {
       setMaxOrderQuantity(String(data.maxOrderQuantity));
-      setMessage(`买家一次最多可以买 ${data.maxOrderQuantity} 张`);
+      setBatchRedeemLimit(String(data.batchRedeemLimit));
+      setMessage(
+        `买家一次最多可以买 ${data.maxOrderQuantity} 张，批量兑换一次最多 ${data.batchRedeemLimit} 张`,
+      );
     }
   }
 
@@ -528,6 +534,19 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
           />
           <span className="block text-xs text-[var(--km-fg-muted)]">
             买家在店铺页能选的最大数量，默认 5 张，最多 50 张。卡台库存不够时会先发出一部分，剩下的自动补发。
+          </span>
+        </label>
+        <label className="block space-y-1 text-sm">
+          <span>批量兑换一次最多几张</span>
+          <input
+            className="km-input w-40"
+            inputMode="numeric"
+            value={batchRedeemLimit}
+            onChange={(event) => setBatchRedeemLimit(event.target.value)}
+          />
+          <span className="block text-xs text-[var(--km-fg-muted)]">
+            兑换页和代理后台的批量兑换一次能收多少张，默认 20 张，最多 50 张。
+            填大了就是一次点击要打卡台这么多次，卡台会更容易限流。
           </span>
         </label>
         <button

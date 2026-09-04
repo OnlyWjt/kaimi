@@ -5,6 +5,12 @@ import { db } from "@/db";
 import { agents, cdkPool, issuedCdks, orders, storefronts, storeOrders } from "@/db/schema";
 import { getAgentRedeemUrl, normalizeAgentRedeemUrl } from "@/lib/agent-redeem";
 import {
+  BATCH_REDEEM_LIMIT_SETTING,
+  HARD_MAX_BATCH_REDEEM_LIMIT,
+  getBatchRedeemLimit,
+  normalizeBatchRedeemLimit,
+} from "@/lib/batch-redeem-limit";
+import {
   HARD_MAX_ORDER_QUANTITY,
   MAX_ORDER_QUANTITY_SETTING,
   getMaxOrderQuantity,
@@ -314,6 +320,8 @@ export async function GET(req: Request) {
     return NextResponse.json({
       maxOrderQuantity: await getMaxOrderQuantity(),
       hardMaxOrderQuantity: HARD_MAX_ORDER_QUANTITY,
+      batchRedeemLimit: await getBatchRedeemLimit(),
+      hardMaxBatchRedeemLimit: HARD_MAX_BATCH_REDEEM_LIMIT,
     });
   }
 
@@ -384,7 +392,10 @@ export async function POST(req: Request) {
     // 前端填错也不至于放出天量订单：normalize 会夹到 1..HARD_MAX_ORDER_QUANTITY。
     const maxOrderQuantity = normalizeMaxOrderQuantity(body.maxOrderQuantity);
     await setSetting(MAX_ORDER_QUANTITY_SETTING, String(maxOrderQuantity));
-    return NextResponse.json({ ok: true, maxOrderQuantity });
+    // 批量兑换的上限同理：一次点击就是这么多次卡台调用，夹到硬上限里。
+    const batchRedeemLimit = normalizeBatchRedeemLimit(body.batchRedeemLimit);
+    await setSetting(BATCH_REDEEM_LIMIT_SETTING, String(batchRedeemLimit));
+    return NextResponse.json({ ok: true, maxOrderQuantity, batchRedeemLimit });
   }
 
   if (action === "test_connection" || action === "ping" || action === "sync_stock") {
