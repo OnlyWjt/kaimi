@@ -32,15 +32,18 @@ async function serializePublicOrder(
         })
       : [];
   const codes = cdks.map((row) => decryptSecret(row.codeEncrypted));
-  // 兑换链接只能带一张卡密，多张时给买家一个干净的兑换页地址，逐张自己粘。
-  const rechargePath =
-    codes.length === 1
-      ? `/recharge?code=${encodeURIComponent(codes[0]!)}`
-      : "/recharge";
   const origin = await getPublicBaseUrl(req);
   const queryToken = order.queryTokenEncrypted
     ? decryptSecret(order.queryTokenEncrypted)
     : "";
+  // 多张卡不把卡密塞进地址：链接会很长，还会把卡密留在浏览器历史和中间代理的日志里。
+  // 只带单号和已有的查询凭证，批量兑换页凭这两个自己去订单接口取卡密。
+  const rechargePath =
+    codes.length === 1
+      ? `/recharge?code=${encodeURIComponent(codes[0]!)}`
+      : codes.length > 1 && queryToken
+        ? `/recharge?order=${encodeURIComponent(order.orderNo)}&qt=${encodeURIComponent(queryToken)}`
+        : "/recharge";
   const quantity = Math.max(1, order.quantity);
   return {
     orderNo: order.orderNo,

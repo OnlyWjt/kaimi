@@ -249,7 +249,7 @@ export function StoreOrderResultPanel({
             <p className="font-medium">兑换链接</p>
             <p className="text-sm text-[var(--km-fg-muted)]">
               {codes.length > 1
-                ? "打开后把上面的卡密逐张粘进去校验兑换。"
+                ? `打开后会带上这一单的 ${codes.length} 张卡密，填一次账号就能一起兑换。`
                 : "打开后会带上这张卡密，直接校验即可兑换。"}
             </p>
             <div className="break-all rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 font-mono text-xs">
