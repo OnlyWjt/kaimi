@@ -28,6 +28,7 @@ import {
   pollRechargeIfNeeded,
   reconcileStuckLocks,
 } from "@/lib/orders";
+import { getOrderTimeline, getUpstreamSnapshot } from "@/lib/order-timeline";
 import { getDefaultCardplatformAccount } from "@/lib/cardplatform/config";
 import {
   getPublicBaseUrl,
@@ -493,6 +494,23 @@ export async function POST(req: Request) {
         { status: 502 },
       );
     }
+  }
+
+  // 卡台原始报文只在这里出现：里面有卡 id、发卡行、内部错误码和报价，客户和代理都不该看到。
+  if (action === "order_timeline") {
+    const orderNo = String(body.orderNo || "").trim();
+    if (!orderNo) return NextResponse.json({ error: "缺少订单号" }, { status: 400 });
+    const order = await db.query.orders.findFirst({
+      where: eq(orders.orderNo, orderNo),
+    });
+    if (!order) return NextResponse.json({ error: "订单不存在" }, { status: 404 });
+    return NextResponse.json({
+      ok: true,
+      orderNo: order.orderNo,
+      snapshot: await getUpstreamSnapshot(order.id),
+      timeline: await getOrderTimeline(order.id),
+      history: await getStatusHistory(order.id),
+    });
   }
 
   if (action === "poll_inflight") {

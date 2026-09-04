@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { cdkPool, orders } from "@/db/schema";
 import { bootDb } from "@/lib/config";
 import { getStatusHistory, pollRechargeIfNeeded } from "@/lib/orders";
+import { getOrderTimelines, getUpstreamSnapshots } from "@/lib/order-timeline";
 import { maskCode } from "@/lib/crypto";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
@@ -47,10 +48,18 @@ export async function GET(req: Request) {
     if (row.orderId) codeByOrder.set(row.orderId, row.code);
   }
 
+  // 时间线和订单级快照一次批量取回，别在 map 里逐单查。
+  const orderIds = list.map((o) => o.id);
+  const [timelines, snapshots] = await Promise.all([
+    getOrderTimelines(orderIds),
+    getUpstreamSnapshots(orderIds),
+  ]);
+
   const mapped = await Promise.all(
     list.map(async (o) => {
       const history = await getStatusHistory(o.id);
       const rawCode = codeByOrder.get(o.id) || "";
+      const snapshot = snapshots.get(o.id);
       return {
         orderNo: o.orderNo,
         kind: o.kind,
@@ -62,6 +71,11 @@ export async function GET(req: Request) {
         fulfillStatus: o.fulfillStatus,
         message: o.message,
         createdAt: o.createdAt,
+        // 卡台侧的订单级字段。原始报文只在管理端出现，买家看不到。
+        upstreamStatus: snapshot?.status || "",
+        upstreamStage: snapshot?.stage || "",
+        cardLastFour: snapshot?.cardLastFour || "",
+        timeline: timelines.get(o.id) || [],
         history: history.map((h) => ({
           status: h.status,
           message: h.message,
