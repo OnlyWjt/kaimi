@@ -664,6 +664,42 @@ export const orderStatusHistory = sqliteTable(
   }),
 );
 
+export const orderTimelineEvents = sqliteTable(
+  "order_timeline_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    orderId: integer("order_id").notNull(),
+    /** 去重键：上游事件 id，或「步骤+时间+分类」拼出来的稳定串。 */
+    eventKey: text("event_key").notNull(),
+    step: text("step").notNull().default(""),
+    category: text("category").notNull().default(""),
+    message: text("message").notNull().default(""),
+    occurredAt: text("occurred_at").notNull().default(""),
+    seq: integer("seq").notNull().default(0),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (t) => ({
+    orderIdx: index("order_timeline_events_order_idx").on(t.orderId, t.seq, t.id),
+    keyUq: uniqueIndex("order_timeline_events_key_uq").on(t.orderId, t.eventKey),
+  }),
+);
+
+export const orderUpstreamSnapshots = sqliteTable("order_upstream_snapshots", {
+  orderId: integer("order_id").primaryKey(),
+  status: text("status").notNull().default(""),
+  stage: text("stage").notNull().default(""),
+  message: text("message").notNull().default(""),
+  accountEmail: text("account_email").notNull().default(""),
+  cardLastFour: text("card_last_four").notNull().default(""),
+  /** 卡台原始报文，仅管理员可见。 */
+  payloadJson: text("payload_json").notNull().default(""),
+  fetchedAt: text("fetched_at")
+    .notNull()
+    .default(sql`(datetime('now'))`),
+});
+
 export const purchaseImports = sqliteTable("purchase_imports", {
   orderNo: text("order_no").primaryKey(),
   plan: text("plan").notNull().default(""),

@@ -502,6 +502,37 @@ CREATE TABLE IF NOT EXISTS order_status_history (
 );
 CREATE INDEX IF NOT EXISTS order_status_history_order_idx ON order_status_history(order_id);
 
+-- 卡台 result 里的 events[]。轮询每 2~3 秒重复返回同一批，靠 (order_id, event_key)
+-- 去重；event_key 优先用上游事件 id，没有就拼「步骤+时间+分类」。
+CREATE TABLE IF NOT EXISTS order_timeline_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id INTEGER NOT NULL,
+  event_key TEXT NOT NULL,
+  step TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT '',
+  message TEXT NOT NULL DEFAULT '',
+  occurred_at TEXT NOT NULL DEFAULT '',
+  seq INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS order_timeline_events_key_uq
+  ON order_timeline_events(order_id, event_key);
+CREATE INDEX IF NOT EXISTS order_timeline_events_order_idx
+  ON order_timeline_events(order_id, seq, id);
+
+-- 每单一行，存最近一次卡台返回的订单级字段和原始报文。原始报文只给管理员看：
+-- 里面有卡 id、发卡行、内部错误码这些买家不该看到的东西。
+CREATE TABLE IF NOT EXISTS order_upstream_snapshots (
+  order_id INTEGER PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT '',
+  stage TEXT NOT NULL DEFAULT '',
+  message TEXT NOT NULL DEFAULT '',
+  account_email TEXT NOT NULL DEFAULT '',
+  card_last_four TEXT NOT NULL DEFAULT '',
+  payload_json TEXT NOT NULL DEFAULT '',
+  fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS purchase_imports (
   order_no TEXT PRIMARY KEY,
   plan TEXT NOT NULL DEFAULT '',

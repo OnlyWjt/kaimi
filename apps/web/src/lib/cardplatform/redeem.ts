@@ -8,6 +8,7 @@ import {
   getDefaultCardplatformClient,
 } from "./config";
 import { observeFromPublicResult } from "./health";
+import { parseRedeemResult } from "@/lib/redeem-timeline-core";
 import { injectRedeemCardPolicy } from "./policy";
 import {
   cardplatformMessage,
@@ -192,11 +193,16 @@ export async function pollCardplatformResult(requestId: string) {
   const result = await client.getCdkResult(parsed.token);
   if (!result.ok) throw new Error(cardplatformMessage(result.payload));
   await observeFromPublicResult(result.payload, parsed.accountId);
+  // 面向用户那句话在 order.message 里，nestedString 只看顶层和 data，看不到它。
+  const upstream = parseRedeemResult(result.payload);
   return {
     payload: result.payload,
+    upstream,
     status: mapCardplatformStatus(result.payload, true),
     message:
-      nestedString(result.payload, "message", "msg") || "卡台处理中",
+      upstream.order.message ||
+      nestedString(result.payload, "message", "msg") ||
+      "卡台处理中",
   };
 }
 

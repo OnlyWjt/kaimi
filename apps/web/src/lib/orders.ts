@@ -32,6 +32,7 @@ import {
   nestedString,
 } from "@/lib/cardplatform/issued-redemption";
 import { injectRedeemCardPolicy } from "@/lib/cardplatform/policy";
+import { recordUpstreamResult } from "@/lib/order-timeline";
 
 export async function appendStatusHistory(
   orderId: number,
@@ -284,6 +285,10 @@ export async function driveRechargeOrder(input: {
       ),
     );
     const status = mapCardplatformStatus(redeemed.payload, redeemed.ok);
+    // 受理响应里就可能带头几条 events，先落一次，界面不用等到第一轮轮询才有明细。
+    await recordUpstreamResult(opened.order.id, redeemed.payload).catch((err) =>
+      console.warn("[kaimi] timeline skipped", opened.order.orderNo, err),
+    );
     const message =
       nestedString(redeemed.payload, "message", "msg") ||
       (status === "success" ? "兑换成功" : "已提交卡台处理");
@@ -536,6 +541,10 @@ async function pollDirectCardplatformOrder(order: typeof orders.$inferSelect) {
   const parsed = parseCardplatformRequestId(order.upstreamRequestId || "");
   if (!parsed) throw new Error("卡台兑换请求标识无效");
   const result = await pollCardplatformResult(order.upstreamRequestId || "");
+  // 时间线落库失败不能把这一轮轮询带倒——状态回写比明细重要。
+  await recordUpstreamResult(order.id, result.payload).catch((err) =>
+    console.warn("[kaimi] timeline skipped", order.orderNo, err),
+  );
   const status = result.status;
   const message = result.message;
   const terminalSuccess = status === "success" || status === "skipped";
@@ -546,6 +555,10 @@ async function pollDirectCardplatformOrder(order: typeof orders.$inferSelect) {
       .set({
         fulfillStatus: status,
         message,
+        // 开卡之后卡台才知道这单落在哪个账号上，本地没有就补一次。
+        ...(result.upstream.order.accountEmail && !order.accountEmail
+          ? { accountEmail: result.upstream.order.accountEmail }
+          : {}),
         updatedAt: new Date().toISOString(),
       })
       .where(eq(orders.id, order.id));
