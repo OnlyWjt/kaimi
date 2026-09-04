@@ -59,6 +59,13 @@ type SessionPreview = {
   error?: string;
 };
 
+/** 还要继续刷进度的行状态。只查不重提，unknown 依然没有重试入口。 */
+const LIVE_ROW_STATES = new Set<BatchRowState>([
+  "running",
+  "unknown",
+  "submitting",
+]);
+
 function badgeClass(state: BatchRowState) {
   if (state === "success") return "km-badge km-badge-ok";
   if (state === "failed" || state === "invalid") return "km-badge km-badge-bad";
@@ -168,8 +175,10 @@ export function BatchRedeemForm({
     }
   }, []);
 
+  // unknown 也要接着刷：服务端兜底会去卡台核对，界面上又写着「正在确认」，
+  // 停在那里不动的「结果待确认」正是会让人跑去别处重提的东西。
   const liveKey = rows
-    .filter((row) => row.orderNo && row.state === "running")
+    .filter((row) => row.orderNo && LIVE_ROW_STATES.has(row.state))
     .map((row) => row.orderNo)
     .join(",");
 
@@ -308,12 +317,21 @@ export function BatchRedeemForm({
         current.map((row) => {
           const found = byCode.get(row.code);
           if (!found) return row;
-          return found.ok
+          if (found.ok) {
+            return {
+              ...row,
+              state: "running",
+              orderNo: found.orderNo,
+              message: "已提交，正在开通",
+            };
+          }
+          // 建单被挡下但带回了单号，说明这张已经在兑换了：接着轮询，绝不给重试入口。
+          return found.orderNo
             ? {
                 ...row,
                 state: "running",
                 orderNo: found.orderNo,
-                message: "已提交，正在开通",
+                message: found.error || "这张正在兑换，正在查询进度",
               }
             : { ...row, state: "failed", message: found.error || "提交失败" };
         }),

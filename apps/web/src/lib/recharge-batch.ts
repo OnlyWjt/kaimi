@@ -9,10 +9,10 @@ import {
 import { bootDb } from "@/lib/config";
 import { maskCode } from "@/lib/crypto";
 import { sanitizeLog } from "@/lib/log";
-import { isOrderTerminalStatus } from "@/lib/order-status";
+import { shouldRepollOrderStatus } from "@/lib/order-status";
 import {
   driveRechargeOrder,
-  getStatusHistory,
+  getStatusHistories,
   pollRechargeIfNeeded,
   type OpenedRechargeOrder,
 } from "@/lib/orders";
@@ -89,15 +89,25 @@ export async function driveRechargeBatch(
   account: AgentCredential,
 ) {
   await mapPool(items, REDEEM_BATCH_CONCURRENCY, async (item) => {
-    const { error } = await driveRechargeOrder({
-      opened: item.opened,
-      code: item.code,
-      account,
-    });
-    if (error) {
-      console.warn(
-        `[kaimi] batch redeem order=${item.opened.order.orderNo}`,
-        sanitizeLog(error.message),
+    // driveRechargeOrder 自己的 catch 里还要写库，那一步再抛就会逃出来；mapPool 的
+    // Promise.all 一 reject，这条泳道里剩下的卡就再也不会开跑，卡停在 locked、
+    // 单停在 pending。一张的意外不能带倒后面几张。
+    try {
+      const { error } = await driveRechargeOrder({
+        opened: item.opened,
+        code: item.code,
+        account,
+      });
+      if (error) {
+        console.warn(
+          `[kaimi] batch redeem order=${item.opened.order.orderNo}`,
+          sanitizeLog(error.message),
+        );
+      }
+    } catch (error) {
+      console.error(
+        `[kaimi] batch redeem crashed order=${item.opened.order.orderNo}`,
+        sanitizeLog(error instanceof Error ? error.message : String(error)),
       );
     }
   });
@@ -128,8 +138,8 @@ export async function readRechargeBatchOrders(
     where: inArray(orders.orderNo, wanted),
     limit: wanted.length,
   });
-  const stale = known.filter(
-    (order) => !isOrderTerminalStatus(order.fulfillStatus),
+  const stale = known.filter((order) =>
+    shouldRepollOrderStatus(order.fulfillStatus),
   );
   await mapPool(stale, REDEEM_BATCH_CONCURRENCY, async (order) => {
     await pollRechargeIfNeeded(order.orderNo).catch(() => null);
@@ -139,17 +149,17 @@ export async function readRechargeBatchOrders(
     where: inArray(orders.orderNo, wanted),
     limit: wanted.length,
   });
-  return Promise.all(
-    fresh.map(async (order) => ({
-      orderNo: order.orderNo,
-      fulfillStatus: order.fulfillStatus,
-      message: order.message,
-      accountEmail: order.accountEmail || order.email || "",
-      history: (await getStatusHistory(order.id)).map((row) => ({
-        status: row.status,
-        message: row.message,
-        at: row.createdAt,
-      })),
+  // 历史一次批量取回。逐单查会在每 3 秒一轮、一轮 200 单的轮询路径上堆出 200 次往返。
+  const histories = await getStatusHistories(fresh.map((order) => order.id));
+  return fresh.map((order) => ({
+    orderNo: order.orderNo,
+    fulfillStatus: order.fulfillStatus,
+    message: order.message,
+    accountEmail: order.accountEmail || order.email || "",
+    history: (histories.get(order.id) || []).map((row) => ({
+      status: row.status,
+      message: row.message,
+      at: row.createdAt,
     })),
-  );
+  }));
 }
