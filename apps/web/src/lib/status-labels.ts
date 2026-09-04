@@ -36,6 +36,7 @@ const FULFILL_STATUS: Record<string, string> = {
   submitted: "已提交",
   processing: "处理中",
   delivered: "已发卡",
+  partially_delivered: "部分已发卡",
   paid_undelivered: "已付未发",
   fulfilled: "已完成",
   success: "已成功",

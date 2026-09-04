@@ -3,6 +3,9 @@ export type CardplatformConfig = {
   apiKey: string;
 };
 
+/** 卡台 POST /gpt-direct/cdks 单次最多发 200 张，和上游 GPTDirectCDKBatchMax 对齐。 */
+export const MAX_ISSUE_COUNT = 200;
+
 export type IssuedCdk = {
   id: number;
   code: string;
@@ -214,11 +217,22 @@ export class CardplatformClient {
     return envelope.data as T;
   }
 
-  async issueOne(plan: string, idempotencyKey: string, pref?: IssueCardPref) {
+  /**
+   * 一次要 count 张，只发一个请求、只用一个幂等键。
+   * 卡台可能只发出一部分（库存不够），返回的数组就会比 count 短——那是明确结果，
+   * 由调用方决定要不要补发剩余，这里不重试也不报错。
+   */
+  async issueMany(
+    plan: string,
+    count: number,
+    idempotencyKey: string,
+    pref?: IssueCardPref,
+  ): Promise<IssuedCdk[]> {
+    const wanted = Math.max(1, Math.min(MAX_ISSUE_COUNT, Math.trunc(count)));
     const data = await this.request<unknown>("POST", "/gpt-direct/cdks", {
       body: {
         plan,
-        count: 1,
+        count: wanted,
         funding_confirmed: true,
         ...(pref?.issuer ? { preferred_issuer: pref.issuer } : {}),
         ...(pref?.segmentType
@@ -230,12 +244,26 @@ export class CardplatformClient {
       timeoutMs: 180_000,
     });
     const issued = parseIssued(data);
-    const item = issued[0];
-    if (!item?.code) {
+    // 有条目但卡密不全：卡台那边可能真扣了卡而我们记不下来，只能转人工。
+    if (issued.some((item) => !item.code)) {
       throw new CardplatformError({
         message: "卡台未返回完整卡密",
-        outcomeUnknown: issued.length > 0,
+        outcomeUnknown: true,
       });
+    }
+    if (issued.length === 0) {
+      throw new CardplatformError({
+        message: "卡台这次没有发出卡密",
+        errorCode: "CARDPLATFORM_ISSUED_NONE",
+      });
+    }
+    return issued.slice(0, wanted);
+  }
+
+  async issueOne(plan: string, idempotencyKey: string, pref?: IssueCardPref) {
+    const [item] = await this.issueMany(plan, 1, idempotencyKey, pref);
+    if (!item) {
+      throw new CardplatformError({ message: "卡台未返回完整卡密" });
     }
     return item;
   }

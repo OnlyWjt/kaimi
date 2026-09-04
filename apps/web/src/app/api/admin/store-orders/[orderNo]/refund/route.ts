@@ -63,18 +63,23 @@ export async function PATCH(
       { status: 409 },
     );
   }
-  if (!["pending", "paid_undelivered", "delivered"].includes(order.fulfillStatus)) {
+  if (
+    !["pending", "paid_undelivered", "partially_delivered", "delivered"].includes(
+      order.fulfillStatus,
+    )
+  ) {
     return NextResponse.json(
       { error: "订单正在发卡或结果不确定，请先完成履约核对" },
       { status: 409 },
     );
   }
 
-  const [earning, cdk] = await Promise.all([
+  const [earning, cdks] = await Promise.all([
     db.query.agentEarnings.findFirst({
       where: eq(agentEarnings.orderId, order.id),
     }),
-    db.query.issuedCdks.findFirst({
+    // 一单可能有多张卡，全部都要能退掉才允许登记。
+    db.query.issuedCdks.findMany({
       where: eq(issuedCdks.orderId, order.id),
     }),
   ]);
@@ -84,13 +89,16 @@ export async function PATCH(
       { status: 409 },
     );
   }
-  if (cdk && ["used", "locked", "redeeming"].includes(cdk.status)) {
+  if (
+    cdks.some((cdk) => ["used", "locked", "redeeming"].includes(cdk.status))
+  ) {
     return NextResponse.json(
       { error: "卡密已使用或正在兑换，禁止直接退款，请先人工核对" },
       { status: 409 },
     );
   }
-  if (cdk?.status === "unused") {
+  for (const cdk of cdks) {
+    if (cdk.status !== "unused") continue;
     const upstreamId = Number(cdk.upstreamRef);
     if (!Number.isSafeInteger(upstreamId) || upstreamId <= 0) {
       return NextResponse.json(
@@ -125,6 +133,7 @@ export async function PATCH(
         targetId: order.id,
         metadata: {
           orderNo,
+          cdkId: cdk.id,
           outcomeUnknown:
             error instanceof CardplatformError && error.outcomeUnknown,
           error: error instanceof Error ? error.message : "unknown",
@@ -160,7 +169,8 @@ export async function PATCH(
         )
         .returning();
       if (!updated) throw new Error("订单状态已变化");
-      if (cdk) {
+      for (const cdk of cdks) {
+        if (cdk.status !== "unused") continue;
         const [disabled] = await tx
           .update(issuedCdks)
           .set({ status: "disabled", updatedAt: now })

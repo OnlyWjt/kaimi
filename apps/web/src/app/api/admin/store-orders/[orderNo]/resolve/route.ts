@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { agentEarnings, issuedCdks, storeOrders } from "@/db/schema";
@@ -107,34 +107,46 @@ export async function PATCH(
             issuedAt: now,
             updatedAt: now,
           })
-          .onConflictDoNothing({ target: issuedCdks.orderId });
-        await tx
-          .insert(agentEarnings)
-          .values({
-            orderId: order.id,
-            agentId: freshOrder.agentId,
-            grossCents: freshOrder.retailPriceCents,
-            costCents: freshOrder.agentCostCents,
-            paymentFeeCents: freshOrder.finalPaymentFeeCents,
-            feeSource:
-              freshOrder.feeReconcileStatus === "confirmed"
-                ? "gateway_actual"
-                : freshOrder.feeReconcileStatus === "unsupported"
-                  ? "configured_fallback"
-                  : "estimated",
-            earningCents: freshOrder.agentEarningCents,
-            status: "pending",
-            confirmedAt: now,
-            updatedAt: now,
-          })
-          .onConflictDoNothing({ target: agentEarnings.orderId });
+          .onConflictDoNothing({ target: issuedCdks.codeHash });
+        const quantity = Math.max(1, freshOrder.quantity);
+        const [{ issuedTotal }] = await tx
+          .select({ issuedTotal: sql<number>`count(*)` })
+          .from(issuedCdks)
+          .where(eq(issuedCdks.orderId, order.id));
+        const delivered = Number(issuedTotal || 0);
+        const complete = delivered >= quantity;
+        // 收益与订单 1:1，只在卡补齐之后按整单总额写一次。
+        if (complete) {
+          await tx
+            .insert(agentEarnings)
+            .values({
+              orderId: order.id,
+              agentId: freshOrder.agentId,
+              grossCents: freshOrder.grossCents,
+              costCents: freshOrder.agentCostTotalCents,
+              paymentFeeCents: freshOrder.finalPaymentFeeCents,
+              feeSource:
+                freshOrder.feeReconcileStatus === "confirmed"
+                  ? "gateway_actual"
+                  : freshOrder.feeReconcileStatus === "unsupported"
+                    ? "configured_fallback"
+                    : "estimated",
+              earningCents: freshOrder.agentEarningCents,
+              status: "pending",
+              confirmedAt: now,
+              updatedAt: now,
+            })
+            .onConflictDoNothing({ target: agentEarnings.orderId });
+        }
         const [updated] = await tx
           .update(storeOrders)
           .set({
-            fulfillStatus: "delivered",
-            deliveredAt: now,
-            lastErrorCode: "",
-            lastErrorMessage: "管理员已从卡台核对并补录卡密",
+            fulfillStatus: complete ? "delivered" : "partially_delivered",
+            deliveredAt: complete ? now : freshOrder.deliveredAt,
+            lastErrorCode: complete ? "" : "CARDPLATFORM_PARTIAL_ISSUE",
+            lastErrorMessage: complete
+              ? "管理员已从卡台核对并补录卡密"
+              : `管理员已补录到 ${delivered}/${quantity} 张，剩余继续自动补发`,
             updatedAt: now,
           })
           .where(

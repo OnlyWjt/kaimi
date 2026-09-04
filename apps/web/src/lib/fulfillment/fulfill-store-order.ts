@@ -10,8 +10,16 @@ import { CardplatformError } from "@/lib/cardplatform/client";
 import { getCardplatformClientById } from "@/lib/cardplatform/config";
 import { issuePrefFromAccount } from "@/lib/cardplatform/policy";
 import { encryptSecret, hashLookupValue } from "@/lib/crypto";
+import { issueIdempotencyKey } from "@/lib/fulfillment/issue-keys";
 
 const ISSUING_LEASE_MS = 5 * 60_000;
+
+/** 还能继续发卡的状态：没发过、发失败了、只发出一部分。 */
+const RESUMABLE_STATUSES = [
+  "pending",
+  "paid_undelivered",
+  "partially_delivered",
+];
 
 export async function fulfillStoreOrder(orderId: number) {
   const order = await db.query.storeOrders.findFirst({
@@ -36,7 +44,7 @@ export async function fulfillStoreOrder(orderId: number) {
         eq(storeOrders.id, order.id),
         eq(storeOrders.payStatus, "paid"),
         or(
-          inArray(storeOrders.fulfillStatus, ["pending", "paid_undelivered"]),
+          inArray(storeOrders.fulfillStatus, RESUMABLE_STATUSES),
           and(
             eq(storeOrders.fulfillStatus, "issuing"),
             lte(storeOrders.updatedAt, staleBefore),
@@ -52,58 +60,104 @@ export async function fulfillStoreOrder(orderId: number) {
   }
 
   let attempt: typeof fulfillmentAttempts.$inferSelect | undefined;
+  const quantity = Math.max(1, claimed.quantity);
+  let alreadyIssued = 0;
   try {
-    const [{ nextAttempt }] = await db
-      .select({
-        nextAttempt: sql<number>`coalesce(max(${fulfillmentAttempts.attemptNo}), 0) + 1`,
-      })
-      .from(fulfillmentAttempts)
-      .where(eq(fulfillmentAttempts.orderId, order.id));
-    const [createdAttempt] = await db
-      .insert(fulfillmentAttempts)
-      .values({
-        orderId: order.id,
-        attemptNo: Number(nextAttempt || 1),
-        idempotencyKey: order.fulfillmentIdempotencyKey,
-        requestSummaryJson: JSON.stringify({
-          plan: order.planKeySnapshot,
-          count: 1,
-        }),
-        result: "running",
-      })
-      .returning();
-    attempt = createdAttempt;
-
-    const { account, client } = await getCardplatformClientById(
-      order.cardplatformAccountId,
-    );
-    const pref = await issuePrefFromAccount(account.id);
-    const cdk = await client.issueOne(
-      order.planKeySnapshot,
-      order.fulfillmentIdempotencyKey,
-      pref
-        ? {
-            issuer: pref.issuer,
-            segmentType: pref.segmentType,
-            segmentKey: pref.segmentKey,
-          }
-        : undefined,
-    );
-    const now = new Date().toISOString();
-    const prefix =
-      cdk.codePrefix || (cdk.code.length >= 14 ? cdk.code.slice(0, 14) : "");
-    const codeHash = hashLookupValue(cdk.code.toUpperCase());
-    const duplicateCode = await db.query.issuedCdks.findFirst({
-      where: eq(issuedCdks.codeHash, codeHash),
+    const existing = await db.query.issuedCdks.findMany({
+      where: eq(issuedCdks.orderId, order.id),
     });
-    if (duplicateCode && duplicateCode.orderId !== order.id) {
-      throw new CardplatformError({
-        message: "卡台返回了已绑定其他订单的卡密，已停止自动重试",
-        errorCode: "CARDPLATFORM_DUPLICATE_CDK",
-        outcomeUnknown: true,
+    alreadyIssued = existing.length;
+    const remaining = quantity - alreadyIssued;
+    const ownedHashes = new Set(existing.map((row) => row.codeHash));
+
+    const fresh: Array<{
+      code: string;
+      codeHash: string;
+      codePrefix: string;
+      upstreamRef: string;
+      upstreamFeeMinor: number;
+    }> = [];
+    let accountId: number = order.cardplatformAccountId;
+
+    if (remaining > 0) {
+      const [{ nextAttempt }] = await db
+        .select({
+          nextAttempt: sql<number>`coalesce(max(${fulfillmentAttempts.attemptNo}), 0) + 1`,
+        })
+        .from(fulfillmentAttempts)
+        .where(eq(fulfillmentAttempts.orderId, order.id));
+      // 补发剩余必须换幂等键，否则卡台会重放上一次那几张。
+      const idempotencyKey = issueIdempotencyKey(
+        order.fulfillmentIdempotencyKey,
+        alreadyIssued,
+      );
+      const [createdAttempt] = await db
+        .insert(fulfillmentAttempts)
+        .values({
+          orderId: order.id,
+          attemptNo: Number(nextAttempt || 1),
+          idempotencyKey,
+          requestSummaryJson: JSON.stringify({
+            plan: order.planKeySnapshot,
+            count: remaining,
+            quantity,
+            alreadyIssued,
+          }),
+          result: "running",
+        })
+        .returning();
+      attempt = createdAttempt;
+
+      const { account, client } = await getCardplatformClientById(
+        order.cardplatformAccountId,
+      );
+      accountId = account.id;
+      const pref = await issuePrefFromAccount(account.id);
+      const cdks = await client.issueMany(
+        order.planKeySnapshot,
+        remaining,
+        idempotencyKey,
+        pref
+          ? {
+              issuer: pref.issuer,
+              segmentType: pref.segmentType,
+              segmentKey: pref.segmentKey,
+            }
+          : undefined,
+      );
+
+      const hashes = cdks.map((cdk) => hashLookupValue(cdk.code.toUpperCase()));
+      const clashes = await db.query.issuedCdks.findMany({
+        where: inArray(issuedCdks.codeHash, hashes),
       });
+      if (clashes.some((row) => row.orderId !== order.id)) {
+        throw new CardplatformError({
+          message: "卡台返回了已绑定其他订单的卡密，已停止自动重试",
+          errorCode: "CARDPLATFORM_DUPLICATE_CDK",
+          outcomeUnknown: true,
+        });
+      }
+      for (const row of clashes) ownedHashes.add(row.codeHash);
+
+      // 幂等键被重放时会拿回已经入库的卡密，按 code_hash 跳过即可，不算失败。
+      const seen = new Set<string>();
+      for (const cdk of cdks) {
+        const codeHash = hashLookupValue(cdk.code.toUpperCase());
+        if (ownedHashes.has(codeHash) || seen.has(codeHash)) continue;
+        seen.add(codeHash);
+        fresh.push({
+          code: cdk.code,
+          codeHash,
+          codePrefix:
+            cdk.codePrefix ||
+            (cdk.code.length >= 14 ? cdk.code.slice(0, 14) : ""),
+          upstreamRef: String(cdk.id || ""),
+          upstreamFeeMinor: cdk.feeAmountMinor,
+        });
+      }
     }
 
+    const now = new Date().toISOString();
     await db.transaction(async (tx) => {
       const freshOrder = await tx.query.storeOrders.findFirst({
         where: eq(storeOrders.id, order.id),
@@ -115,52 +169,68 @@ export async function fulfillStoreOrder(orderId: number) {
       ) {
         throw new Error("订单状态已变化，已阻止写入发卡和收益记录");
       }
-      await tx
-        .insert(issuedCdks)
-        .values({
-          orderId: order.id,
-          agentId: order.agentId,
-          planKey: order.planKeySnapshot,
-          codeEncrypted: encryptSecret(cdk.code),
-          codeHash,
-          codePrefix: prefix,
-          cardplatformAccountId: account.id,
-          upstreamRef: String(cdk.id || ""),
-          upstreamFeeMinor: cdk.feeAmountMinor,
-          status: "unused",
-          issuedAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoNothing({ target: issuedCdks.orderId });
+      if (fresh.length > 0) {
+        await tx
+          .insert(issuedCdks)
+          .values(
+            fresh.map((item) => ({
+              orderId: order.id,
+              agentId: order.agentId,
+              planKey: order.planKeySnapshot,
+              codeEncrypted: encryptSecret(item.code),
+              codeHash: item.codeHash,
+              codePrefix: item.codePrefix,
+              cardplatformAccountId: accountId,
+              upstreamRef: item.upstreamRef,
+              upstreamFeeMinor: item.upstreamFeeMinor,
+              status: "unused",
+              issuedAt: now,
+              updatedAt: now,
+            })),
+          )
+          .onConflictDoNothing({ target: issuedCdks.codeHash });
+      }
 
-      await tx
-        .insert(agentEarnings)
-        .values({
-          orderId: order.id,
-          agentId: order.agentId,
-          grossCents: freshOrder.retailPriceCents,
-          costCents: freshOrder.agentCostCents,
-          paymentFeeCents: freshOrder.finalPaymentFeeCents,
-          feeSource:
-            freshOrder.feeReconcileStatus === "confirmed"
-              ? "gateway_actual"
-              : freshOrder.feeReconcileStatus === "unsupported"
-                ? "configured_fallback"
-                : "estimated",
-          earningCents: freshOrder.agentEarningCents,
-          status: "pending",
-          confirmedAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoNothing({ target: agentEarnings.orderId });
+      const [{ issuedTotal }] = await tx
+        .select({ issuedTotal: sql<number>`count(*)` })
+        .from(issuedCdks)
+        .where(eq(issuedCdks.orderId, order.id));
+      const delivered = Number(issuedTotal || 0);
+      const complete = delivered >= quantity;
+
+      // 收益按整单总额记一次，只在卡发齐了之后写；不写会被后续尝试改来改去的部分收益。
+      if (complete) {
+        await tx
+          .insert(agentEarnings)
+          .values({
+            orderId: order.id,
+            agentId: order.agentId,
+            grossCents: freshOrder.grossCents,
+            costCents: freshOrder.agentCostTotalCents,
+            paymentFeeCents: freshOrder.finalPaymentFeeCents,
+            feeSource:
+              freshOrder.feeReconcileStatus === "confirmed"
+                ? "gateway_actual"
+                : freshOrder.feeReconcileStatus === "unsupported"
+                  ? "configured_fallback"
+                  : "estimated",
+            earningCents: freshOrder.agentEarningCents,
+            status: "pending",
+            confirmedAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoNothing({ target: agentEarnings.orderId });
+      }
 
       await tx
         .update(storeOrders)
         .set({
-          fulfillStatus: "delivered",
-          deliveredAt: now,
-          lastErrorCode: "",
-          lastErrorMessage: "",
+          fulfillStatus: complete ? "delivered" : "partially_delivered",
+          deliveredAt: complete ? now : freshOrder.deliveredAt,
+          lastErrorCode: complete ? "" : "CARDPLATFORM_PARTIAL_ISSUE",
+          lastErrorMessage: complete
+            ? ""
+            : `卡台只发出 ${delivered}/${quantity} 张，正在自动补发剩余`,
           updatedAt: now,
         })
         .where(
@@ -174,10 +244,12 @@ export async function fulfillStoreOrder(orderId: number) {
         await tx
           .update(fulfillmentAttempts)
           .set({
-            result: "success",
+            result: complete ? "success" : "partial",
             responseSummaryJson: JSON.stringify({
-              upstreamRef: String(cdk.id || ""),
-              codePrefix: prefix,
+              issued: fresh.length,
+              deliveredTotal: delivered,
+              quantity,
+              upstreamRefs: fresh.map((item) => item.upstreamRef),
             }),
             finishedAt: now,
           })
@@ -192,12 +264,15 @@ export async function fulfillStoreOrder(orderId: number) {
             message: error instanceof Error ? error.message : "发卡失败",
           });
     const unknown = cardError.outcomeUnknown && !cardError.retryable;
+    // 已经发出去几张的订单退回 partially_delivered，别把买家手上的卡当成一张都没发。
+    const retryStatus =
+      alreadyIssued > 0 ? "partially_delivered" : "paid_undelivered";
     const now = new Date().toISOString();
     await db.transaction(async (tx) => {
       await tx
         .update(storeOrders)
         .set({
-          fulfillStatus: unknown ? "unknown" : "paid_undelivered",
+          fulfillStatus: unknown ? "unknown" : retryStatus,
           lastErrorCode:
             cardError.errorCode ||
             (unknown ? "CARDPLATFORM_OUTCOME_UNKNOWN" : "CARDPLATFORM_FAILED"),
@@ -233,11 +308,7 @@ export async function retryPendingStoreOrders(limit = 10) {
   const rows = await db.query.storeOrders.findMany({
     where: and(
       eq(storeOrders.payStatus, "paid"),
-      inArray(storeOrders.fulfillStatus, [
-        "pending",
-        "paid_undelivered",
-        "issuing",
-      ]),
+      inArray(storeOrders.fulfillStatus, [...RESUMABLE_STATUSES, "issuing"]),
     ),
     orderBy: [asc(storeOrders.paidAt)],
     limit: Math.max(1, Math.min(limit, 50)),
