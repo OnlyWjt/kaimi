@@ -27,7 +27,10 @@ import {
   requestIdForRedeem,
   resolveRedeemClient,
 } from "@/lib/cardplatform/redeem";
-import { nestedString } from "@/lib/cardplatform/issued-redemption";
+import {
+  findIssuedCdkByCode,
+  nestedString,
+} from "@/lib/cardplatform/issued-redemption";
 
 export async function appendStatusHistory(
   orderId: number,
@@ -146,15 +149,36 @@ export async function fulfillCodeOrder(orderId: number) {
   return updated;
 }
 
-async function createCardplatformRecharge(input: {
+export type OpenedRechargeOrder = {
+  order: typeof orders.$inferSelect;
+  issuedId: number | null;
+  planKey: string;
+};
+
+/**
+ * 建单阶段：只碰本地库，不打卡台。
+ *
+ * 批量提交必须能立刻把 N 张的单号还给前端——每次卡台调用最长 45 秒，20 张的
+ * 预检加兑换挤在一个 HTTP 响应里必然超时。所以抢卡、建单、写历史在请求里同步做完，
+ * 真正的上游调用交给 driveRechargeOrder。
+ */
+export async function openRechargeOrder(input: {
+  code: string;
   email: string;
   account: AgentCredential;
-  cdkCode: string;
-}) {
-  const preview = await previewRedeemableCdk(input.cdkCode);
-  const issued = preview.redeemable.issued;
-  const now = new Date().toISOString();
+  planKey?: string;
+}): Promise<OpenedRechargeOrder> {
+  await bootDb();
+  const issued = await findIssuedCdkByCode(input.code);
+  if (issued) {
+    if (issued.status === "used") throw new Error("该卡密已使用");
+    if (issued.status === "locked" || issued.status === "redeeming") {
+      throw new Error("该卡密兑换处理中，请稍后查询");
+    }
+    if (issued.status === "disabled") throw new Error("该卡密已禁用");
+  }
 
+  const now = new Date().toISOString();
   if (issued) {
     const [claimed] = await db
       .update(issuedCdks)
@@ -166,12 +190,10 @@ async function createCardplatformRecharge(input: {
     if (!claimed) throw new Error("该卡密已使用或正在兑换");
   }
 
+  const planKey = input.planKey || issued?.planKey || "";
   const orderNo = newOrderNo("RC");
-  let created: typeof orders.$inferSelect | undefined;
-  let redeemStarted = false;
-  let redemptionToken = preview.redemptionToken;
   try {
-    [created] = await db
+    const [created] = await db
       .insert(orders)
       .values({
         orderNo,
@@ -183,7 +205,7 @@ async function createCardplatformRecharge(input: {
         payStatus: "manual",
         fulfillStatus: "pending",
         paymentChannel: issued ? "issued_cdk" : "cardplatform",
-        upstreamPlan: preview.redeemable.planKey,
+        upstreamPlan: planKey,
         clientReference: orderNo,
         credMode: input.account.mode,
         accountEmail: input.account.email || input.email,
@@ -202,20 +224,55 @@ async function createCardplatformRecharge(input: {
       "订单已创建，正在直连卡台兑换",
       "cardplatform",
     );
+    return { order: created, issuedId: issued?.id ?? null, planKey };
+  } catch (error) {
+    // 卡已经抢成 locked 了，建单没成就得放回去，否则这张既卖不出也兑不了。
+    if (issued) {
+      await db
+        .update(issuedCdks)
+        .set({
+          status: "unused",
+          redemptionOrderId: null,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(issuedCdks.id, issued.id));
+    }
+    throw error;
+  }
+}
 
+/**
+ * 兑换阶段：预检 → 提交卡台 → 回写订单和卡密状态。
+ *
+ * 异常一律收进返回值：批量跑 20 张时一张出错不能带倒整批，要不要报错交给调用方。
+ * 关键分岔在 redeemStarted——兑换请求一旦发出去就再也不能说「失败」了，只能是
+ * unknown。卡台可能已经扣过费，重提等于让客户被扣两次。
+ */
+export async function driveRechargeOrder(input: {
+  opened: OpenedRechargeOrder;
+  code: string;
+  account: AgentCredential;
+}): Promise<{ order: typeof orders.$inferSelect; error?: Error }> {
+  const { opened } = input;
+  let redeemStarted = false;
+  let accountId = 0;
+  let redemptionToken = "";
+  try {
     const prepared = await preflightRedeemableCdk({
-      code: preview.redeemable.code,
+      code: input.code,
       account: input.account,
-      // 这张卡的 locked 是上面几行自己抢下来的，预检不能把它当成「别人在兑换」。
+      // 这张卡的 locked 是 openRechargeOrder 自己抢下来的，预检不能把它当成
+      // 「别人在兑换」，否则本站发出去的卡一张也兑不掉。
       allowInFlight: true,
     });
+    accountId = prepared.redeemable.accountId;
     redemptionToken = prepared.redemptionToken;
     const { client } = await resolveRedeemClient(prepared.redeemable.code);
     redeemStarted = true;
     const redeemed = await client.redeemCdk({
       redemption_token: prepared.redemptionToken,
       preflight_token: prepared.preflightToken,
-      client_request_id: orderNo,
+      client_request_id: opened.order.orderNo,
     });
     const status = mapCardplatformStatus(redeemed.payload, redeemed.ok);
     const message =
@@ -223,8 +280,9 @@ async function createCardplatformRecharge(input: {
       (status === "success" ? "兑换成功" : "已提交卡台处理");
     const terminalSuccess = status === "success" || status === "skipped";
     const terminalFailure = status === "failed";
+    const now = new Date().toISOString();
     const [updated] = await db.transaction(async (tx) => {
-      if (issued) {
+      if (opened.issuedId) {
         await tx
           .update(issuedCdks)
           .set({
@@ -233,29 +291,27 @@ async function createCardplatformRecharge(input: {
               : terminalFailure
                 ? "unused"
                 : "redeeming",
-            usedAt: terminalSuccess ? new Date().toISOString() : null,
-            updatedAt: new Date().toISOString(),
+            usedAt: terminalSuccess ? now : null,
+            updatedAt: now,
           })
-          .where(eq(issuedCdks.id, issued.id));
+          .where(eq(issuedCdks.id, opened.issuedId));
       }
       return tx
         .update(orders)
         .set({
           fulfillStatus: status,
-          upstreamRequestId: requestIdForRedeem(
-            prepared.redeemable.accountId,
-            redemptionToken,
-          ),
+          upstreamRequestId: requestIdForRedeem(accountId, redemptionToken),
+          upstreamPlan: prepared.redeemable.planKey || opened.planKey,
           message,
-          paidAt: now,
-          accountEmail: prepared.accountEmail || created!.accountEmail,
-          updatedAt: new Date().toISOString(),
+          paidAt: opened.order.paidAt || now,
+          accountEmail: prepared.accountEmail || opened.order.accountEmail,
+          updatedAt: now,
         })
-        .where(eq(orders.id, created!.id))
+        .where(eq(orders.id, opened.order.id))
         .returning();
     });
     await appendStatusHistory(
-      created.id,
+      opened.order.id,
       updated?.fulfillStatus || status,
       updated?.message || message,
       "cardplatform",
@@ -263,49 +319,73 @@ async function createCardplatformRecharge(input: {
     if (updated && isTerminalStatus(updated.fulfillStatus)) {
       await notifyIfTerminal(updated);
     }
-    return updated ?? created;
+    return { order: updated ?? opened.order };
   } catch (error) {
     const unknown = redeemStarted;
-    if (issued) {
+    const now = new Date().toISOString();
+    if (opened.issuedId) {
       await db
         .update(issuedCdks)
-        .set({
-          status: unknown ? "redeeming" : "unused",
-          redemptionOrderId: created?.id ?? null,
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(issuedCdks.id, issued.id));
+        .set({ status: unknown ? "redeeming" : "unused", updatedAt: now })
+        .where(eq(issuedCdks.id, opened.issuedId));
     }
-    if (created) {
-      const message = error instanceof Error ? error.message : "卡台兑换失败";
-      await db
-        .update(orders)
-        .set({
-          fulfillStatus: unknown ? "unknown" : "failed",
-          upstreamRequestId:
-            unknown && redemptionToken
-              ? requestIdForRedeem(preview.redeemable.accountId, redemptionToken)
-              : created.upstreamRequestId,
-          message,
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(orders.id, created.id));
-      await appendStatusHistory(
-        created.id,
-        unknown ? "unknown" : "failed",
-        message,
-        "cardplatform",
-      );
-      await notifyIfTerminal({
-        orderNo: created.orderNo,
+    const message = error instanceof Error ? error.message : "卡台兑换失败";
+    const [updated] = await db
+      .update(orders)
+      .set({
         fulfillStatus: unknown ? "unknown" : "failed",
+        // 结果未知时必须把 request_id 存下来：服务端兜底轮询只认这个字段，
+        // 存不上这一单就再没人去卡台核对，客户的卡就这么悬着了。
+        upstreamRequestId:
+          unknown && redemptionToken
+            ? requestIdForRedeem(accountId, redemptionToken)
+            : opened.order.upstreamRequestId,
         message,
-        upstreamRequestId: created.upstreamRequestId,
-        upstreamPlan: created.upstreamPlan,
-      });
-    }
-    throw error;
+        updatedAt: now,
+      })
+      .where(eq(orders.id, opened.order.id))
+      .returning();
+    await appendStatusHistory(
+      opened.order.id,
+      unknown ? "unknown" : "failed",
+      message,
+      "cardplatform",
+    );
+    await notifyIfTerminal({
+      orderNo: opened.order.orderNo,
+      fulfillStatus: unknown ? "unknown" : "failed",
+      message,
+      upstreamRequestId:
+        updated?.upstreamRequestId || opened.order.upstreamRequestId,
+      upstreamPlan: opened.order.upstreamPlan,
+    });
+    return {
+      order: updated ?? opened.order,
+      error: error instanceof Error ? error : new Error(message),
+    };
   }
+}
+
+async function createCardplatformRecharge(input: {
+  email: string;
+  account: AgentCredential;
+  cdkCode: string;
+}) {
+  // 单张路径先 preview 再建单：卡密本身不对就直接报错，不给客户留一笔失败的 RC 单。
+  const preview = await previewRedeemableCdk(input.cdkCode);
+  const opened = await openRechargeOrder({
+    code: preview.redeemable.code,
+    email: input.email,
+    account: input.account,
+    planKey: preview.redeemable.planKey,
+  });
+  const { order, error } = await driveRechargeOrder({
+    opened,
+    code: preview.redeemable.code,
+    account: input.account,
+  });
+  if (error) throw error;
+  return order;
 }
 
 export async function createRechargeOrder(input: {
