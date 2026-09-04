@@ -31,6 +31,32 @@ export function mapCardplatformStatus(
   return responseOk ? "pending" : "failed";
 }
 
+/**
+ * 兑换请求已经发出去之后的定性。只有上游给出结构化终态、或明确的 4xx 拒收，才敢说失败。
+ *
+ * publicCdkRequest 只在传输层出错或返回体解析不出来时抛异常；带合法 JSON 的非 2xx 是
+ * 正常返回的 `ok:false`，mapCardplatformStatus 最后一行会把它读成 failed。同源代理自己
+ * 传输失败时回的就是 502 `{"error": ...}`，那种情况兑换很可能已经转发给卡台、卡也扣过费，
+ * 判成 failed 会把卡退回可售并给客户一个重试按钮，等于让人被扣两次。
+ */
+export function redeemOutcomeStatus(redeemed: {
+  ok: boolean;
+  status: number;
+  payload: Record<string, unknown>;
+}): ItemStatus {
+  const mapped = mapCardplatformStatus(redeemed.payload, redeemed.ok);
+  if (mapped !== "failed") return mapped;
+  // 把响应当成 200 重算一遍还是 failed，说明这个 failed 来自上游自己的 order.status
+  // （declined / failed_precharge / cancelled …）。那是结构化结论，与 HTTP 码无关，可以照信。
+  if (mapCardplatformStatus(redeemed.payload, true) === "failed") return "failed";
+  // 剩下的 failed 全是 responseOk=false 推出来的。只有 4xx 算上游明确拒收；
+  // 408 / 429 和所有 5xx 都可能是请求已经落到卡台了，一律 unknown。
+  const http = redeemed.status;
+  return http >= 400 && http < 500 && http !== 408 && http !== 429
+    ? "failed"
+    : "unknown";
+}
+
 export function requestIdForRedeem(accountId: number, token: string) {
   return `cp:${accountId}:${token}`;
 }

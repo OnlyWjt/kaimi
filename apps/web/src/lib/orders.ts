@@ -19,11 +19,11 @@ import { notifyOrderTerminal } from "@/lib/notify";
 import type { AgentCredential } from "@/lib/recharge-types";
 import { isTerminalStatus } from "@/lib/recharge-types";
 import {
-  mapCardplatformStatus,
   parseCardplatformRequestId,
   pollCardplatformResult,
   preflightRedeemableCdk,
   previewRedeemableCdk,
+  redeemOutcomeStatus,
   requestIdForRedeem,
   resolveRedeemClient,
 } from "@/lib/cardplatform/redeem";
@@ -284,7 +284,9 @@ export async function driveRechargeOrder(input: {
         accountId,
       ),
     );
-    const status = mapCardplatformStatus(redeemed.payload, redeemed.ok);
+    // 走 redeemOutcomeStatus 而不是 mapCardplatformStatus：请求已经发出去了，带合法
+    // JSON 的 5xx / 429 只能算 unknown，不能退卡重试。
+    const status = redeemOutcomeStatus(redeemed);
     // 受理响应里就可能带头几条 events，先落一次，界面不用等到第一轮轮询才有明细。
     await recordUpstreamResult(opened.order.id, redeemed.payload).catch((err) =>
       console.warn("[kaimi] timeline skipped", opened.order.orderNo, err),

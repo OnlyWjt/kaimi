@@ -24,6 +24,7 @@ import {
 export {
   mapCardplatformStatus,
   parseCardplatformRequestId,
+  redeemOutcomeStatus,
   requestIdForRedeem,
 } from "./status";
 
