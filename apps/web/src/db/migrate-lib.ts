@@ -419,12 +419,13 @@ CREATE TABLE IF NOT EXISTS webhook_events (
   event_id TEXT NOT NULL,
   event_type TEXT NOT NULL DEFAULT '',
   payload_json TEXT NOT NULL DEFAULT '{}',
-  -- 下面紧跟着就要在 account_id 上建索引，建表时不带这一列，全新库会直接起不来。
   account_id INTEGER NOT NULL DEFAULT 0,
   processed_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS webhook_events_event_id_uq ON webhook_events(event_id);
-CREATE INDEX IF NOT EXISTS webhook_events_account_idx ON webhook_events(account_id);
+-- account_id 上的索引不在这里建：老库的 CREATE TABLE IF NOT EXISTS 是空转，那一列要等
+-- 后面的 ALTER 才有，在这里建索引会直接 no such column，ensureSchema 抛错、bootDb 起不来。
+-- 索引建在 ALTER 之后。
 
 CREATE TABLE IF NOT EXISTS account_card_selection_rules (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -694,6 +695,10 @@ export async function ensureSchema() {
   );
   await addColumn(
     "ALTER TABLE webhook_events ADD COLUMN account_id INTEGER NOT NULL DEFAULT 0",
+  );
+  // 必须跟在上面这条 ALTER 后面：老库里这一列是刚补出来的。
+  await client.execute(
+    "CREATE INDEX IF NOT EXISTS webhook_events_account_idx ON webhook_events(account_id)",
   );
   await addColumn(
     "ALTER TABLE agents ADD COLUMN theme_id TEXT NOT NULL DEFAULT 'snow'",
