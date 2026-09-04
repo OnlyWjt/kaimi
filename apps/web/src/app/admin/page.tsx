@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AdminAgents } from "@/components/admin-agents";
 import { useAskDialog } from "@/components/ask-dialog";
 import { AdminGuide } from "@/components/admin-guide";
+import { AdminOrderTimeline } from "@/components/admin-order-timeline";
 import { CardIntegration } from "@/components/card-integration";
 import { CardSelectionConfig } from "@/components/card-selection-config";
 import { CommerceAdmin } from "@/components/commerce-admin";
@@ -137,6 +138,8 @@ export default function AdminPage() {
   const [cdkTotal, setCdkTotal] = useState(0);
   const { ask, dialog } = useAskDialog();
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  /** 展开中的订单号，卡台明细和原始报文只在展开的那一行里加载。 */
+  const [timelineOrderNo, setTimelineOrderNo] = useState("");
   const [integForm, setIntegForm] = useState({
     publicBaseUrl: "",
     notifyWebhookUrl: "",
@@ -650,8 +653,10 @@ export default function AdminPage() {
                   const code = String(o.codeMasked || o.codeLast4 || "—");
                   const plan = String(o.upstreamPlan || "—");
                   const message = o.message ? String(o.message) : "";
+                  const expanded = timelineOrderNo === orderNo;
                   return (
-                    <tr key={String(o.id)}>
+                    <Fragment key={String(o.id)}>
+                    <tr>
                       <td className="km-clip font-mono" title={orderNo}>
                         {orderNo}
                       </td>
@@ -678,29 +683,45 @@ export default function AdminPage() {
                       </td>
                       <td>
                         {o.kind === "recharge" && o.upstreamRequestId ? (
-                          <button
-                            className="km-btn km-btn-ghost"
-                            disabled={busy}
-                            onClick={async () => {
-                              await postAction({
-                                action: "poll_order",
-                                orderNo: o.orderNo,
-                                requestId: o.upstreamRequestId,
-                              });
-                              const qs = new URLSearchParams();
-                              if (orderQ) qs.set("q", orderQ);
-                              if (orderStatus) qs.set("status", orderStatus);
-                              const data = await loadSection("orders", `&${qs}`);
-                              setOrders(data?.list || []);
-                            }}
-                          >
-                            重拉
-                          </button>
+                          <div className="flex flex-wrap gap-1">
+                            <button
+                              className="km-btn km-btn-ghost"
+                              disabled={busy}
+                              onClick={async () => {
+                                await postAction({
+                                  action: "poll_order",
+                                  orderNo: o.orderNo,
+                                  requestId: o.upstreamRequestId,
+                                });
+                                const qs = new URLSearchParams();
+                                if (orderQ) qs.set("q", orderQ);
+                                if (orderStatus) qs.set("status", orderStatus);
+                                const data = await loadSection("orders", `&${qs}`);
+                                setOrders(data?.list || []);
+                              }}
+                            >
+                              重拉
+                            </button>
+                            <button
+                              className="km-btn km-btn-ghost"
+                              onClick={() => setTimelineOrderNo(expanded ? "" : orderNo)}
+                            >
+                              {expanded ? "收起" : "明细"}
+                            </button>
+                          </div>
                         ) : (
                           <span className="text-[var(--km-fg-muted)]">—</span>
                         )}
                       </td>
                     </tr>
+                    {expanded ? (
+                      <tr>
+                        <td colSpan={9}>
+                          <AdminOrderTimeline orderNo={orderNo} />
+                        </td>
+                      </tr>
+                    ) : null}
+                    </Fragment>
                   );
                 })}
               </tbody>
