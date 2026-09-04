@@ -206,6 +206,8 @@ async function createCardplatformRecharge(input: {
     const prepared = await preflightRedeemableCdk({
       code: preview.redeemable.code,
       account: input.account,
+      // 这张卡的 locked 是上面几行自己抢下来的，预检不能把它当成「别人在兑换」。
+      allowInFlight: true,
     });
     redemptionToken = prepared.redemptionToken;
     const { client } = await resolveRedeemClient(prepared.redeemable.code);
