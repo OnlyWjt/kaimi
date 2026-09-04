@@ -167,8 +167,12 @@ CREATE TABLE IF NOT EXISTS store_orders (
   plan_id INTEGER NOT NULL,
   plan_key_snapshot TEXT NOT NULL,
   product_name_snapshot TEXT NOT NULL,
+  quantity INTEGER NOT NULL DEFAULT 1,
+  -- retail_price_cents / agent_cost_cents 是单价，gross_cents / agent_cost_total_cents 是整单总额。
   retail_price_cents INTEGER NOT NULL,
   agent_cost_cents INTEGER NOT NULL,
+  gross_cents INTEGER NOT NULL DEFAULT 0,
+  agent_cost_total_cents INTEGER NOT NULL DEFAULT 0,
   payment_channel TEXT NOT NULL,
   fee_rate_ppm INTEGER NOT NULL,
   fixed_fee_cents INTEGER NOT NULL,
@@ -219,7 +223,7 @@ CREATE TABLE IF NOT EXISTS issued_cdks (
   used_at TEXT,
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE UNIQUE INDEX IF NOT EXISTS issued_cdks_order_id_uq ON issued_cdks(order_id);
+CREATE INDEX IF NOT EXISTS issued_cdks_order_idx ON issued_cdks(order_id);
 CREATE UNIQUE INDEX IF NOT EXISTS issued_cdks_code_hash_uq ON issued_cdks(code_hash);
 CREATE INDEX IF NOT EXISTS issued_cdks_agent_issued_idx ON issued_cdks(agent_id, issued_at);
 
@@ -661,6 +665,26 @@ export async function ensureSchema() {
   await addColumn(
     "ALTER TABLE agents ADD COLUMN theme_id TEXT NOT NULL DEFAULT 'snow'",
   );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1",
+  );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN gross_cents INTEGER NOT NULL DEFAULT 0",
+  );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN agent_cost_total_cents INTEGER NOT NULL DEFAULT 0",
+  );
+  // 老订单都是一张一单，总额就等于单价。0 表示这行还没补过，正常订单不可能是 0 元。
+  await client.executeMultiple(`
+    UPDATE store_orders
+    SET gross_cents = retail_price_cents * quantity
+    WHERE gross_cents = 0;
+    UPDATE store_orders
+    SET agent_cost_total_cents = agent_cost_cents * quantity
+    WHERE agent_cost_total_cents = 0;
+  `);
+  // 一单多张之后 order_id 不能再唯一。DDL 已经建好非唯一索引，这里只负责拆掉老的。
+  await client.execute("DROP INDEX IF EXISTS issued_cdks_order_id_uq");
   await ensureCardOpsTables();
 
   const shop = await db.query.storefronts.findFirst({

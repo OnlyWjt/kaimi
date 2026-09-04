@@ -247,10 +247,19 @@ export const storeOrders = sqliteTable(
     planId: integer("plan_id").notNull(),
     planKeySnapshot: text("plan_key_snapshot").notNull(),
     productNameSnapshot: text("product_name_snapshot").notNull(),
+    /** 买几张。历史订单一律 1。 */
+    quantity: integer("quantity").notNull().default(1),
+    /** 单价（每张），只用来展示。算钱不要用它。 */
     retailPriceCents: integer("retail_price_cents").notNull(),
+    /** 单张成本，同样是单价。 */
     agentCostCents: integer("agent_cost_cents").notNull(),
+    /** 整单总额 = retail_price_cents × quantity。收款金额、到账校验、手续费都按这个算。 */
+    grossCents: integer("gross_cents").notNull().default(0),
+    /** 整单总成本 = agent_cost_cents × quantity。代理收益按这个扣。 */
+    agentCostTotalCents: integer("agent_cost_total_cents").notNull().default(0),
     paymentChannel: text("payment_channel").notNull(),
     feeRatePpm: integer("fee_rate_ppm").notNull(),
+    /** 每笔支付固定费。一单就是一笔支付，不随 quantity 翻倍。 */
     fixedFeeCents: integer("fixed_fee_cents").notNull(),
     estimatedPaymentFeeCents: integer("estimated_payment_fee_cents").notNull(),
     actualPaymentFeeCents: integer("actual_payment_fee_cents"),
@@ -325,7 +334,8 @@ export const issuedCdks = sqliteTable(
       .default(sql`(datetime('now'))`),
   },
   (t) => ({
-    orderIdx: uniqueIndex("issued_cdks_order_id_uq").on(t.orderId),
+    // 一单可以买多张，所以这里不能再是唯一索引；卡密本身仍然靠 code_hash 去重。
+    orderIdx: index("issued_cdks_order_idx").on(t.orderId),
     codeHashIdx: uniqueIndex("issued_cdks_code_hash_uq").on(t.codeHash),
     redemptionOrderIdx: uniqueIndex("issued_cdks_redemption_order_id_uq").on(
       t.redemptionOrderId,
