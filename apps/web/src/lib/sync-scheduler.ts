@@ -5,6 +5,7 @@ import { reconcilePendingPaymentFees } from "@/lib/payments/reconcile";
 import { processBackgroundJobs } from "@/lib/background-jobs";
 import { sanitizeLog } from "@/lib/log";
 import { refreshOpsHealth } from "@/lib/ops-health";
+import { pruneUpstreamPayloads } from "@/lib/order-timeline";
 import { syncEnabledAccountProducts } from "@/lib/cardplatform/products";
 import { reconcileIssuedCdkStatuses } from "@/lib/cardplatform/reconcile-issued";
 
@@ -17,9 +18,12 @@ type SchedulerState = {
   lastInflightMs: number;
   lastProductSyncMs: number;
   lastIssuedReconcileMs?: number;
+  lastPayloadPruneMs?: number;
 };
 
 const ISSUED_RECONCILE_INTERVAL_MS = 120_000;
+/** 报文清理一天一次就够。 */
+const PAYLOAD_PRUNE_INTERVAL_MS = 24 * 60 * 60_000;
 
 const schedulerGlobal = globalThis as typeof globalThis & {
   __kaimiSyncSchedulerState?: SchedulerState;
@@ -119,6 +123,18 @@ async function maybeTick() {
           }
         } catch (err) {
           console.warn("[kaimi-sync] issued cdk reconcile failed", sanitizeLog(err));
+        }
+      }
+      const lastPrune = state.lastPayloadPruneMs ?? 0;
+      if (now - lastPrune >= PAYLOAD_PRUNE_INTERVAL_MS) {
+        state.lastPayloadPruneMs = now;
+        try {
+          const pruned = await pruneUpstreamPayloads();
+          if (pruned.pruned > 0) {
+            console.log(`[kaimi-sync] pruned upstream payloads: ${pruned.pruned}`);
+          }
+        } catch (err) {
+          console.warn("[kaimi-sync] payload prune failed", sanitizeLog(err));
         }
       }
       if (now - state.lastProductSyncMs >= 180_000 || state.lastProductSyncMs === 0) {

@@ -1,4 +1,4 @@
-import { asc, eq, inArray } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { orderTimelineEvents, orderUpstreamSnapshots } from "@/db/schema";
 import {
@@ -39,35 +39,54 @@ export async function recordUpstreamResult(
     serialized = "";
   }
 
-  await db
-    .insert(orderUpstreamSnapshots)
-    .values({
-      orderId,
-      status: parsed.order.status,
-      stage: parsed.order.stage,
-      message: parsed.order.message,
-      accountEmail: parsed.order.accountEmail,
-      cardLastFour: parsed.order.cardLastFour,
-      payloadJson: serialized.slice(0, MAX_PAYLOAD_CHARS),
-      fetchedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: orderUpstreamSnapshots.orderId,
-      set: {
+  const payloadJson = serialized.slice(0, MAX_PAYLOAD_CHARS);
+  // 先读一眼：一模一样就别写。写会拿 SQLite 的写锁，而这条路径是每 2~3 秒、并发 6
+  // 跑在同一个库文件上的轮询，busy_timeout 只有 5 秒。上面对 events 的承诺在这里也要算数。
+  const current = await db.query.orderUpstreamSnapshots.findFirst({
+    where: eq(orderUpstreamSnapshots.orderId, orderId),
+  });
+  const unchanged =
+    current &&
+    current.status === parsed.order.status &&
+    current.stage === parsed.order.stage &&
+    current.message === parsed.order.message &&
+    current.payloadJson === payloadJson &&
+    (!parsed.order.accountEmail ||
+      current.accountEmail === parsed.order.accountEmail) &&
+    (!parsed.order.cardLastFour ||
+      current.cardLastFour === parsed.order.cardLastFour);
+
+  if (!unchanged) {
+    await db
+      .insert(orderUpstreamSnapshots)
+      .values({
+        orderId,
         status: parsed.order.status,
         stage: parsed.order.stage,
         message: parsed.order.message,
-        // 账号和卡尾号是开卡之后才补上的，别让后来的空值把已经拿到的抹掉。
-        ...(parsed.order.accountEmail
-          ? { accountEmail: parsed.order.accountEmail }
-          : {}),
-        ...(parsed.order.cardLastFour
-          ? { cardLastFour: parsed.order.cardLastFour }
-          : {}),
-        payloadJson: serialized.slice(0, MAX_PAYLOAD_CHARS),
+        accountEmail: parsed.order.accountEmail,
+        cardLastFour: parsed.order.cardLastFour,
+        payloadJson,
         fetchedAt: now,
-      },
-    });
+      })
+      .onConflictDoUpdate({
+        target: orderUpstreamSnapshots.orderId,
+        set: {
+          status: parsed.order.status,
+          stage: parsed.order.stage,
+          message: parsed.order.message,
+          // 账号和卡尾号是开卡之后才补上的，别让后来的空值把已经拿到的抹掉。
+          ...(parsed.order.accountEmail
+            ? { accountEmail: parsed.order.accountEmail }
+            : {}),
+          ...(parsed.order.cardLastFour
+            ? { cardLastFour: parsed.order.cardLastFour }
+            : {}),
+          payloadJson,
+          fetchedAt: now,
+        },
+      });
+  }
 
   if (!parsed.events.length) return parsed;
 
@@ -76,6 +95,8 @@ export async function recordUpstreamResult(
     .from(orderTimelineEvents)
     .where(eq(orderTimelineEvents.orderId, orderId));
   const known = new Set(existing.map((row) => row.eventKey));
+  // room 是在事务外算的，两条并发轮询理论上能各插到 room 条。上限只是防上游刷条目的
+  // 保险丝，超出的量由并发度封顶（6），不值得为它开一个事务把写锁拿得更久。
   const room = MAX_TIMELINE_EVENTS_PER_ORDER - known.size;
   if (room <= 0) return parsed;
 
@@ -141,6 +162,29 @@ export async function getOrderTimelines(orderIds: number[]) {
     out.set(row.orderId, list);
   }
   return out;
+}
+
+/** 原始报文留多久。唯一的消费方是管理端排查面板，一个月足够回溯了。 */
+const PAYLOAD_RETENTION_DAYS = 30;
+
+/**
+ * 清掉老订单的原始报文。
+ *
+ * 每单最多 20k 字符、只增不删，按 100 单/天算一年就是几百 MB 压在同一个 SQLite 文件里。
+ * 只清 payload_json，订单级快照那几个字段很小、界面还在用，留着。
+ */
+export async function pruneUpstreamPayloads() {
+  const result = await db.run(sql`
+    update order_upstream_snapshots
+    set payload_json = ''
+    where payload_json != ''
+      and fetched_at < datetime('now', ${`-${PAYLOAD_RETENTION_DAYS} day`})
+      and order_id in (
+        select id from orders
+        where fulfill_status in ('success', 'failed', 'skipped', 'fulfilled')
+      )
+  `);
+  return { pruned: Number(result.rowsAffected || 0) };
 }
 
 export type UpstreamSnapshot = RedeemOrderSnapshot & {

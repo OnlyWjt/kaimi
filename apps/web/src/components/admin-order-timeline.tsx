@@ -64,7 +64,8 @@ export function AdminOrderTimeline({ orderNo }: { orderNo: string }) {
           <span>阶段 {snapshot.stage || "—"}</span>
           {snapshot.accountEmail ? <span>账号 {snapshot.accountEmail}</span> : null}
           {snapshot.cardLastFour ? <span>卡尾号 {snapshot.cardLastFour}</span> : null}
-          <span>拉取于 {snapshot.fetchedAt}</span>
+          {/* 内容没变的那几轮不再写库，所以这是「上次有变化」而不是「上次拉取」。 */}
+          <span>上次变化 {snapshot.fetchedAt}</span>
         </div>
       ) : null}
 
