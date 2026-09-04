@@ -4,11 +4,12 @@ import { db } from "@/db";
 import {
   agentEarningAdjustments,
   agentEarnings,
-  issuedCdks,
   storeOrders,
 } from "@/db/schema";
 import { requireAgent } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
+import { issuedCdkSummaryLabel } from "@/lib/earnings-rows";
+import { issuedCdkCountsFor } from "@/lib/earnings-sql";
 import { periodBoundary } from "@/lib/period";
 
 export async function GET(req: Request) {
@@ -83,11 +84,10 @@ export async function GET(req: Request) {
       productName: storeOrders.productNameSnapshot,
       paymentChannel: storeOrders.paymentChannel,
       feeReconcileStatus: storeOrders.feeReconcileStatus,
-      cdkStatus: issuedCdks.status,
+      ...issuedCdkCountsFor(storeOrders.id),
     })
     .from(agentEarnings)
     .innerJoin(storeOrders, eq(storeOrders.id, agentEarnings.orderId))
-    .leftJoin(issuedCdks, eq(issuedCdks.orderId, storeOrders.id))
     .where(where)
     .orderBy(desc(agentEarnings.confirmedAt))
     .limit(pageSize)
@@ -111,7 +111,10 @@ export async function GET(req: Request) {
         Number(adjustmentSummary?.settledCents || 0),
       reversedCents: Number(summary?.reversedCents || 0),
     },
-    list,
+    list: list.map(({ cdkTotal, cdkUsed, ...row }) => ({
+      ...row,
+      cdkStatus: issuedCdkSummaryLabel(cdkTotal, cdkUsed),
+    })),
     page,
     pageSize,
   });

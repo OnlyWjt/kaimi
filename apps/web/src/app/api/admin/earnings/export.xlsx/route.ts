@@ -1,18 +1,19 @@
 import { NextResponse } from "next/server";
-import { and, asc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   agentEarningAdjustments,
   agentEarnings,
   agents,
   agentSettlements,
-  issuedCdks,
   storeOrders,
 } from "@/db/schema";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { buildEarningsWorkbook } from "@/lib/earnings-export";
+import { buildEarningsTotals, issuedCdkSummaryLabel } from "@/lib/earnings-rows";
+import { issuedCdkCountsFor } from "@/lib/earnings-sql";
 import { periodBoundary } from "@/lib/period";
 
 export async function GET(req: Request) {
@@ -66,12 +67,11 @@ export async function GET(req: Request) {
       finalFeeCents: agentEarnings.paymentFeeCents,
       earningCents: agentEarnings.earningCents,
       earningStatus: agentEarnings.status,
-      cdkStatus: issuedCdks.status,
+      ...issuedCdkCountsFor(storeOrders.id),
     })
     .from(agentEarnings)
     .innerJoin(storeOrders, eq(storeOrders.id, agentEarnings.orderId))
     .innerJoin(agents, eq(agents.id, agentEarnings.agentId))
-    .leftJoin(issuedCdks, eq(issuedCdks.orderId, storeOrders.id))
     .where(and(...earningConditions))
     .orderBy(asc(agentEarnings.confirmedAt))
     .limit(50_001);
@@ -135,14 +135,6 @@ export async function GET(req: Request) {
     .where(and(...adjustmentConditions))
     .orderBy(asc(agentEarningAdjustments.createdAt));
 
-  const sum = (pick: (row: (typeof rows)[number]) => number) =>
-    rows.reduce((total, row) => total + pick(row), 0);
-  const estimatedFeeCents = sum((row) => row.estimatedFeeCents);
-  const actualFeeCents = sum((row) => row.actualFeeCents ?? 0);
-  const adjustmentCents = adjustments.reduce(
-    (total, row) => total + row.amountCents,
-    0,
-  );
   const scopeName =
     Number.isSafeInteger(agentId) && agentId > 0
       ? rows[0]?.agentName || `代理 ${agentId}`
@@ -152,43 +144,12 @@ export async function GET(req: Request) {
       periodStart: start,
       periodEnd: end,
       agentName: scopeName,
-      orderCount: rows.length,
-      grossCents: sum((row) => row.grossCents),
-      costCents: sum((row) => row.costCents),
-      estimatedFeeCents,
-      actualFeeCents,
-      feeDifferenceCents: sum((row) =>
-        row.actualFeeCents === null
-          ? 0
-          : row.actualFeeCents - row.estimatedFeeCents,
-      ),
-      earningCents:
-        sum((row) =>
-          row.earningStatus === "reversed" ? 0 : row.earningCents,
-        ) + adjustmentCents,
-      pendingCents: sum((row) =>
-        ["pending", "settling"].includes(row.earningStatus)
-          ? row.earningCents
-          : 0,
-      ) +
-        adjustments
-          .filter((row) => ["pending", "settling"].includes(row.status))
-          .reduce((total, row) => total + row.amountCents, 0),
-      settledCents: sum((row) =>
-        row.earningStatus === "settled" ? row.earningCents : 0,
-      ) +
-        adjustments
-          .filter((row) => row.status === "settled")
-          .reduce((total, row) => total + row.amountCents, 0),
-      reversedCents: sum((row) =>
-        row.earningStatus === "reversed" ? row.earningCents : 0,
-      ),
-      adjustmentCents,
+      ...buildEarningsTotals(rows, adjustments),
     },
     details: rows.map((row) => ({
       ...row,
       settlementNo: "",
-      cdkStatus: row.cdkStatus || "",
+      cdkStatus: issuedCdkSummaryLabel(row.cdkTotal, row.cdkUsed),
     })),
     settlements: settlements.map((row) => ({
       ...row,
