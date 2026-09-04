@@ -327,6 +327,9 @@ export function AgentDashboard({
           <a className="km-btn km-btn-ghost" href={redeemUrl} target="_blank" rel="noreferrer">
             兑换卡密
           </a>
+          <a className="km-btn km-btn-ghost" href="/agent/batch-redeem">
+            批量兑换
+          </a>
           <a className="km-btn km-btn-ghost" href="/agent/guide">
             使用说明
           </a>
