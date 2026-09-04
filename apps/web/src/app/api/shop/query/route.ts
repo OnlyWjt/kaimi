@@ -20,6 +20,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "请提供订单号或邮箱" }, { status: 400 });
   }
 
+  // 只报邮箱就把明文卡密发出去，等于知道买家邮箱就能把他的卡偷走。订单号是 10 位
+  // 随机串（32 进制，约 50 bit），拿得出订单号才算证明了这一单是自己的。
+  // 按邮箱查只回打码的卡密，够买家确认「我这一单出卡了」。
+  const fullCodesAllowed = Boolean(orderNo);
+
   if (orderNo) {
     await pollRechargeIfNeeded(orderNo).catch(() => null);
   }
@@ -83,9 +88,13 @@ export async function GET(req: Request) {
           source: h.source,
         })),
         codes:
-          o.kind === "code" && (o.payStatus === "paid" || o.payStatus === "manual")
+          fullCodesAllowed &&
+          o.kind === "code" &&
+          (o.payStatus === "paid" || o.payStatus === "manual")
             ? (JSON.parse(o.deliveredCodesJson || "[]") as string[])
             : [],
+        /** 明文卡密被藏起来了，界面要据此提示买家改用订单号查。 */
+        codesMasked: !fullCodesAllowed,
         codeHints:
           o.kind === "code"
             ? (JSON.parse(o.deliveredCodesJson || "[]") as string[]).map(maskCode)

@@ -9,6 +9,9 @@ import { getEpayConfig, epayReady } from "./config";
 import { queryEpayOrder } from "./epay";
 import { calculateAgentEarningCents } from "./fees";
 
+/** 算出来是负收益：重试多少次都还是负的，直接转人工，不进退避阶梯。 */
+class NegativeEarningError extends Error {}
+
 function isGatewayFeeQueryUnsupported(message: string) {
   const text = message.toLowerCase();
   return (
@@ -112,6 +115,13 @@ export async function reconcilePaymentFee(
       order.agentCostTotalCents,
       finalFee,
     );
+    // 网关手续费吃穿了毛利。createStoreOrder 和 recalculateEstimatedFees 都拦着不写负
+    // 收益，这条路径以前没拦——负数会同时写进订单和收益表，再被结算拿去和别的单相抵。
+    if (earning < 0) {
+      throw new NegativeEarningError(
+        `按网关手续费 ${finalFee} 分算出的代理收益为负，已转人工核对`,
+      );
+    }
     const status = gateway.feeSupported ? "confirmed" : "unsupported";
     const now = new Date().toISOString();
     await db.transaction(async (tx) => {
@@ -225,7 +235,8 @@ export async function reconcilePaymentFee(
         where: eq(storeOrders.id, order.id),
       });
     }
-    const manualReview = attemptNo >= 6;
+    const manualReview =
+      attemptNo >= 6 || error instanceof NegativeEarningError;
     const now = new Date().toISOString();
     await db.transaction(async (tx) => {
       await tx

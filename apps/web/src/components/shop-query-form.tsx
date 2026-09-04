@@ -83,6 +83,22 @@ export function ShopQueryForm() {
                   </li>
                 ))}
               </ul>
+            ) : o.codesMasked && Array.isArray(o.codeHints) && o.codeHints.length ? (
+              <>
+                <ul className="mt-2 space-y-1 font-mono text-sm">
+                  {(o.codeHints as string[]).map((c, i) => (
+                    <li
+                      key={`${c}-${i}`}
+                      className="rounded-lg bg-[var(--km-bg-elevated)] px-3 py-2"
+                    >
+                      {c}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-xs text-[var(--km-fg-muted)]">
+                  为了保护你的卡密，按邮箱查询只显示后几位。填订单号查询可以看到完整卡密。
+                </p>
+              </>
             ) : null}
             {o.message ? <p className="mt-1">{String(o.message)}</p> : null}
             {Array.isArray(o.history) && o.history.length ? (
