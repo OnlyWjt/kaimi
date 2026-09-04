@@ -3,12 +3,20 @@ import { z } from "zod";
 import { bootDb } from "@/lib/config";
 import { createStoreOrder, listStoreOrdersByEmail } from "@/lib/store-orders";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { HARD_MAX_ORDER_QUANTITY } from "@/lib/store-quantity-core";
 
 const schema = z.object({
   slug: z.string().trim().min(3).max(32),
   planKey: z.string().trim().min(1).max(64),
   channel: z.enum(["alipay", "wxpay"]),
   customerEmail: z.string().trim().email("请填写有效邮箱").max(254),
+  // 这里只挡明显越界的值，真正的上限是后台配置的，交给 createStoreOrder 判。
+  quantity: z
+    .number()
+    .int("购买数量要是整数")
+    .min(1, "购买数量至少 1 张")
+    .max(HARD_MAX_ORDER_QUANTITY, "购买数量超出上限")
+    .optional(),
 });
 
 const lookupSchema = z.object({

@@ -33,7 +33,9 @@ export async function GET(req: Request) {
     list: list.map((order) => ({
       orderNo: order.orderNo,
       productName: order.productNameSnapshot,
-      amountCents: order.retailPriceCents,
+      quantity: order.quantity,
+      unitPriceCents: order.retailPriceCents,
+      amountCents: order.grossCents,
       paymentChannel: order.paymentChannel,
       paymentFeeCents: order.finalPaymentFeeCents,
       earningCents: order.agentEarningCents,

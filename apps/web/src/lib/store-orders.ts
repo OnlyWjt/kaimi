@@ -21,6 +21,7 @@ import {
 } from "@/lib/payments/fees";
 import { assertStoreSalesOpen } from "@/lib/ops-health";
 import { requirePublicBaseUrl } from "@/lib/public-url";
+import { getMaxOrderQuantity, resolveOrderQuantity } from "@/lib/store-quantity";
 
 export async function createStoreOrder(input: {
   request: Request;
@@ -28,6 +29,7 @@ export async function createStoreOrder(input: {
   planKey: string;
   channel: PaymentChannel;
   customerEmail: string;
+  quantity?: number;
 }) {
   /** 配置没弄好是我们的问题，买家只需要知道买不了；真实原因留在服务端日志里。 */
   function unavailable(detail: string): never {
@@ -43,6 +45,12 @@ export async function createStoreOrder(input: {
   });
   if (!agent) throw new Error("店铺不存在或已关闭");
   await assertStoreSalesOpen();
+
+  const maxQuantity = await getMaxOrderQuantity();
+  const quantity = resolveOrderQuantity(input.quantity, maxQuantity);
+  if (quantity === null) {
+    throw new Error(`一次最多买 ${maxQuantity} 张，请调整数量后重试。`);
+  }
 
   const [offer] = await db
     .select({
@@ -87,21 +95,24 @@ export async function createStoreOrder(input: {
   const epay = await getEpayConfig();
   if (!epayReady(epay)) unavailable("易支付未配置");
 
+  // 一单只是一笔支付：比例费率按整单总额抽，固定手续费整单只收一次。
+  const grossCents = offer.retailPriceCents * quantity;
+  const agentCostTotalCents = costCents * quantity;
   const estimatedFeeCents = calculatePaymentFeeCents(
-    offer.retailPriceCents,
+    grossCents,
     {
       ratePpm: channelConfig.feeRatePpm,
       fixedFeeCents: channelConfig.fixedFeeCents,
     },
   );
   const earningCents = calculateAgentEarningCents(
-    offer.retailPriceCents,
-    costCents,
+    grossCents,
+    agentCostTotalCents,
     estimatedFeeCents,
   );
   if (earningCents < 0) {
     unavailable(
-      `套餐 ${offer.planKey} 扣手续费后代理收益为负：零售 ${offer.retailPriceCents}，成本 ${costCents}，手续费 ${estimatedFeeCents}`,
+      `套餐 ${offer.planKey} 扣手续费后代理收益为负：零售 ${offer.retailPriceCents}，成本 ${costCents}，数量 ${quantity}，手续费 ${estimatedFeeCents}`,
     );
   }
 
@@ -120,8 +131,11 @@ export async function createStoreOrder(input: {
       planId: offer.planId,
       planKeySnapshot: offer.planKey,
       productNameSnapshot: offer.name,
+      quantity,
       retailPriceCents: offer.retailPriceCents,
       agentCostCents: costCents,
+      grossCents,
+      agentCostTotalCents,
       paymentChannel: input.channel,
       feeRatePpm: channelConfig.feeRatePpm,
       fixedFeeCents: channelConfig.fixedFeeCents,
@@ -139,8 +153,8 @@ export async function createStoreOrder(input: {
 
   const payment = await createEpayPayment(epay, {
     outTradeNo: orderNo,
-    name: `CDK ${offer.name}`,
-    moneyCents: offer.retailPriceCents,
+    name: quantity > 1 ? `CDK ${offer.name} ×${quantity}` : `CDK ${offer.name}`,
+    moneyCents: grossCents,
     notifyUrl: `${base}/api/webhooks/epay`,
     returnUrl: `${base}/shop/order/${orderNo}?qt=${encodeURIComponent(queryToken)}`,
     channel: input.channel,
@@ -186,7 +200,8 @@ export async function listStoreOrdersByEmail(input: {
   return rows.map((order) => ({
     orderNo: order.orderNo,
     productName: order.productNameSnapshot,
-    amountCents: order.retailPriceCents,
+    quantity: order.quantity,
+    amountCents: order.grossCents,
     payStatus: order.payStatus,
     fulfillStatus: order.fulfillStatus,
     createdAt: order.createdAt,

@@ -133,13 +133,13 @@ export async function recalculateEstimatedFees(
       continue;
     }
 
-    const feeCents = calculatePaymentFeeCents(order.retailPriceCents, {
+    const feeCents = calculatePaymentFeeCents(order.grossCents, {
       ratePpm: rule.feeRatePpm,
       fixedFeeCents: rule.fixedFeeCents,
     });
     const earningCents = calculateAgentEarningCents(
-      order.retailPriceCents,
-      order.agentCostCents,
+      order.grossCents,
+      order.agentCostTotalCents,
       feeCents,
     );
     // 费率高到把毛利吃穿了，宁可报出来让人改配置，也不写一个负收益进结算。

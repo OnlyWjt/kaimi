@@ -55,7 +55,8 @@ export async function confirmStoreOrderPaid(input: {
     return { kind: "rejected", status: 400, error: "支付通知金额无效" };
   }
 
-  if (paidCents !== order.retailPriceCents) {
+  // 比的是整单总额，不是单价；一单多张时拿单价比会把正常付款当成金额不符。
+  if (paidCents !== order.grossCents) {
     await db
       .update(storeOrders)
       .set({
@@ -68,12 +69,12 @@ export async function confirmStoreOrderPaid(input: {
       action: "payment.notify.amount_mismatch",
       targetType: "store_order",
       targetId: order.id,
-      metadata: { orderNo, expectedCents: order.retailPriceCents, paidCents },
+      metadata: { orderNo, expectedCents: order.grossCents, paidCents },
     });
     await recordOpsAlert({
       level: "critical",
       code: "payment.notify.amount_mismatch",
-      message: `订单 ${orderNo} 支付通知金额不符：到账 ${paidCents} 分，订单 ${order.retailPriceCents} 分`,
+      message: `订单 ${orderNo} 支付通知金额不符：到账 ${paidCents} 分，订单 ${order.grossCents} 分`,
     });
     return { kind: "rejected", status: 400, error: "支付通知金额不符" };
   }

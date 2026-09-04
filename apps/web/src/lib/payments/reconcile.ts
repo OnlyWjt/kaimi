@@ -98,18 +98,18 @@ export async function reconcilePaymentFee(
     if (gateway.outTradeNo && gateway.outTradeNo !== order.orderNo) {
       throw new Error("网关商户订单号不匹配");
     }
-    if (gateway.moneyCents !== order.retailPriceCents) {
+    if (gateway.moneyCents !== order.grossCents) {
       throw new Error("网关订单金额不匹配");
     }
 
     const actualFee = gateway.actualFeeCents;
     const finalFee = actualFee ?? order.estimatedPaymentFeeCents;
-    if (finalFee < 0 || finalFee > order.retailPriceCents) {
+    if (finalFee < 0 || finalFee > order.grossCents) {
       throw new Error("网关手续费金额异常");
     }
     const earning = calculateAgentEarningCents(
-      order.retailPriceCents,
-      order.agentCostCents,
+      order.grossCents,
+      order.agentCostTotalCents,
       finalFee,
     );
     const status = gateway.feeSupported ? "confirmed" : "unsupported";
@@ -180,8 +180,8 @@ export async function reconcilePaymentFee(
     if (isGatewayFeeQueryUnsupported(message)) {
       const now = new Date().toISOString();
       const earning = calculateAgentEarningCents(
-        order.retailPriceCents,
-        order.agentCostCents,
+        order.grossCents,
+        order.agentCostTotalCents,
         order.estimatedPaymentFeeCents,
       );
       await db.transaction(async (tx) => {
