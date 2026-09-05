@@ -79,7 +79,32 @@ cp .env.example .env
 docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
-服务在 `3100`。前面可以用 Caddy 反代自己的域名。
+改了代码就必须带 `--build`。镜像是在构建阶段跑 `pnpm build` 把产物烤进去的，容器不读服务器上的源码目录，少了 `--build` 只会拿旧镜像重起一个容器。
+
+应用监听 `3100`，默认只绑在 docker 网桥地址 `172.17.0.1` 上：宿主机和其他容器进得来，公网进不来。前面必须有一层反向代理。
+
+**宿主机 80/443 还空着**，想用自带的 Caddy 自动签证书：
+
+```bash
+DOMAIN=kaimi.example.com docker compose -f deploy/docker-compose.yml --profile caddy up -d --build
+```
+
+**宿主机已经有网关**（1Panel 的 OpenResty、现成的 nginx），就别启用自带 Caddy，它会抢不到 80/443 导致整次部署失败。在已有网关里把域名反代到 `http://172.17.0.1:3100`，并确认它转发了真实来源，nginx/OpenResty 的写法是：
+
+```nginx
+proxy_set_header Host $host;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $scheme;
+```
+
+然后在 `.env` 里加一行，让限流按这个头认客户端，而不是去数 XFF 的跳数：
+
+```
+KAIMI_CLIENT_IP_HEADER=x-real-ip
+```
+
+按 IP 的限流只在"公网无法绕过代理直连 3100"时才有意义，所以别把 `KAIMI_BIND_ADDR` 改成 `0.0.0.0`。
 
 ## 客户怎么用
 
