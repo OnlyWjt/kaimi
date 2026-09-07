@@ -3,6 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { copyText } from "@/lib/copy-text";
+import {
+  DEFAULT_PAGE_SIZE,
+  hasNextPage,
+  pageLabel,
+} from "@/lib/pagination-core";
 import { adminStatusLabel } from "@/lib/status-labels";
 import { useAskDialog } from "@/components/ask-dialog";
 
@@ -96,6 +101,9 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
   const [agents, setAgents] = useState<AgentOption[]>([]);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [storeOrders, setStoreOrders] = useState<StoreOrder[]>([]);
+  const [orderPage, setOrderPage] = useState(1);
+  const [orderTotal, setOrderTotal] = useState(0);
+  const orderPageSize = DEFAULT_PAGE_SIZE;
   const [backgroundJobs, setBackgroundJobs] = useState<BackgroundJob[]>([]);
   const [health, setHealth] = useState<OpsHealth | null>(null);
   const [settlementForm, setSettlementForm] = useState({
@@ -106,13 +114,32 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
     periodEnd: localIsoDate(),
   });
 
+  /** 订单表自己翻页，不能整页重载，否则每次点下一页都会把支付配置一起拉一遍。 */
+  async function loadStoreOrders(page = orderPage) {
+    const qs = new URLSearchParams({
+      page: String(page),
+      pageSize: String(orderPageSize),
+    });
+    const response = await fetch(`/api/admin/store-orders?${qs}`, {
+      cache: "no-store",
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "订单加载失败");
+    setStoreOrders(data.list || []);
+    setOrderTotal(Number(data.total) || 0);
+    setOrderPage(Number(data.page) || page);
+  }
+
   async function load() {
     setLoaded(false);
     const [paymentRes, agentsRes, settlementsRes, ordersRes, jobsRes, healthRes, rulesRes] = await Promise.all([
       fetch("/api/admin/payment", { cache: "no-store" }),
       fetch("/api/admin/agents", { cache: "no-store" }),
       fetch("/api/admin/settlements", { cache: "no-store" }),
-      fetch("/api/admin/store-orders?pageSize=100", { cache: "no-store" }),
+      fetch(
+        `/api/admin/store-orders?page=${orderPage}&pageSize=${orderPageSize}`,
+        { cache: "no-store" },
+      ),
       fetch("/api/admin/jobs", { cache: "no-store" }),
       fetch("/api/admin/ops-health", { cache: "no-store" }),
       fetch("/api/admin?section=store_rules", { cache: "no-store" }),
@@ -166,7 +193,10 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
       }));
     }
     if (settlementsRes.ok) setSettlements(settlementData.list || []);
-    if (ordersRes.ok) setStoreOrders(orderData.list || []);
+    if (ordersRes.ok) {
+      setStoreOrders(orderData.list || []);
+      setOrderTotal(Number(orderData.total) || 0);
+    }
     if (jobsRes.ok) setBackgroundJobs(jobsData.list || []);
     if (healthRes.ok) setHealth(healthData.health || null);
     if (rulesRes.ok) {
@@ -204,6 +234,14 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
       return null;
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function changeOrderPage(page: number) {
+    try {
+      await loadStoreOrders(Math.max(1, page));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "订单加载失败");
     }
   }
 
@@ -745,7 +783,12 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
       </section>
 
       <section className="km-panel space-y-4">
-        <h2 className="text-xl font-semibold">即时发卡订单</h2>
+        <div>
+          <h2 className="text-xl font-semibold">即时发卡订单</h2>
+          <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
+            按下单时间倒序，每页 {orderPageSize} 条。
+          </p>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[920px] text-left text-sm">
             <thead>
@@ -855,7 +898,39 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
               ))}
             </tbody>
           </table>
+          {!storeOrders.length ? (
+            <p className="py-8 text-center text-sm text-[var(--km-fg-muted)]">
+              还没有即时发卡订单
+            </p>
+          ) : null}
         </div>
+        {orderTotal > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--km-border)] pt-3 text-sm">
+            <span className="text-[var(--km-fg-muted)]">
+              {pageLabel(orderTotal, orderPage, orderPageSize)}
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="km-btn km-btn-ghost"
+                disabled={busy || orderPage <= 1}
+                onClick={() => void changeOrderPage(orderPage - 1)}
+              >
+                上一页
+              </button>
+              <button
+                type="button"
+                className="km-btn km-btn-ghost"
+                disabled={
+                  busy || !hasNextPage(orderTotal, orderPage, orderPageSize)
+                }
+                onClick={() => void changeOrderPage(orderPage + 1)}
+              >
+                下一页
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section className="km-panel space-y-4">

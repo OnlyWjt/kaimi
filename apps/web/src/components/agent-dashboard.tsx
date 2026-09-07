@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ApplyTheme } from "@/components/apply-theme";
 import { toast } from "@/components/toast";
 import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
+import { hasNextPage, pageLabel } from "@/lib/pagination-core";
 import { retailPriceError, retailPriceRangeHint } from "@/lib/plan-price-core";
 import { publicStatusLabel } from "@/lib/status-labels";
 import { THEME_CHOICES } from "@/lib/themes";
@@ -684,7 +685,7 @@ export function AgentDashboard({
         {cdkTotal > 0 ? (
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--km-border)] pt-3 text-sm">
             <span className="text-[var(--km-fg-muted)]">
-              共 {cdkTotal} 条，第 {cdkPage} / {Math.max(1, Math.ceil(cdkTotal / cdkPageSize))} 页
+              {pageLabel(cdkTotal, cdkPage, cdkPageSize)}
             </span>
             <div className="flex gap-2">
               <button
@@ -698,7 +699,7 @@ export function AgentDashboard({
               <button
                 type="button"
                 className="km-btn km-btn-ghost"
-                disabled={cdkPage * cdkPageSize >= cdkTotal}
+                disabled={!hasNextPage(cdkTotal, cdkPage, cdkPageSize)}
                 onClick={() => setCdkPage((page) => page + 1)}
               >
                 下一页

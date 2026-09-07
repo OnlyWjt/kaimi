@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { agents, storeOrders } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
+import { normalizePage, normalizePageSize } from "@/lib/pagination-core";
 
 export async function GET(req: Request) {
   try {
@@ -14,8 +15,11 @@ export async function GET(req: Request) {
   }
   await bootDb();
   const query = new URL(req.url).searchParams;
-  const page = Math.max(1, Number(query.get("page") || 1));
-  const pageSize = Math.max(1, Math.min(100, Number(query.get("pageSize") || 20)));
+  const page = normalizePage(query.get("page"));
+  const pageSize = normalizePageSize(query.get("pageSize"));
+  const [{ total }] = await db
+    .select({ total: sql<number>`count(*)` })
+    .from(storeOrders);
   const list = await db
     .select({
       id: storeOrders.id,
@@ -49,5 +53,5 @@ export async function GET(req: Request) {
     .orderBy(desc(storeOrders.id))
     .limit(pageSize)
     .offset((page - 1) * pageSize);
-  return NextResponse.json({ list, page, pageSize });
+  return NextResponse.json({ list, page, pageSize, total: Number(total) || 0 });
 }
