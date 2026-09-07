@@ -423,8 +423,9 @@ export function CardSelectionConfig() {
                 {selected?.name || "当前账户"} · 自动选卡优先级
               </h3>
               <p className="text-sm text-[var(--km-fg-muted)]">
-                顺序越靠前优先级越高；已下线或未启动的自动跳过。保存后会同步到该卡台
-                gpt/claude/grok 规则。仅渠道 1/3/4（美卡）参与自动选卡。
+                顺序越靠前优先级越高；已下线或未启动的自动跳过。保存后整份列表同步到该卡台
+                gpt/claude/grok 规则。兑换时另外把第一条可用卡作为 preferred
+                发给卡台，避免卡台在列表里随便挑。仅渠道 1/3/4（美卡）参与自动选卡。
               </p>
             </div>
             {rules.length === 0 ? (
@@ -569,8 +570,8 @@ export function CardSelectionConfig() {
               </label>
             </div>
             <p className="text-sm text-[var(--km-fg-muted)]">
-              启用后发码写入选卡偏好，兑换向卡台声明 no_auto_card_switch /
-              strict_card_preference。
+              启用后发码和兑换都写入第一条可用卡；兑换同时声明
+              no_auto_card_switch / strict_card_preference / auto_open。每卡新账号上限、单任务最多卡数会写入卡台规则。失败冷却、地区和持卡人只存在本站，卡台不读。
             </p>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <label className="block space-y-1 text-sm">
@@ -586,6 +587,9 @@ export function CardSelectionConfig() {
                     }))
                   }
                 />
+                <span className="block text-xs text-[var(--km-fg-muted)]">
+                  写入卡台 light / pro20 用量上限
+                </span>
               </label>
               <label className="block space-y-1 text-sm">
                 <span>单任务最多卡数</span>
@@ -600,6 +604,9 @@ export function CardSelectionConfig() {
                     }))
                   }
                 />
+                <span className="block text-xs text-[var(--km-fg-muted)]">
+                  允许换卡时写入换卡次数（含第一张）
+                </span>
               </label>
               <label className="block space-y-1 text-sm">
                 <span>失败冷却（小时）</span>
@@ -614,6 +621,9 @@ export function CardSelectionConfig() {
                     }))
                   }
                 />
+                <span className="block text-xs text-[var(--km-fg-muted)]">
+                  仅本站记录，卡台不读
+                </span>
               </label>
               <label className="block space-y-1 text-sm">
                 <span>限定发卡地区</span>
@@ -624,6 +634,9 @@ export function CardSelectionConfig() {
                     setPolicy((s) => ({ ...s, issuingArea: e.target.value }))
                   }
                 />
+                <span className="block text-xs text-[var(--km-fg-muted)]">
+                  仅本站记录，卡台不读
+                </span>
               </label>
               <label className="block space-y-1 text-sm">
                 <span>持卡人 First</span>
@@ -634,6 +647,9 @@ export function CardSelectionConfig() {
                     setPolicy((s) => ({ ...s, holderFirst: e.target.value }))
                   }
                 />
+                <span className="block text-xs text-[var(--km-fg-muted)]">
+                  仅本站记录，卡台不读
+                </span>
               </label>
               <label className="block space-y-1 text-sm">
                 <span>持卡人 Last</span>
@@ -644,9 +660,12 @@ export function CardSelectionConfig() {
                     setPolicy((s) => ({ ...s, holderLast: e.target.value }))
                   }
                 />
+                <span className="block text-xs text-[var(--km-fg-muted)]">
+                  仅本站记录，卡台不读
+                </span>
               </label>
               <div className="sm:col-span-2 text-sm text-[var(--km-fg-muted)]">
-                当前发码偏好：{resolvedPref}
+                当前首选卡（发码与兑换）：{resolvedPref}
               </div>
             </div>
             <label className="flex items-center gap-2 text-sm">
@@ -662,12 +681,25 @@ export function CardSelectionConfig() {
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
+                checked={policy.strictCardPreference}
+                onChange={(e) =>
+                  setPolicy((s) => ({
+                    ...s,
+                    strictCardPreference: e.target.checked,
+                  }))
+                }
+              />
+              严格按本站首选卡兑换（发给卡台 strict_card_preference）
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
                 checked={policy.autoOpenWhenNoCard}
                 onChange={(e) =>
                   setPolicy((s) => ({ ...s, autoOpenWhenNoCard: e.target.checked }))
                 }
               />
-              无合格卡时自动开卡
+              无合格卡时自动开卡（发给卡台 auto_open）
             </label>
             <button
               className="km-btn"

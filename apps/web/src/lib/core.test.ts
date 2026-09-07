@@ -33,6 +33,7 @@ import {
 import { evaluateCardFailVerdict } from "./cardplatform/health-logic";
 import { canonicalCardIssuer } from "./cardplatform/issuer";
 import {
+  applyPolicyToDirectCardRule,
   applyRedeemCardPolicy,
   buildSelectPriority,
   defaultSiteRedeemPolicy,
@@ -695,14 +696,48 @@ describe("card-platform ops", () => {
     expect(evaluateCardFailVerdict(2, 0, 2, true)).toBe("unknown_emails");
   });
 
-  it("injects redeem policy flags and exclude_card_ids", () => {
+  it("injects redeem policy flags, first usable pref, and exclude_card_ids", () => {
     const policy = defaultSiteRedeemPolicy();
     policy.enabled = true;
-    const body = applyRedeemCardPolicy({}, policy, true, [11, 22]);
+    const body = applyRedeemCardPolicy(
+      {},
+      policy,
+      true,
+      [11, 22],
+      { issuer: "one", segmentType: "product", segmentKey: "P5378OX" },
+    );
     expect(body).toEqual({
       no_auto_card_switch: true,
       strict_card_preference: true,
+      auto_open: true,
+      preferred_issuer: "one",
+      preferred_segment_type: "product",
+      preferred_segment_key: "P5378OX",
       exclude_card_ids: [11, 22],
+    });
+    expect(
+      applyRedeemCardPolicy(
+        { preferred_segment_key: "KEEP" },
+        policy,
+        true,
+        [],
+        { issuer: "one", segmentType: "product", segmentKey: "P5378OX" },
+      ).preferred_segment_key,
+    ).toBe("KEEP");
+    const disabled = defaultSiteRedeemPolicy();
+    expect(
+      applyRedeemCardPolicy(
+        {},
+        disabled,
+        true,
+        [],
+        { issuer: "one", segmentType: "product", segmentKey: "P5378OX" },
+      ),
+    ).toEqual({
+      strict_card_preference: true,
+      preferred_issuer: "one",
+      preferred_segment_type: "product",
+      preferred_segment_key: "P5378OX",
     });
     expect(canonicalCardIssuer("ch1")).toBe("one");
     expect(
@@ -713,6 +748,56 @@ describe("card-platform ops", () => {
     ).toEqual([
       { issuer: "one", segment_type: "product", segment_key: "P53780X" },
     ]);
+  });
+
+  it("writes per-card limits and switch caps onto card-platform rules", () => {
+    const policy = defaultSiteRedeemPolicy();
+    policy.enabled = true;
+    policy.noAutoCardSwitch = true;
+    policy.maxNewAccountsPerCard = 4;
+    policy.maxCardsPerTask = 2;
+    const prefs = [
+      { issuer: "one", segment_type: "product", segment_key: "P5378OX" },
+      { issuer: "one", segment_type: "product", segment_key: "P5556XV" },
+    ];
+    expect(
+      applyPolicyToDirectCardRule(
+        {
+          light_max_uses: 5,
+          pro20_max_uses: 3,
+          auto_switch_on_fail: true,
+          max_auto_switches: 2,
+        },
+        policy,
+        prefs,
+      ),
+    ).toEqual({
+      light_max_uses: 4,
+      pro20_max_uses: 4,
+      auto_switch_on_fail: false,
+      max_auto_switches: 0,
+      select_priority: prefs,
+      strict_select: true,
+    });
+    policy.noAutoCardSwitch = false;
+    expect(
+      applyPolicyToDirectCardRule({ max_auto_switches: 9 }, policy, prefs)
+        .max_auto_switches,
+    ).toBe(1);
+    policy.enabled = false;
+    expect(
+      applyPolicyToDirectCardRule(
+        { light_max_uses: 5, auto_switch_on_fail: true, max_auto_switches: 2 },
+        policy,
+        prefs,
+      ),
+    ).toMatchObject({
+      light_max_uses: 5,
+      auto_switch_on_fail: true,
+      max_auto_switches: 2,
+      select_priority: prefs,
+      strict_select: true,
+    });
   });
 });
 

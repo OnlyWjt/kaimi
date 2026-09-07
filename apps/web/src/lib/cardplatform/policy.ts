@@ -8,6 +8,7 @@ import { getSetting, setSetting } from "@/lib/config";
 import type { CardplatformClient } from "./client";
 import { listActiveBlockedCardIds } from "./health";
 import {
+  applyPolicyToDirectCardRule,
   applyRedeemCardPolicy,
   buildSelectPriority,
   defaultSiteRedeemPolicy,
@@ -17,6 +18,7 @@ import {
 } from "./policy-logic";
 
 export {
+  applyPolicyToDirectCardRule,
   applyRedeemCardPolicy,
   buildSelectPriority,
   cardProductUsable,
@@ -26,6 +28,7 @@ export {
 export type {
   CachedCardProduct,
   CardSelectionRule,
+  RedeemCardPref,
   SiteRedeemPolicy,
 } from "./policy-logic";
 
@@ -117,9 +120,10 @@ export async function injectRedeemCardPolicy(
   body: Record<string, unknown>,
   accountId: number,
 ) {
-  const [policy, rules, excludeCardIds] = await Promise.all([
+  const [policy, rules, products, excludeCardIds] = await Promise.all([
     loadSiteRedeemPolicy(accountId),
     listSelectionRules(accountId),
+    listCachedProducts(accountId),
     listActiveBlockedCardIds(accountId),
   ]);
   return applyRedeemCardPolicy(
@@ -127,6 +131,7 @@ export async function injectRedeemCardPolicy(
     policy,
     rules.some((rule) => rule.enabled && rule.planKey.trim()),
     excludeCardIds,
+    firstUsableCardPref(policy, rules, products),
   );
 }
 
@@ -178,11 +183,7 @@ export async function syncOwnerDirectCardRules(
       select_mode: "default",
     };
     current.product = product;
-    current.select_priority = prefs;
-    current.strict_select = prefs.length > 0;
-    if (policy.enabled) {
-      current.auto_switch_on_fail = !policy.noAutoCardSwitch;
-    }
+    applyPolicyToDirectCardRule(current, policy, prefs);
     await client.putCardRule(current);
   }
 }

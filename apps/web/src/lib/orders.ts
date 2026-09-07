@@ -329,7 +329,7 @@ export async function driveRechargeOrder(input: {
     const { client } = await resolveRedeemClient(prepared.redeemable.code);
     redeemStarted = true;
     // 后台配的选卡策略和拉黑名单只有注进 redeem body 才生效。这里以前是直接调
-    // client.redeemCdk，所以「严格按偏好选卡」「不许自动换卡」「排除这些卡」对客户
+    // client.redeemCdk，所以首选卡、严格按偏好、不许自动换卡、排除名单对客户
     // 兑换全都没起过作用。
     const redeemed = await client.redeemCdk(
       await injectRedeemCardPolicy(
