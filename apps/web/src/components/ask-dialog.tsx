@@ -9,8 +9,17 @@ export type AskField = {
   defaultValue?: string;
   hint?: string;
   required?: boolean;
+  /** 密码字段要遮起来，别让边上的人看见。 */
+  type?: "text" | "password";
+  autoComplete?: string;
+  /** 最少几位，够不着就不放行。 */
+  minLength?: number;
   /** 必须原样输入这个值才放行，用于危险操作的二次确认。 */
   mustEqual?: string;
+  /** 必须和另一个字段一模一样，用于「再输一次」这种确认框。 */
+  mustMatch?: string;
+  /** 必须和另一个字段不一样，用于「新密码不能沿用旧的」。 */
+  mustDiffer?: string;
 };
 
 export type AskAction = {
@@ -81,24 +90,46 @@ export function useAskDialog() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [pending, settle]);
 
+  /** 密码里的空格是密码的一部分，不能像普通输入那样顺手 trim 掉。 */
+  function readField(field: AskField) {
+    const raw = values[field.name] ?? "";
+    return field.type === "password" ? raw : raw.trim();
+  }
+
   function submit(action = "confirm") {
     if (!pending) return;
     const fields = pending.options.fields ?? [];
     for (const field of fields) {
-      const value = (values[field.name] ?? "").trim();
+      const value = readField(field);
       if (field.required && !value) {
         setError(`请填写「${field.label}」`);
+        return;
+      }
+      if (field.minLength !== undefined && value.length < field.minLength) {
+        setError(`「${field.label}」至少 ${field.minLength} 位`);
         return;
       }
       if (field.mustEqual !== undefined && value !== field.mustEqual) {
         setError(`「${field.label}」需要原样输入 ${field.mustEqual}`);
         return;
       }
+      if (field.mustMatch !== undefined) {
+        const other = fields.find((item) => item.name === field.mustMatch);
+        if (other && value !== readField(other)) {
+          setError(`两次输入的「${other.label}」不一样`);
+          return;
+        }
+      }
+      if (field.mustDiffer !== undefined) {
+        const other = fields.find((item) => item.name === field.mustDiffer);
+        if (other && value === readField(other)) {
+          setError(`「${field.label}」不能和「${other.label}」一样`);
+          return;
+        }
+      }
     }
     settle({
-      ...Object.fromEntries(
-        fields.map((field) => [field.name, (values[field.name] ?? "").trim()]),
-      ),
+      ...Object.fromEntries(fields.map((field) => [field.name, readField(field)])),
       __action: action,
     });
   }
@@ -129,6 +160,8 @@ export function useAskDialog() {
                 <input
                   className="km-input w-full"
                   autoFocus={index === 0}
+                  type={field.type || "text"}
+                  autoComplete={field.autoComplete}
                   placeholder={field.placeholder}
                   value={values[field.name] ?? ""}
                   onChange={(event) =>
