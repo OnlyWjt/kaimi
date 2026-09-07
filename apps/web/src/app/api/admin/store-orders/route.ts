@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, like, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import { agents, storeOrders } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { normalizePage, normalizePageSize } from "@/lib/pagination-core";
+import { parseStoreOrderQuery } from "@/lib/store-order-query-core";
 
 export async function GET(req: Request) {
   try {
@@ -17,9 +18,41 @@ export async function GET(req: Request) {
   const query = new URL(req.url).searchParams;
   const page = normalizePage(query.get("page"));
   const pageSize = normalizePageSize(query.get("pageSize"));
+  const filters = parseStoreOrderQuery({
+    q: query.get("q"),
+    agentId: query.get("agentId"),
+    payStatus: query.get("payStatus"),
+    fulfillStatus: query.get("fulfillStatus"),
+  });
+
+  const conditions: SQL[] = [];
+  if (filters.q) {
+    const pattern = `%${filters.q}%`;
+    const textMatch = or(
+      like(storeOrders.orderNo, pattern),
+      like(storeOrders.customerEmail, pattern),
+      like(storeOrders.productNameSnapshot, pattern),
+      like(storeOrders.planKeySnapshot, pattern),
+      like(agents.displayName, pattern),
+    );
+    if (textMatch) conditions.push(textMatch);
+  }
+  if (filters.agentId != null) {
+    conditions.push(eq(storeOrders.agentId, filters.agentId));
+  }
+  if (filters.payStatus) {
+    conditions.push(eq(storeOrders.payStatus, filters.payStatus));
+  }
+  if (filters.fulfillStatus) {
+    conditions.push(eq(storeOrders.fulfillStatus, filters.fulfillStatus));
+  }
+  const where = conditions.length ? and(...conditions) : undefined;
+
   const [{ total }] = await db
     .select({ total: sql<number>`count(*)` })
-    .from(storeOrders);
+    .from(storeOrders)
+    .innerJoin(agents, eq(agents.id, storeOrders.agentId))
+    .where(where);
   const list = await db
     .select({
       id: storeOrders.id,
@@ -50,6 +83,7 @@ export async function GET(req: Request) {
     })
     .from(storeOrders)
     .innerJoin(agents, eq(agents.id, storeOrders.agentId))
+    .where(where)
     .orderBy(desc(storeOrders.id))
     .limit(pageSize)
     .offset((page - 1) * pageSize);

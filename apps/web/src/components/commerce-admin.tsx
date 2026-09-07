@@ -5,6 +5,10 @@ import Link from "next/link";
 import { copyText } from "@/lib/copy-text";
 import { hasNextPage, pageLabel } from "@/lib/pagination-core";
 import { adminStatusLabel } from "@/lib/status-labels";
+import {
+  STORE_ORDER_FULFILL_FILTERS,
+  STORE_ORDER_PAY_FILTERS,
+} from "@/lib/store-order-query-core";
 import { useAskDialog } from "@/components/ask-dialog";
 import { PlanDefaultPricesPanel } from "@/components/plan-default-prices";
 
@@ -101,6 +105,14 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
   const [orderPage, setOrderPage] = useState(1);
   const [orderTotal, setOrderTotal] = useState(0);
   const orderPageSize = 10;
+  const emptyOrderFilters = {
+    q: "",
+    agentId: "",
+    payStatus: "",
+    fulfillStatus: "",
+  };
+  const [orderDraft, setOrderDraft] = useState(emptyOrderFilters);
+  const [orderFilters, setOrderFilters] = useState(emptyOrderFilters);
   const [backgroundJobs, setBackgroundJobs] = useState<BackgroundJob[]>([]);
   const [health, setHealth] = useState<OpsHealth | null>(null);
   const [settlementForm, setSettlementForm] = useState({
@@ -111,13 +123,21 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
     periodEnd: localIsoDate(),
   });
 
-  /** 订单表自己翻页，不能整页重载，否则每次点下一页都会把支付配置一起拉一遍。 */
-  async function loadStoreOrders(page = orderPage) {
+  function storeOrderQuery(page: number, filters = orderFilters) {
     const qs = new URLSearchParams({
       page: String(page),
       pageSize: String(orderPageSize),
     });
-    const response = await fetch(`/api/admin/store-orders?${qs}`, {
+    if (filters.q.trim()) qs.set("q", filters.q.trim());
+    if (filters.agentId) qs.set("agentId", filters.agentId);
+    if (filters.payStatus) qs.set("payStatus", filters.payStatus);
+    if (filters.fulfillStatus) qs.set("fulfillStatus", filters.fulfillStatus);
+    return qs;
+  }
+
+  /** 订单表自己翻页，不能整页重载，否则每次点下一页都会把支付配置一起拉一遍。 */
+  async function loadStoreOrders(page = orderPage, filters = orderFilters) {
+    const response = await fetch(`/api/admin/store-orders?${storeOrderQuery(page, filters)}`, {
       cache: "no-store",
     });
     const data = await response.json();
@@ -133,10 +153,9 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
       fetch("/api/admin/payment", { cache: "no-store" }),
       fetch("/api/admin/agents", { cache: "no-store" }),
       fetch("/api/admin/settlements", { cache: "no-store" }),
-      fetch(
-        `/api/admin/store-orders?page=${orderPage}&pageSize=${orderPageSize}`,
-        { cache: "no-store" },
-      ),
+      fetch(`/api/admin/store-orders?${storeOrderQuery(orderPage)}`, {
+        cache: "no-store",
+      }),
       fetch("/api/admin/jobs", { cache: "no-store" }),
       fetch("/api/admin/ops-health", { cache: "no-store" }),
       fetch("/api/admin?section=store_rules", { cache: "no-store" }),
@@ -237,6 +256,25 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
   async function changeOrderPage(page: number) {
     try {
       await loadStoreOrders(Math.max(1, page));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "订单加载失败");
+    }
+  }
+
+  async function applyOrderFilters() {
+    setOrderFilters(orderDraft);
+    try {
+      await loadStoreOrders(1, orderDraft);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "订单加载失败");
+    }
+  }
+
+  async function resetOrderFilters() {
+    setOrderDraft(emptyOrderFilters);
+    setOrderFilters(emptyOrderFilters);
+    try {
+      await loadStoreOrders(1, emptyOrderFilters);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "订单加载失败");
     }
@@ -563,11 +601,100 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
         <div>
           <h2 className="text-xl font-semibold">即时发卡订单</h2>
           <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-            按下单时间倒序，每页 {orderPageSize} 条。
+            按下单时间倒序，每页 {orderPageSize} 条。点筛选后分页只看符合条件的单。
           </p>
         </div>
-        {orderTotal > 0 ? (
-          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <form
+          className="flex flex-wrap items-end gap-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void applyOrderFilters();
+          }}
+        >
+          <label className="block space-y-1 text-sm">
+            <span>关键字</span>
+            <input
+              className="km-input w-56"
+              placeholder="订单号 / 代理 / 套餐 / 邮箱"
+              value={orderDraft.q}
+              onChange={(event) =>
+                setOrderDraft((current) => ({ ...current, q: event.target.value }))
+              }
+            />
+          </label>
+          <label className="block space-y-1 text-sm">
+            <span>代理</span>
+            <select
+              className="km-input w-40"
+              value={orderDraft.agentId}
+              onChange={(event) =>
+                setOrderDraft((current) => ({
+                  ...current,
+                  agentId: event.target.value,
+                }))
+              }
+            >
+              <option value="">全部代理</option>
+              {agents.map((agent) => (
+                <option key={agent.id} value={String(agent.id)}>
+                  {agent.displayName}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block space-y-1 text-sm">
+            <span>支付</span>
+            <select
+              className="km-input w-36"
+              value={orderDraft.payStatus}
+              onChange={(event) =>
+                setOrderDraft((current) => ({
+                  ...current,
+                  payStatus: event.target.value,
+                }))
+              }
+            >
+              <option value="">全部支付</option>
+              {STORE_ORDER_PAY_FILTERS.map((value) => (
+                <option key={value} value={value}>
+                  {adminStatusLabel(value, "pay")}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block space-y-1 text-sm">
+            <span>发卡</span>
+            <select
+              className="km-input w-36"
+              value={orderDraft.fulfillStatus}
+              onChange={(event) =>
+                setOrderDraft((current) => ({
+                  ...current,
+                  fulfillStatus: event.target.value,
+                }))
+              }
+            >
+              <option value="">全部发卡</option>
+              {STORE_ORDER_FULFILL_FILTERS.map((value) => (
+                <option key={value} value={value}>
+                  {adminStatusLabel(value, "fulfill")}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="submit" className="km-btn" disabled={busy}>
+            筛选
+          </button>
+          <button
+            type="button"
+            className="km-btn km-btn-ghost"
+            disabled={busy}
+            onClick={() => void resetOrderFilters()}
+          >
+            清空
+          </button>
+        </form>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
             <span className="text-[var(--km-fg-muted)]">
               {pageLabel(orderTotal, orderPage, orderPageSize)}
             </span>
@@ -592,7 +719,6 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
               </button>
             </div>
           </div>
-        ) : null}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[920px] text-left text-sm">
             <thead>
@@ -704,7 +830,7 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
           </table>
           {!storeOrders.length ? (
             <p className="py-8 text-center text-sm text-[var(--km-fg-muted)]">
-              还没有即时发卡订单
+              没有符合条件的订单
             </p>
           ) : null}
         </div>
