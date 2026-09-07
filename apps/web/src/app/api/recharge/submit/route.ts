@@ -1,8 +1,13 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { z } from "zod";
-import { createRechargeOrder } from "@/lib/orders";
+import {
+  beginRechargeOrder,
+  driveOpenedRecharge,
+  RedeemInFlightError,
+} from "@/lib/orders";
+import type { AgentCredential } from "@/lib/recharge-types";
 import { enforceRateLimit } from "@/lib/rate-limit";
-import { verifySessionForRedeem } from "@/lib/session-check";
+import { checkChatGPTSessionLocal } from "@/lib/session-check";
 
 const schema = z
   .object({
@@ -12,6 +17,7 @@ const schema = z
     session: z.string().optional().default(""),
     password: z.string().optional().default(""),
     productId: z.number().int().positive().optional(),
+    planKey: z.string().trim().optional(),
   })
   .superRefine((val, ctx) => {
     if (val.mode === "mailbox") {
@@ -29,67 +35,78 @@ export async function POST(req: Request) {
 
   try {
     const body = schema.parse(await req.json());
+    const code = body.code.trim();
+
+    let contactEmail: string;
+    let account: AgentCredential;
 
     if (body.mode === "mailbox") {
-      const mailboxEmail = String(body.email || "").trim();
-      if (!mailboxEmail) {
+      contactEmail = String(body.email || "").trim();
+      if (!contactEmail) {
         return NextResponse.json({ error: "请填写账号邮箱" }, { status: 400 });
       }
-      const order = await createRechargeOrder({
-        cdkCode: body.code.trim(),
-        productId: body.productId,
-        email: mailboxEmail,
-        account: {
-          mode: "mailbox",
-          email: mailboxEmail,
-          password: body.password.trim(),
-          email_password: body.password.trim(),
-        },
-      });
-      return NextResponse.json({
-        orderNo: order.orderNo,
-        payStatus: order.payStatus,
-        fulfillStatus: order.fulfillStatus,
-        message: order.message,
-        requestId: order.upstreamRequestId,
-      });
-    }
-
-    const sessionCheck = await verifySessionForRedeem(body.session, body.code);
-    if (!sessionCheck.ok) {
-      return NextResponse.json(
-        {
-          error: sessionCheck.errors[0] || "Session 无效",
-          errors: sessionCheck.errors,
-          error_code: sessionCheck.errorCode,
-        },
-        { status: 400 },
-      );
-    }
-
-    const contactEmail = (sessionCheck.email || body.email || "").trim();
-    if (!contactEmail) {
-      return NextResponse.json({ error: "Session 中未读到邮箱，请更换账号后再试" }, { status: 400 });
-    }
-
-    const order = await createRechargeOrder({
-      cdkCode: body.code.trim(),
-      productId: body.productId,
-      email: contactEmail,
-      account: {
+      account = {
+        mode: "mailbox",
+        email: contactEmail,
+        password: body.password.trim(),
+        email_password: body.password.trim(),
+      };
+    } else {
+      // 提交前客户已经点过预检。这里只核本地格式，不再打卡台 preview/preflight，
+      // 否则按钮会再堵一轮 45 秒。真正的预检在 after() 里 drive 时做。
+      const local = checkChatGPTSessionLocal(body.session);
+      if (!local.ok) {
+        return NextResponse.json(
+          {
+            error: local.errors[0] || "Session 无效",
+            errors: local.errors,
+          },
+          { status: 400 },
+        );
+      }
+      contactEmail = (local.email || body.email || "").trim();
+      if (!contactEmail) {
+        return NextResponse.json(
+          { error: "Session 中未读到邮箱，请更换账号后再试" },
+          { status: 400 },
+        );
+      }
+      account = {
         mode: "session",
         session: body.session.trim(),
         email: contactEmail,
-      },
-    });
+      };
+    }
 
-    return NextResponse.json({
-      orderNo: order.orderNo,
-      payStatus: order.payStatus,
-      fulfillStatus: order.fulfillStatus,
-      message: order.message,
-      requestId: order.upstreamRequestId,
-    });
+    try {
+      const opened = await beginRechargeOrder({
+        cdkCode: code,
+        email: contactEmail,
+        account,
+        planKey: body.planKey,
+      });
+      after(() =>
+        driveOpenedRecharge({ opened, code, account }),
+      );
+      return NextResponse.json({
+        orderNo: opened.order.orderNo,
+        payStatus: opened.order.payStatus,
+        fulfillStatus: opened.order.fulfillStatus,
+        message: opened.order.message || "已提交，正在开通",
+        requestId: opened.order.upstreamRequestId,
+      });
+    } catch (error) {
+      if (error instanceof RedeemInFlightError && error.orderNo) {
+        return NextResponse.json({
+          orderNo: error.orderNo,
+          payStatus: "manual",
+          fulfillStatus: "pending",
+          message: error.message,
+          requestId: "",
+        });
+      }
+      throw error;
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : "提交失败";
     return NextResponse.json({ error: message }, { status: 400 });

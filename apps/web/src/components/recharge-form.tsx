@@ -213,24 +213,10 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
     setBusy(true);
     setError("");
     try {
-      let accountEmail = email.trim();
-      if (credMode === "session") {
-        const checkRes = await fetch("/api/recharge/session-check", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            session: session.trim(),
-            code: code.trim(),
-            planKey: validated.planKey,
-          }),
-        });
-        const checkData = (await checkRes.json()) as SessionPreview;
-        setPreview(checkData);
-        if (!checkData.ok || checkData.source !== "cardplatform") {
-          throw new Error(checkData.errors?.[0] || "Session 预检未通过，请修正后再提交");
-        }
-        accountEmail = (checkData.email || preview?.email || email).trim();
-      }
+      // 预检已经在点提交前做过。这里不再打 session-check，否则按钮还要再等一轮卡台。
+      const accountEmail = (
+        credMode === "session" ? preview?.email || email : email
+      ).trim();
 
       const res = await fetch("/api/recharge/submit", {
         method: "POST",
@@ -242,6 +228,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
           session: credMode === "session" ? session.trim() : undefined,
           password: credMode === "mailbox" ? mailboxPassword.trim() : undefined,
           productId: validated.productId ?? undefined,
+          planKey: validated.planKey || undefined,
         }),
       });
       const data = await res.json();

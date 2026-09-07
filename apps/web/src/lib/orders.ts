@@ -15,6 +15,7 @@ import {
   releaseLockedCode,
   reserveCodes,
 } from "@/lib/inventory";
+import { sanitizeLog } from "@/lib/log";
 import { notifyOrderTerminal } from "@/lib/notify";
 import { recordOpsAlert } from "@/lib/ops-health";
 import type { AgentCredential } from "@/lib/recharge-types";
@@ -23,7 +24,6 @@ import {
   parseCardplatformRequestId,
   pollCardplatformResult,
   preflightRedeemableCdk,
-  previewRedeemableCdk,
   redeemOutcomeStatus,
   requestIdForRedeem,
   resolveRedeemClient,
@@ -439,41 +439,51 @@ export async function driveRechargeOrder(input: {
   }
 }
 
-async function createCardplatformRecharge(input: {
-  email: string;
+/**
+ * after() 里跑兑换。凭证只活在这次请求的内存里，和批量同一条规矩。
+ * 自己再包一层，免得 after 里抛出去把整段回调掐死。
+ */
+export async function driveOpenedRecharge(input: {
+  opened: OpenedRechargeOrder;
+  code: string;
   account: AgentCredential;
-  cdkCode: string;
 }) {
-  // 单张路径先 preview 再建单：卡密本身不对就直接报错，不给客户留一笔失败的 RC 单。
-  const preview = await previewRedeemableCdk(input.cdkCode);
-  const opened = await openRechargeOrder({
-    code: preview.redeemable.code,
-    email: input.email,
-    account: input.account,
-    planKey: preview.redeemable.planKey,
-  });
-  const { order, error } = await driveRechargeOrder({
-    opened,
-    code: preview.redeemable.code,
-    account: input.account,
-  });
-  if (error) throw error;
-  return order;
+  try {
+    const { error } = await driveRechargeOrder(input);
+    if (error) {
+      console.warn(
+        `[kaimi] redeem drive order=${input.opened.order.orderNo}`,
+        sanitizeLog(error.message),
+      );
+    }
+  } catch (error) {
+    console.error(
+      `[kaimi] redeem drive crashed order=${input.opened.order.orderNo}`,
+      sanitizeLog(error instanceof Error ? error.message : String(error)),
+    );
+  }
 }
 
-export async function createRechargeOrder(input: {
+/**
+ * 单张兑换只在请求里建单。卡台 preview / preflight / redeem 每步最长 45 秒，
+ * 再堵在同一个 HTTP 响应里，按钮会一直停在「提交中」。
+ * 卡密对不对，客户提交前已经校验过；Session 不对会在 drive 的预检里变成失败，
+ * 那时 redeem 还没发出去，可以安全标失败。
+ */
+export async function beginRechargeOrder(input: {
   cdkCode: string;
   email: string;
   account: AgentCredential;
-  productId?: number;
-}) {
+  planKey?: string;
+}): Promise<OpenedRechargeOrder> {
   await bootDb();
   const code = input.cdkCode.trim();
   if (!code) throw new Error("请填写卡密");
-  return createCardplatformRecharge({
-    cdkCode: code,
+  return openRechargeOrder({
+    code,
     email: input.email,
     account: input.account,
+    planKey: input.planKey,
   });
 }
 
