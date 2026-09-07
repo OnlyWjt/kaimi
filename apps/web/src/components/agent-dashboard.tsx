@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ApplyTheme } from "@/components/apply-theme";
 import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
+import { isExternalRedeemUrl } from "@/lib/agent-redeem-core";
 import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
 import { hasNextPage, pageLabel } from "@/lib/pagination-core";
 import { retailPriceError, retailPriceRangeHint } from "@/lib/plan-price-core";
@@ -348,7 +349,13 @@ export function AgentDashboard({
           <a className="km-btn" href={`/s/${savedSlug}`} target="_blank" rel="noreferrer">
             打开店铺
           </a>
-          <a className="km-btn km-btn-ghost" href={redeemUrl} target="_blank" rel="noreferrer">
+          <a
+            className="km-btn km-btn-ghost"
+            href={redeemUrl}
+            {...(isExternalRedeemUrl(redeemUrl)
+              ? { target: "_blank", rel: "noreferrer" }
+              : {})}
+          >
             兑换卡密
           </a>
           <a className="km-btn km-btn-ghost" href="/agent/batch-redeem">

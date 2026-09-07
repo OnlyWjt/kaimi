@@ -402,12 +402,14 @@ export function AdminAgents() {
           <span>兑换页面地址</span>
           <input
             className="km-input w-full"
-            placeholder="https://cdk.example.com/agent"
+            placeholder="/recharge"
             value={redeemUrl}
             onChange={(event) => setRedeemUrl(event.target.value)}
           />
           <span className="block text-xs text-[var(--km-fg-muted)]">
-            代理后台的「兑换卡密」按钮跳这里。页面在卡台那边，换域名改这里就行。
+            代理后台的「兑换卡密」按钮跳这里。默认就是本站自己的兑换页
+            <code className="mx-1">/recharge</code>
+            ，不用改。要换到别处才填完整网址（https:// 开头），那种会开新标签页。
           </span>
         </label>
         <button

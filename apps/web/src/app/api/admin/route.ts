@@ -381,7 +381,10 @@ export async function POST(req: Request) {
     const redeemUrl = normalizeAgentRedeemUrl(String(body.redeemUrl || ""));
     if (!redeemUrl) {
       return NextResponse.json(
-        { error: "兑换页面地址要填 http:// 或 https:// 开头的完整网址" },
+        {
+          error:
+            "兑换页面地址要填本站路径（/recharge）或 http:// https:// 开头的完整网址",
+        },
         { status: 400 },
       );
     }
