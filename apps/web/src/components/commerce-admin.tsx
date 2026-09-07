@@ -3,13 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { copyText } from "@/lib/copy-text";
-import {
-  DEFAULT_PAGE_SIZE,
-  hasNextPage,
-  pageLabel,
-} from "@/lib/pagination-core";
+import { hasNextPage, pageLabel } from "@/lib/pagination-core";
 import { adminStatusLabel } from "@/lib/status-labels";
 import { useAskDialog } from "@/components/ask-dialog";
+import { PlanDefaultPricesPanel } from "@/components/plan-default-prices";
 
 type ChannelRule = {
   enabled: boolean;
@@ -103,7 +100,7 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
   const [storeOrders, setStoreOrders] = useState<StoreOrder[]>([]);
   const [orderPage, setOrderPage] = useState(1);
   const [orderTotal, setOrderTotal] = useState(0);
-  const orderPageSize = DEFAULT_PAGE_SIZE;
+  const orderPageSize = 10;
   const [backgroundJobs, setBackgroundJobs] = useState<BackgroundJob[]>([]);
   const [health, setHealth] = useState<OpsHealth | null>(null);
   const [settlementForm, setSettlementForm] = useState({
@@ -518,7 +515,7 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
           </Link>
         )}
         <a href="/admin#agents" className="km-btn km-btn-ghost">
-          去代理管理改默认价格
+          代理管理
         </a>
         <a href="/api/admin/earnings/export.xlsx" className="km-btn km-btn-ghost">
           导出全部收益
@@ -559,6 +556,159 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
           ) : null}
         </section>
       ) : null}
+
+      <PlanDefaultPricesPanel />
+
+      <section className="km-panel space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold">即时发卡订单</h2>
+          <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
+            按下单时间倒序，每页 {orderPageSize} 条。
+          </p>
+        </div>
+        {orderTotal > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span className="text-[var(--km-fg-muted)]">
+              {pageLabel(orderTotal, orderPage, orderPageSize)}
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="km-btn km-btn-ghost"
+                disabled={busy || orderPage <= 1}
+                onClick={() => void changeOrderPage(orderPage - 1)}
+              >
+                上一页
+              </button>
+              <button
+                type="button"
+                className="km-btn km-btn-ghost"
+                disabled={
+                  busy || !hasNextPage(orderTotal, orderPage, orderPageSize)
+                }
+                onClick={() => void changeOrderPage(orderPage + 1)}
+              >
+                下一页
+              </button>
+            </div>
+          </div>
+        ) : null}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[920px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-[var(--km-border)]">
+                <th className="py-2 pr-3">订单</th>
+                <th className="py-2 pr-3">代理/套餐</th>
+                <th className="py-2 pr-3">金额</th>
+                <th className="py-2 pr-3">支付</th>
+                <th className="py-2 pr-3">发卡</th>
+                <th className="py-2 pr-3">手续费</th>
+                <th className="py-2">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {storeOrders.map((order) => (
+                <tr key={order.id} className="border-b border-[var(--km-border)]">
+                  <td className="py-2 pr-3 font-mono">{order.orderNo}</td>
+                  <td className="py-2 pr-3">
+                    {order.agentName} · {order.productName}
+                  </td>
+                  <td className="py-2 pr-3">
+                    {/* gross_cents 是 NOT NULL DEFAULT 0，?? 永远不触发，
+                        老单回填失败时会渲染成 ¥0.00，所以用 || 兜住 0。 */}
+                    ¥
+                    {(
+                      (order.grossCents ||
+                        order.retailPriceCents * (order.quantity || 1)) / 100
+                    ).toFixed(2)}
+                    {(order.quantity || 1) > 1 ? (
+                      <span className="km-badge ml-2">×{order.quantity}</span>
+                    ) : null}
+                  </td>
+                  <td className="py-2 pr-3">
+                    {adminStatusLabel(order.payStatus, "pay")}
+                  </td>
+                  <td className="py-2 pr-3" title={order.lastErrorMessage}>
+                    {adminStatusLabel(order.fulfillStatus, "fulfill")}
+                    {(order.quantity || 1) > 1 ? (
+                      <span className="ml-2 text-xs text-[var(--km-fg-muted)]">
+                        已出 {order.issuedCount ?? 0}/{order.quantity}
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className="py-2 pr-3">
+                    {adminStatusLabel(order.feeReconcileStatus, "fee")}
+                  </td>
+                  <td className="py-2">
+                    <div className="flex flex-wrap gap-2">
+                      {order.payStatus === "paid" &&
+                      [
+                        "paid_undelivered",
+                        "partially_delivered",
+                        "issuing",
+                      ].includes(order.fulfillStatus) ? (
+                        <button
+                          className="km-btn km-btn-ghost"
+                          disabled={busy}
+                          onClick={() => storeOrderAction(order, "retry")}
+                        >
+                          {order.fulfillStatus === "issuing"
+                            ? "恢复履约"
+                            : order.fulfillStatus === "partially_delivered"
+                              ? "补发剩余"
+                              : "重试发卡"}
+                        </button>
+                      ) : null}
+                      {order.fulfillStatus === "unknown" ? (
+                        <button
+                          className="km-btn km-btn-ghost"
+                          disabled={busy}
+                          onClick={() => resolveUnknown(order)}
+                        >
+                          人工核对
+                        </button>
+                      ) : null}
+                      {order.payStatus === "paid" &&
+                      !["confirmed", "unsupported"].includes(
+                        order.feeReconcileStatus,
+                      ) ? (
+                        <button
+                          className="km-btn km-btn-ghost"
+                          disabled={busy}
+                          onClick={() => storeOrderAction(order, "fee")}
+                        >
+                          重对手续费
+                        </button>
+                      ) : null}
+                      <button
+                        className="km-btn km-btn-ghost"
+                        disabled={busy}
+                        onClick={() => storeOrderAction(order, "recovery")}
+                      >
+                        复制查单链接
+                      </button>
+                      {order.payStatus === "paid" ? (
+                        <button
+                          className="km-btn km-btn-ghost"
+                          disabled={busy}
+                          onClick={() => recordRefund(order)}
+                        >
+                          登记退款/拒付
+                        </button>
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!storeOrders.length ? (
+            <p className="py-8 text-center text-sm text-[var(--km-fg-muted)]">
+              还没有即时发卡订单
+            </p>
+          ) : null}
+        </div>
+      </section>
 
       <section className="km-panel space-y-4">
         <h2 className="text-xl font-semibold">下单规则</h2>
@@ -783,157 +933,6 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
       </section>
 
       <section className="km-panel space-y-4">
-        <div>
-          <h2 className="text-xl font-semibold">即时发卡订单</h2>
-          <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-            按下单时间倒序，每页 {orderPageSize} 条。
-          </p>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[920px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-[var(--km-border)]">
-                <th className="py-2 pr-3">订单</th>
-                <th className="py-2 pr-3">代理/套餐</th>
-                <th className="py-2 pr-3">金额</th>
-                <th className="py-2 pr-3">支付</th>
-                <th className="py-2 pr-3">发卡</th>
-                <th className="py-2 pr-3">手续费</th>
-                <th className="py-2">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {storeOrders.map((order) => (
-                <tr key={order.id} className="border-b border-[var(--km-border)]">
-                  <td className="py-2 pr-3 font-mono">{order.orderNo}</td>
-                  <td className="py-2 pr-3">
-                    {order.agentName} · {order.productName}
-                  </td>
-                  <td className="py-2 pr-3">
-                    {/* gross_cents 是 NOT NULL DEFAULT 0，?? 永远不触发，
-                        老单回填失败时会渲染成 ¥0.00，所以用 || 兜住 0。 */}
-                    ¥
-                    {(
-                      (order.grossCents ||
-                        order.retailPriceCents * (order.quantity || 1)) / 100
-                    ).toFixed(2)}
-                    {(order.quantity || 1) > 1 ? (
-                      <span className="km-badge ml-2">×{order.quantity}</span>
-                    ) : null}
-                  </td>
-                  <td className="py-2 pr-3">
-                    {adminStatusLabel(order.payStatus, "pay")}
-                  </td>
-                  <td className="py-2 pr-3" title={order.lastErrorMessage}>
-                    {adminStatusLabel(order.fulfillStatus, "fulfill")}
-                    {(order.quantity || 1) > 1 ? (
-                      <span className="ml-2 text-xs text-[var(--km-fg-muted)]">
-                        已出 {order.issuedCount ?? 0}/{order.quantity}
-                      </span>
-                    ) : null}
-                  </td>
-                  <td className="py-2 pr-3">
-                    {adminStatusLabel(order.feeReconcileStatus, "fee")}
-                  </td>
-                  <td className="py-2">
-                    <div className="flex flex-wrap gap-2">
-                      {order.payStatus === "paid" &&
-                      [
-                        "paid_undelivered",
-                        "partially_delivered",
-                        "issuing",
-                      ].includes(order.fulfillStatus) ? (
-                        <button
-                          className="km-btn km-btn-ghost"
-                          disabled={busy}
-                          onClick={() => storeOrderAction(order, "retry")}
-                        >
-                          {order.fulfillStatus === "issuing"
-                            ? "恢复履约"
-                            : order.fulfillStatus === "partially_delivered"
-                              ? "补发剩余"
-                              : "重试发卡"}
-                        </button>
-                      ) : null}
-                      {order.fulfillStatus === "unknown" ? (
-                        <button
-                          className="km-btn km-btn-ghost"
-                          disabled={busy}
-                          onClick={() => resolveUnknown(order)}
-                        >
-                          人工核对
-                        </button>
-                      ) : null}
-                      {order.payStatus === "paid" &&
-                      !["confirmed", "unsupported"].includes(
-                        order.feeReconcileStatus,
-                      ) ? (
-                        <button
-                          className="km-btn km-btn-ghost"
-                          disabled={busy}
-                          onClick={() => storeOrderAction(order, "fee")}
-                        >
-                          重对手续费
-                        </button>
-                      ) : null}
-                      <button
-                        className="km-btn km-btn-ghost"
-                        disabled={busy}
-                        onClick={() => storeOrderAction(order, "recovery")}
-                      >
-                        复制查单链接
-                      </button>
-                      {order.payStatus === "paid" ? (
-                        <button
-                          className="km-btn km-btn-ghost"
-                          disabled={busy}
-                          onClick={() => recordRefund(order)}
-                        >
-                          登记退款/拒付
-                        </button>
-                      ) : null}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!storeOrders.length ? (
-            <p className="py-8 text-center text-sm text-[var(--km-fg-muted)]">
-              还没有即时发卡订单
-            </p>
-          ) : null}
-        </div>
-        {orderTotal > 0 ? (
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--km-border)] pt-3 text-sm">
-            <span className="text-[var(--km-fg-muted)]">
-              {pageLabel(orderTotal, orderPage, orderPageSize)}
-            </span>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className="km-btn km-btn-ghost"
-                disabled={busy || orderPage <= 1}
-                onClick={() => void changeOrderPage(orderPage - 1)}
-              >
-                上一页
-              </button>
-              <button
-                type="button"
-                className="km-btn km-btn-ghost"
-                disabled={
-                  busy || !hasNextPage(orderTotal, orderPage, orderPageSize)
-                }
-                onClick={() => void changeOrderPage(orderPage + 1)}
-              >
-                下一页
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="km-panel space-y-4">
         <h2 className="text-xl font-semibold">代理返佣结算</h2>
         <p className="text-sm text-[var(--km-fg-muted)]">
           已支付且已发卡的订单会按当前收益进入结算。易支付查不到手续费时，用后台配置的费率估算，不再卡住结算单。
@@ -1054,16 +1053,6 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
             </tbody>
           </table>
         </div>
-      </section>
-
-      <section className="km-panel space-y-3">
-        <h2 className="text-xl font-semibold">套餐默认价格</h2>
-        <p className="text-sm text-[var(--km-fg-muted)]">
-          平台成本和代理可售套餐已经挪到「代理管理」，在一张表里改，不再每个套餐单独保存。
-        </p>
-        <a href="/admin#agents" className="km-btn km-btn-ghost inline-flex">
-          打开代理管理
-        </a>
       </section>
     </div>
   );
