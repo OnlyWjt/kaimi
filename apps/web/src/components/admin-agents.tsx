@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
+import { buildAgentWelcomeText } from "@/lib/agent-welcome-core";
+import { copyText } from "@/lib/copy-text";
 import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
 import {
   isOverMaxRetailPrice,
@@ -63,6 +65,32 @@ export function AdminAgents() {
 
   const loginUrl =
     typeof window !== "undefined" ? `${window.location.origin}/login` : "/login";
+  const startUrl =
+    typeof window !== "undefined" ? `${window.location.origin}/start` : "/start";
+
+  function welcomeText(input: { username: string; displayName?: string; password?: string }) {
+    return buildAgentWelcomeText({
+      loginUrl,
+      startUrl,
+      username: input.username,
+      displayName: input.displayName,
+      password: input.password,
+    });
+  }
+
+  async function copyWelcome(input: {
+    username: string;
+    displayName?: string;
+    password?: string;
+    ok: string;
+  }) {
+    try {
+      await copyText(welcomeText(input));
+      toast(input.ok);
+    } catch (reason) {
+      toast(reason instanceof Error ? reason.message : "复制失败", "err");
+    }
+  }
 
   const enabledCatalog = useMemo(
     () => catalog.filter((item) => item.cardplatformSellable || item.enabled),
@@ -145,6 +173,11 @@ export function AdminAgents() {
           typeof data.error === "string" ? data.error : "代理创建失败",
         );
       }
+      const created = {
+        username: form.username,
+        displayName: form.displayName,
+        password: form.password,
+      };
       setForm({
         username: "",
         password: "",
@@ -153,7 +186,10 @@ export function AdminAgents() {
         planKeys: [],
       });
       setCreateOpen(false);
-      toast("代理已创建，可把登录地址发给对方");
+      await copyWelcome({
+        ...created,
+        ok: "代理已创建，开户说明已复制，直接发给对方即可",
+      });
       await load();
     } catch (reason) {
       toast(reason instanceof Error ? reason.message : "代理创建失败", "err");
@@ -379,10 +415,15 @@ export function AdminAgents() {
           <div>
             <h2 className="text-xl font-semibold">代理管理</h2>
             <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-              代理用同一套登录页进入自己的后台改零售价。登录地址：
-              <a className="ml-1 underline" href="/login" target="_blank" rel="noreferrer">
+              代理用同一套登录页进入自己的后台改零售价。登录
+              <a className="mx-1 underline" href="/login" target="_blank" rel="noreferrer">
                 {loginUrl}
               </a>
+              ，上手说明
+              <a className="mx-1 underline" href="/start" target="_blank" rel="noreferrer">
+                {startUrl}
+              </a>
+              。新建时会复制一份开户说明，你也可以在列表里再复制。
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -576,6 +617,19 @@ export function AdminAgents() {
                         onClick={() => void loadAgentPlans(agent)}
                       >
                         套餐
+                      </button>
+                      <button
+                        type="button"
+                        className="km-btn km-btn-ghost"
+                        onClick={() =>
+                          void copyWelcome({
+                            username: agent.username,
+                            displayName: agent.displayName,
+                            ok: "开户说明已复制（不含密码）",
+                          })
+                        }
+                      >
+                        复制开户说明
                       </button>
                       <button
                         type="button"

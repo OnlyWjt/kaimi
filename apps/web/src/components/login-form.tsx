@@ -37,7 +37,11 @@ export function LoginForm() {
         <h1 className="text-2xl font-semibold">登录</h1>
         <p className="mt-2 text-sm text-[var(--km-fg-muted)]">
           代理用平台发给你的账号从这里进后台，登录后改店铺链接和商品零售价。
-          管理员账号会进入总后台。
+          第一次用先看
+          <a className="mx-1 underline" href="/start">
+            快速上手
+          </a>
+          。管理员账号会进入总后台。
         </p>
       </div>
       <label className="block space-y-2">

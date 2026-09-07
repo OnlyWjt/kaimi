@@ -480,7 +480,7 @@ export default function AdminPage() {
             ) : null}
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm text-[var(--km-fg-muted)]">
-                第一次开店或客户问流程，看「使用说明」。代理登录入口在右上角，零售价由代理自己改。
+                第一次开店或客户问流程，看「使用说明」。发给代理的短说明在 /start，登录入口在右上角。
               </p>
               <button className="km-btn km-btn-ghost" onClick={() => goTab("guide")}>
                 使用说明
