@@ -10,11 +10,14 @@ services:
       KAIMI_DATABASE_URL: file:/app/apps/web/data/kaimi.db
     volumes:
       - kaimi_data:/app/apps/web/data
-    # 默认只绑在 docker 网桥地址上：宿主机和其他容器（1Panel 的 OpenResty、现成的 nginx）
-    # 连得进来，公网连不进来。绝对不要绑 0.0.0.0 —— 直连应用端口的请求可以随便伪造
-    # X-Forwarded-For，按 IP 的限流就形同虚设。网桥地址不是 172.17.0.1 时改 KAIMI_BIND_ADDR。
+    # 这里默认 0.0.0.0 只是为了「直接 docker compose up 也一定能访问」。请改用
+    # deploy/up.sh 启动：它会算出本机 docker 网桥地址并只绑在上面，宿主机和其他容器
+    # （1Panel 的 OpenResty、现成的 nginx）连得进来，公网连不进来。绑地址不能写死，
+    # 每台机器的网桥段都不一样，绑到不存在的地址上容器会直接起不来。
+    # 保持 0.0.0.0 的话，务必用防火墙挡掉公网访问 3100：直连应用端口的请求可以随便伪造
+    # X-Forwarded-For，按 IP 的限流就形同虚设。
     ports:
-      - "${KAIMI_BIND_ADDR:-172.17.0.1}:3100:3100"
+      - "${KAIMI_BIND_ADDR:-0.0.0.0}:3100:3100"
 
   # 宿主机 80/443 已经被别的网关占着时不要启用它，否则它会起不来把整次部署带失败。
   # 需要它当入口：docker compose -f deploy/docker-compose.yml --profile caddy up -d --build

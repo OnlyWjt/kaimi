@@ -76,20 +76,24 @@ pnpm dev
 ```bash
 cp .env.example .env
 # 填写管理员密码，卡台在后台「接入卡台」配置
-docker compose -f deploy/docker-compose.yml up -d --build
+./deploy/up.sh up -d --build
 ```
+
+`up.sh` 的参数原样透传给 `docker compose`，`ps` / `logs -f kaimi` / `down` 都照常用。它只多做一件事：算出本机 docker 网桥地址，让应用**只绑在那个地址上**——宿主机和其他容器（1Panel 的 OpenResty、现成的 nginx）连得进来，公网连不进来。网桥段每台机器都不一样，写死过一次，绑到不存在的地址上容器直接起不来、网关跟着回 502，所以这个值不该由人去猜。
 
 改了代码就必须带 `--build`。镜像是在构建阶段跑 `pnpm build` 把产物烤进去的，容器不读服务器上的源码目录，少了 `--build` 只会拿旧镜像重起一个容器。
 
-应用监听 `3100`，默认只绑在 docker 网桥地址 `172.17.0.1` 上：宿主机和其他容器进得来，公网进不来。前面必须有一层反向代理。
+启动时会打印一行 `应用绑定 x.x.x.x:3100`，那就是反向代理该填的地址。
+
+绕过 `up.sh` 直接 `docker compose` 也能跑，但那时会绑 `0.0.0.0`，必须用防火墙挡掉公网访问 3100，否则外部可以绕过代理直连应用、随便伪造 `X-Forwarded-For`，按 IP 的限流形同虚设。
 
 **宿主机 80/443 还空着**，想用自带的 Caddy 自动签证书：
 
 ```bash
-DOMAIN=kaimi.example.com docker compose -f deploy/docker-compose.yml --profile caddy up -d --build
+DOMAIN=kaimi.example.com ./deploy/up.sh --profile caddy up -d --build
 ```
 
-**宿主机已经有网关**（1Panel 的 OpenResty、现成的 nginx），就别启用自带 Caddy，它会抢不到 80/443 导致整次部署失败。在已有网关里把域名反代到 `http://172.17.0.1:3100`，并确认它转发了真实来源，nginx/OpenResty 的写法是：
+**宿主机已经有网关**（1Panel 的 OpenResty、现成的 nginx），就别启用自带 Caddy，它会抢不到 80/443 导致整次部署失败。在已有网关里把域名反代到启动时打印的那个地址，并确认它转发了真实来源，nginx/OpenResty 的写法是：
 
 ```nginx
 proxy_set_header Host $host;
@@ -105,6 +109,35 @@ KAIMI_CLIENT_IP_HEADER=x-real-ip
 ```
 
 按 IP 的限流只在"公网无法绕过代理直连 3100"时才有意义，所以别把 `KAIMI_BIND_ADDR` 改成 `0.0.0.0`。
+
+### 网关回 502
+
+502 是网关自己生成的，意思只有一个：它连不上后端。请求根本没进到本站（进来了报错会是 500 和本站的错误页）。按这个顺序查：
+
+```bash
+./deploy/up.sh ps                                     # 容器在跑吗，PORTS 那列绑的是哪个地址
+curl -s -o /dev/null -w '%{http_code}\n' http://<绑定地址>:3100/   # 宿主机直连通不通
+docker exec <网关容器名> curl -s -o /dev/null -w '%{http_code}\n' http://<绑定地址>:3100/
+docker logs --tail 30 <网关容器名> 2>&1 | grep -i "upstream\|refused\|timed out"
+```
+
+第三条最关键：它从**网关容器内部**发起，也就是 502 真正发生的位置。网关自己是容器时，反代目标写 `127.0.0.1:3100` 必然失败——那个 `127.0.0.1` 是网关容器自己。
+
+用 `curl 127.0.0.1` 测网关是没用的：不带 Host 头和 TLS SNI 会落到默认站点，默认站点通了不代表你域名那个 vhost 通了。要带上真实域名测。
+
+### compose 项目名和数据卷
+
+数据在 named volume 里，卷名带 compose 项目名前缀。项目名默认取目录名 `deploy`，所以是 `deploy_kaimi_data`。
+
+同一台机器上别的 stack 也叫 `deploy` 时，会互相认成 orphan，在这个目录里执行 `down --remove-orphans` 会顺手删掉邻居的容器。想换成独立项目名，必须先把卷复制过去，否则新项目名等于挂上一个空库：
+
+```bash
+docker volume create kaimi_kaimi_data
+docker run --rm -v deploy_kaimi_data:/from -v kaimi_kaimi_data:/to alpine sh -c 'cp -a /from/. /to/'
+KAIMI_COMPOSE_PROJECT=kaimi ./deploy/up.sh up -d
+```
+
+`KAIMI_ADMIN_USER` / `KAIMI_ADMIN_PASSWORD` 只在库里一个管理员都没有时才生效。已经有管理员了，改 `.env` 不会改密码，要在后台改。反过来说，如果部署时报「首次生产部署必须配置至少 12 位的 KAIMI_ADMIN_PASSWORD」，说明这个库是空的——如果你预期它有数据，先用 `docker volume ls | grep kaimi` 确认是不是挂错了卷。
 
 ## 客户怎么用
 
