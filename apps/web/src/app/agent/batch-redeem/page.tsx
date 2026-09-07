@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { agents } from "@/db/schema";
+import { ApplyTheme } from "@/components/apply-theme";
 import { BatchRedeemForm } from "@/components/batch-redeem-form";
 import { getSession } from "@/lib/auth";
 import { getBatchRedeemLimit } from "@/lib/batch-redeem-limit";
@@ -26,8 +27,10 @@ export default async function AgentBatchRedeemPage() {
   if (!profile) redirect("/login");
 
   const batchLimit = await getBatchRedeemLimit();
+  const themeId = resolveThemeId(profile.themeId);
   return (
-    <main data-theme={resolveThemeId(profile.themeId)} className="km-themed-page">
+    <main data-theme={themeId} className="km-themed-page">
+      <ApplyTheme themeId={themeId} />
       <section className="km-shell-narrow space-y-6 py-10">
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div>

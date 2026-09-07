@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { agents } from "@/db/schema";
 import { AgentGuide } from "@/components/agent-guide";
+import { ApplyTheme } from "@/components/apply-theme";
 import { getSession } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { resolveThemeId } from "@/lib/storefront";
@@ -25,8 +26,10 @@ export default async function AgentGuidePage() {
     .limit(1);
   if (!profile) redirect("/login");
 
+  const themeId = resolveThemeId(profile.themeId);
   return (
-    <main data-theme={resolveThemeId(profile.themeId)} className="km-themed-page">
+    <main data-theme={themeId} className="km-themed-page">
+      <ApplyTheme themeId={themeId} />
       <section className="km-shell py-10 space-y-6">
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div>
