@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { agentPlanPrices, agents, platformPlans } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
+import { maxRetailPriceError } from "@/lib/plan-price-core";
 
 const batchSchema = z.object({
   plans: z.array(
@@ -36,6 +37,7 @@ export async function GET(
       planKey: platformPlans.planKey,
       name: platformPlans.name,
       globalCostPriceCents: platformPlans.globalCostPriceCents,
+      maxRetailPriceCents: platformPlans.maxRetailPriceCents,
       platformEnabled: platformPlans.enabled,
       cardplatformSellable: platformPlans.cardplatformSellable,
       enabled: agentPlanPrices.enabled,
@@ -88,6 +90,21 @@ export async function PUT(
   if (!agent) return NextResponse.json({ error: "代理不存在" }, { status: 404 });
   const catalog = await db.query.platformPlans.findMany();
   const byKey = new Map(catalog.map((item) => [item.planKey, item]));
+  // 代理成本覆盖同样不能顶穿限价，否则这个代理连合法零售价都填不出来。
+  for (const item of parsed.data.plans) {
+    const plan = byKey.get(item.planKey);
+    if (!plan) continue;
+    const capError = maxRetailPriceError(
+      plan.maxRetailPriceCents,
+      item.costOverrideCents ?? plan.globalCostPriceCents,
+    );
+    if (capError) {
+      return NextResponse.json(
+        { error: `${plan.name}：${capError}` },
+        { status: 400 },
+      );
+    }
+  }
   const now = new Date().toISOString();
   await db.transaction(async (tx) => {
     for (const item of parsed.data.plans) {

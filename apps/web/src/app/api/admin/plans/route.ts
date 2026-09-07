@@ -6,6 +6,7 @@ import { platformPlans } from "@/db/schema";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
+import { maxRetailPriceError } from "@/lib/plan-price-core";
 
 const planSchema = z.object({
   planKey: z.string().trim().min(1).max(64).regex(/^[a-z0-9_:-]+$/),
@@ -13,6 +14,7 @@ const planSchema = z.object({
   description: z.string().trim().max(2000).optional().default(""),
   coverUrl: z.string().trim().max(1000).optional().default(""),
   globalCostPriceCents: z.number().int().min(0),
+  maxRetailPriceCents: z.number().int().min(0).nullable().optional(),
   enabled: z.boolean().optional().default(false),
   cardplatformSellable: z.boolean().optional().default(false),
   sortOrder: z.number().int().min(-10000).max(10000).optional().default(0),
@@ -52,6 +54,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
   const data = parsed.data;
+  const capError = maxRetailPriceError(
+    data.maxRetailPriceCents ?? null,
+    data.globalCostPriceCents,
+  );
+  if (capError) return NextResponse.json({ error: capError }, { status: 400 });
   const now = new Date().toISOString();
   const existing = await db.query.platformPlans.findFirst({
     where: eq(platformPlans.planKey, data.planKey),
@@ -83,6 +90,7 @@ const batchSchema = z.object({
       planKey: z.string().trim().min(1),
       name: z.string().trim().min(1).max(100).optional(),
       globalCostPriceCents: z.number().int().min(0),
+      maxRetailPriceCents: z.number().int().min(0).nullable().optional(),
       enabled: z.boolean(),
     }),
   ),
@@ -101,6 +109,19 @@ export async function PUT(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: "套餐格式无效" }, { status: 400 });
   }
+  // 成本价和限价在同一张表里改，任何一边都可能把区间压反，所以整批先校验再落库。
+  for (const item of parsed.data.plans) {
+    const capError = maxRetailPriceError(
+      item.maxRetailPriceCents ?? null,
+      item.globalCostPriceCents,
+    );
+    if (capError) {
+      return NextResponse.json(
+        { error: `${item.name || item.planKey}：${capError}` },
+        { status: 400 },
+      );
+    }
+  }
   const now = new Date().toISOString();
   await db.transaction(async (tx) => {
     for (const item of parsed.data.plans) {
@@ -113,6 +134,7 @@ export async function PUT(req: Request) {
         .set({
           name: item.name || existing.name,
           globalCostPriceCents: item.globalCostPriceCents,
+          maxRetailPriceCents: item.maxRetailPriceCents ?? null,
           enabled: item.enabled,
           updatedAt: now,
         })

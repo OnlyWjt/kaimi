@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ApplyTheme } from "@/components/apply-theme";
 import { toast } from "@/components/toast";
 import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
+import { retailPriceError, retailPriceRangeHint } from "@/lib/plan-price-core";
 import { publicStatusLabel } from "@/lib/status-labels";
 import { THEME_CHOICES } from "@/lib/themes";
 import type { ThemeId } from "@kaimi/themes";
@@ -20,6 +21,7 @@ type AgentPlan = {
   planKey: string;
   name: string;
   costPriceCents: number;
+  maxRetailPriceCents: number | null;
   retailPriceCents: number;
   enabled: boolean;
   cardplatformSellable: boolean;
@@ -263,11 +265,11 @@ export function AgentDashboard({
         if (cents == null || Number.isNaN(cents)) {
           throw new Error(`${plan.name} 请填写零售价`);
         }
-        if (cents < plan.costPriceCents) {
-          throw new Error(
-            `${plan.name} 不能低于成本 ¥${yuanTextFromCents(plan.costPriceCents)}`,
-          );
-        }
+        const priceError = retailPriceError(cents, {
+          costPriceCents: plan.costPriceCents,
+          maxRetailPriceCents: plan.maxRetailPriceCents,
+        });
+        if (priceError) throw new Error(`${plan.name} ${priceError}`);
         const response = await fetch(
           `/api/agent/plans/${encodeURIComponent(plan.planKey)}`,
           {
@@ -405,7 +407,7 @@ export function AgentDashboard({
         <div>
           <h2 className="text-xl font-semibold">店铺零售价</h2>
           <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-            这是你挂出去的售价，必须高于平台给你的成本。改完点一次保存即可。
+            这是你挂出去的售价，必须落在「可填区间」里：不能低于平台给你的成本，也不能高于平台设的上限。改完点一次保存即可。
           </p>
         </div>
         {plans.length === 0 ? (
@@ -419,6 +421,7 @@ export function AgentDashboard({
                 <tr className="border-b border-[var(--km-border)]">
                   <th className="py-2 pr-3">套餐</th>
                   <th className="py-2 pr-3">代理成本</th>
+                  <th className="py-2 pr-3">可填区间</th>
                   <th className="py-2 pr-3">零售价（元）</th>
                   <th className="py-2">状态</th>
                 </tr>
@@ -434,6 +437,12 @@ export function AgentDashboard({
                     </td>
                     <td className="py-2 pr-3">
                       ¥{yuanTextFromCents(plan.costPriceCents)}
+                    </td>
+                    <td className="py-2 pr-3 text-[var(--km-fg-muted)]">
+                      {retailPriceRangeHint({
+                        costPriceCents: plan.costPriceCents,
+                        maxRetailPriceCents: plan.maxRetailPriceCents,
+                      })}
                     </td>
                     <td className="py-2 pr-3">
                       <input

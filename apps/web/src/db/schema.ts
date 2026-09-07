@@ -133,6 +133,8 @@ export const platformPlans = sqliteTable(
     description: text("description").notNull().default(""),
     coverUrl: text("cover_url").notNull().default(""),
     globalCostPriceCents: integer("global_cost_price_cents").notNull().default(0),
+    /** 代理零售价上限。NULL 或 0 表示不限价。 */
+    maxRetailPriceCents: integer("max_retail_price_cents"),
     currency: text("currency").notNull().default("CNY"),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
     sortOrder: integer("sort_order").notNull().default(0),

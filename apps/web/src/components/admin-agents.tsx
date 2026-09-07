@@ -4,6 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
 import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
+import {
+  isOverMaxRetailPrice,
+  maxRetailPriceError,
+} from "@/lib/plan-price-core";
 
 type AgentRow = {
   id: number;
@@ -21,12 +25,14 @@ type CatalogPlan = {
   enabled: boolean;
   cardplatformSellable: boolean;
   globalCostPriceCents: number;
+  maxRetailPriceCents: number | null;
 };
 
 type AgentPlanRow = {
   planKey: string;
   name: string;
   globalCostPriceCents: number;
+  maxRetailPriceCents: number | null;
   cardplatformSellable: boolean;
   enabled: boolean;
   costOverrideCents: number | null;
@@ -38,6 +44,7 @@ export function AdminAgents() {
   const [list, setList] = useState<AgentRow[]>([]);
   const [catalog, setCatalog] = useState<CatalogPlan[]>([]);
   const [costDraft, setCostDraft] = useState<Record<string, string>>({});
+  const [capDraft, setCapDraft] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
@@ -86,6 +93,16 @@ export function AdminAgents() {
           nextCatalog.map((item) => [
             item.planKey,
             yuanTextFromCents(item.globalCostPriceCents),
+          ]),
+        ),
+      );
+      setCapDraft(
+        Object.fromEntries(
+          nextCatalog.map((item) => [
+            item.planKey,
+            item.maxRetailPriceCents
+              ? yuanTextFromCents(item.maxRetailPriceCents)
+              : "",
           ]),
         ),
       );
@@ -279,10 +296,18 @@ export function AdminAgents() {
         if (cents == null || Number.isNaN(cents)) {
           throw new Error(`${item.name} 的默认成本请填金额`);
         }
+        const capRaw = capDraft[item.planKey] ?? "";
+        const capCents = centsFromYuanText(capRaw);
+        if (capRaw.trim() && (capCents == null || Number.isNaN(capCents))) {
+          throw new Error(`${item.name} 的零售价上限请填金额`);
+        }
+        const capError = maxRetailPriceError(capCents, cents);
+        if (capError) throw new Error(`${item.name} ${capError}`);
         return {
           planKey: item.planKey,
           name: item.name,
           globalCostPriceCents: cents,
+          maxRetailPriceCents: capRaw.trim() ? capCents : null,
           enabled: item.enabled,
         };
       });
@@ -400,6 +425,7 @@ export function AdminAgents() {
           <h2 className="text-xl font-semibold">默认成本价</h2>
           <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
             这是平台给代理的默认成本。代理登录后只能在自己的成本之上加零售价。
+            零售价上限留空表示不限价；填了之后代理改价不能超过它，但已经高于上限的老价格照卖，会在下面的「套餐」弹窗里标出来。
           </p>
         </div>
         {catalog.length === 0 ? (
@@ -414,6 +440,7 @@ export function AdminAgents() {
                   <th className="py-2 pr-3">套餐</th>
                   <th className="py-2 pr-3">卡台</th>
                   <th className="py-2 pr-3">默认成本（元）</th>
+                  <th className="py-2 pr-3">零售价上限（元）</th>
                   <th className="py-2">平台可售</th>
                 </tr>
               </thead>
@@ -436,6 +463,20 @@ export function AdminAgents() {
                         value={costDraft[plan.planKey] ?? ""}
                         onChange={(event) =>
                           setCostDraft((current) => ({
+                            ...current,
+                            [plan.planKey]: event.target.value,
+                          }))
+                        }
+                      />
+                    </td>
+                    <td className="py-2 pr-3">
+                      <input
+                        className="km-input w-28"
+                        inputMode="decimal"
+                        placeholder="不限价"
+                        value={capDraft[plan.planKey] ?? ""}
+                        onChange={(event) =>
+                          setCapDraft((current) => ({
                             ...current,
                             [plan.planKey]: event.target.value,
                           }))
@@ -593,6 +634,7 @@ export function AdminAgents() {
                       <th className="py-2 pr-3">允许销售</th>
                       <th className="py-2 pr-3">套餐</th>
                       <th className="py-2 pr-3">默认成本</th>
+                      <th className="py-2 pr-3">零售价上限</th>
                       <th className="py-2 pr-3">代理成本覆盖</th>
                       <th className="py-2">当前零售价</th>
                     </tr>
@@ -600,7 +642,7 @@ export function AdminAgents() {
                   <tbody>
                     {agentPlans.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="py-8 text-center text-[var(--km-fg-muted)]">
+                        <td colSpan={6} className="py-8 text-center text-[var(--km-fg-muted)]">
                           还没有套餐，先同步卡台并保存默认价格。
                         </td>
                       </tr>
@@ -632,6 +674,11 @@ export function AdminAgents() {
                           ¥{yuanTextFromCents(plan.globalCostPriceCents)}
                         </td>
                         <td className="py-2 pr-3">
+                          {plan.maxRetailPriceCents
+                            ? `¥${yuanTextFromCents(plan.maxRetailPriceCents)}`
+                            : "不限价"}
+                        </td>
+                        <td className="py-2 pr-3">
                           <input
                             className="km-input w-28"
                             inputMode="decimal"
@@ -647,6 +694,12 @@ export function AdminAgents() {
                         </td>
                         <td className="py-2">
                           ¥{yuanTextFromCents(plan.retailPriceCents)}
+                          {isOverMaxRetailPrice(
+                            plan.retailPriceCents,
+                            plan.maxRetailPriceCents,
+                          ) ? (
+                            <span className="km-badge ml-2">已超上限</span>
+                          ) : null}
                         </td>
                       </tr>
                     ))}

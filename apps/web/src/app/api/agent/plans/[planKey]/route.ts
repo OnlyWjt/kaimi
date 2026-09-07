@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { agentPlanPrices, platformPlans } from "@/db/schema";
 import { requireAgent } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
+import { retailPriceError } from "@/lib/plan-price-core";
 
 const updateSchema = z.object({
   retailPriceCents: z.number().int().min(0),
@@ -34,6 +35,7 @@ export async function PATCH(
       enabled: agentPlanPrices.enabled,
       costOverrideCents: agentPlanPrices.costOverrideCents,
       globalCostPriceCents: platformPlans.globalCostPriceCents,
+      maxRetailPriceCents: platformPlans.maxRetailPriceCents,
       planEnabled: platformPlans.enabled,
     })
     .from(agentPlanPrices)
@@ -49,13 +51,13 @@ export async function PATCH(
   if (!assignment || !assignment.enabled || !assignment.planEnabled) {
     return NextResponse.json({ error: "该套餐未向当前代理开放" }, { status: 404 });
   }
-  const costPrice =
-    assignment.costOverrideCents ?? assignment.globalCostPriceCents;
-  if (parsed.data.retailPriceCents < costPrice) {
-    return NextResponse.json(
-      { error: `零售价不能低于代理成本价 ${costPrice} 分` },
-      { status: 400 },
-    );
+  const priceError = retailPriceError(parsed.data.retailPriceCents, {
+    costPriceCents:
+      assignment.costOverrideCents ?? assignment.globalCostPriceCents,
+    maxRetailPriceCents: assignment.maxRetailPriceCents,
+  });
+  if (priceError) {
+    return NextResponse.json({ error: priceError }, { status: 400 });
   }
 
   await db

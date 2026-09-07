@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS platform_plans (
   description TEXT NOT NULL DEFAULT '',
   cover_url TEXT NOT NULL DEFAULT '',
   global_cost_price_cents INTEGER NOT NULL DEFAULT 0,
+  max_retail_price_cents INTEGER,
   currency TEXT NOT NULL DEFAULT 'CNY',
   enabled INTEGER NOT NULL DEFAULT 0,
   sort_order INTEGER NOT NULL DEFAULT 0,
@@ -702,6 +703,10 @@ export async function ensureSchema() {
   );
   await addColumn(
     "ALTER TABLE agents ADD COLUMN theme_id TEXT NOT NULL DEFAULT 'snow'",
+  );
+  // 可空，NULL 就是不限价，所以老库不用回填任何一行。
+  await addColumn(
+    "ALTER TABLE platform_plans ADD COLUMN max_retail_price_cents INTEGER",
   );
   await addColumn(
     "ALTER TABLE store_orders ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1",

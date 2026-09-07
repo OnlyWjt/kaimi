@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { agentPlanPrices, agents, platformPlans } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
+import { maxRetailPriceError } from "@/lib/plan-price-core";
 
 const updateSchema = z.object({
   enabled: z.boolean(),
@@ -47,6 +48,10 @@ export async function PATCH(
   if (!agent) return NextResponse.json({ error: "代理不存在" }, { status: 404 });
   if (!plan) return NextResponse.json({ error: "套餐不存在" }, { status: 404 });
 
+  const costPrice = parsed.data.costOverrideCents ?? plan.globalCostPriceCents;
+  const capError = maxRetailPriceError(plan.maxRetailPriceCents, costPrice);
+  if (capError) return NextResponse.json({ error: capError }, { status: 400 });
+
   const existing = await db.query.agentPlanPrices.findFirst({
     where: and(
       eq(agentPlanPrices.agentId, agentId),
@@ -67,8 +72,7 @@ export async function PATCH(
     await db.insert(agentPlanPrices).values({
       agentId,
       planId: plan.id,
-      retailPriceCents:
-        parsed.data.costOverrideCents ?? plan.globalCostPriceCents,
+      retailPriceCents: costPrice,
       ...values,
     });
   }
