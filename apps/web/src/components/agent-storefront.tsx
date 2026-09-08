@@ -79,7 +79,6 @@ const I18N = {
       back: "返回商品列表",
       secure: "自动发货 · 即买即用",
     },
-    footerLinks: "便捷链接",
     footerContact: "联系客服",
     rights: "版权所有",
     previewTip: "静态预览 · 点色板看各套主题",
@@ -127,7 +126,6 @@ const I18N = {
       back: "Back to products",
       secure: "Auto delivery · ready to use",
     },
-    footerLinks: "Quick links",
     footerContact: "Contact",
     rights: "All rights reserved",
     previewTip: "Static preview · click swatches to try themes",
@@ -970,17 +968,6 @@ export function AgentStorefront({
                 <span className="km-brand-name">{config.shopName}</span>
               </div>
               <p className="max-w-sm text-sm leading-6 text-[var(--km-fg-muted)]">{slogan}</p>
-            </div>
-            <div>
-              <h3>{t.footerLinks}</h3>
-              {config.queryEnabled ? (
-                <button type="button" onClick={() => jump("query")}>
-                  {t.nav.query}
-                </button>
-              ) : null}
-              <button type="button" onClick={() => jump("products")}>
-                {t.nav.products}
-              </button>
             </div>
             {config.contacts.length ? (
               <div>

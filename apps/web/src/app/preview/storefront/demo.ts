@@ -163,8 +163,8 @@ export const DEMO_STOREFRONT_CONFIG: StorefrontConfig = {
   shopName: "Kaimi 小店",
   themeId: "snow",
   slogan: {
-    zh: "正品会员直充 · 一卡一充 | 正品保障",
-    en: "Genuine membership top-ups · one code per order",
+    zh: "正品会员直充 · 正品保障",
+    en: "Genuine membership top-ups · 100% genuine",
   },
   logoLetter: "K",
   announcement: { enabled: false, text: { zh: "", en: "" } },

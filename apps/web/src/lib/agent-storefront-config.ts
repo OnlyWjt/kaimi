@@ -260,7 +260,12 @@ export function rowToSettings(row: SettingsRow | null | undefined): StorefrontSe
   const uniqueLanguages = Array.from(new Set(languages.length ? languages : [defaultLang]));
 
   return {
-    slogan: { zh: row.sloganZh, en: row.sloganEn },
+    slogan: {
+      zh: row.sloganZh.replace(/\s*·\s*一卡一充/g, "").replace(/一卡一充\s*[·|]\s*/g, ""),
+      en: row.sloganEn
+        .replace(/\s*·\s*one code per order/gi, "")
+        .replace(/one code per order\s*·\s*/gi, ""),
+    },
     logoLetter: row.logoLetter,
     announcement: {
       enabled: row.announcementEnabled,
@@ -361,8 +366,8 @@ export type StorefrontConfig = StorefrontSettings & {
 };
 
 export const PLATFORM_SLOGAN: LocalText = {
-  zh: "正品会员直充 · 一卡一充 | 正品保障",
-  en: "Genuine membership top-ups · one code per order",
+  zh: "正品会员直充 · 正品保障",
+  en: "Genuine membership top-ups · 100% genuine",
 };
 
 /**
