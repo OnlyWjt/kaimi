@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { AgentStorefrontSettings } from "@/components/agent-storefront-settings";
 import { ApplyTheme } from "@/components/apply-theme";
 import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
@@ -439,6 +440,8 @@ export function AgentDashboard({
           </button>
         </form>
       </section>
+
+      <AgentStorefrontSettings slug={savedSlug} />
 
       <section className="km-panel space-y-4">
         <div>

@@ -4,13 +4,19 @@ import { db } from "@/db";
 import {
   agentPlanPrices,
   agentSlugHistory,
+  agentStorefronts,
   agents,
   paymentChannelConfigs,
   platformPlans,
 } from "@/db/schema";
+import { AgentStorefront } from "@/components/agent-storefront";
 import { ApplyTheme } from "@/components/apply-theme";
-import { StoreCheckout } from "@/components/store-checkout";
 import { normalizeAgentSlug } from "@/lib/agent-slug";
+import {
+  planToProduct,
+  rowToSettings,
+  type StorefrontConfig,
+} from "@/lib/agent-storefront-config";
 import { bootDb } from "@/lib/config";
 import { getStoreSalesGate } from "@/lib/ops-health";
 import { getMaxOrderQuantity } from "@/lib/store-quantity";
@@ -43,35 +49,57 @@ export default async function AgentStorePage({
 
   const themeId = resolveThemeId(agent.themeId);
   const salesGate = await getStoreSalesGate();
-  const plans =
-    agent.status === "active" && salesGate.open
-      ? await db
-          .select({
-            planKey: platformPlans.planKey,
-            name: platformPlans.name,
-            description: platformPlans.description,
-            retailPriceCents: agentPlanPrices.retailPriceCents,
-            globalCostPriceCents: platformPlans.globalCostPriceCents,
-            costOverrideCents: agentPlanPrices.costOverrideCents,
-          })
-          .from(agentPlanPrices)
-          .innerJoin(platformPlans, eq(platformPlans.id, agentPlanPrices.planId))
-          .where(
-            and(
-              eq(agentPlanPrices.agentId, agent.id),
-              eq(agentPlanPrices.enabled, true),
-              eq(platformPlans.enabled, true),
-              eq(platformPlans.cardplatformSellable, true),
-            ),
-          )
-          .orderBy(asc(platformPlans.sortOrder), asc(platformPlans.id))
-      : [];
+  const open = agent.status === "active" && salesGate.open;
+
+  const plans = open
+    ? await db
+        .select({
+          planKey: platformPlans.planKey,
+          name: platformPlans.name,
+          description: platformPlans.description,
+          retailPriceCents: agentPlanPrices.retailPriceCents,
+          globalCostPriceCents: platformPlans.globalCostPriceCents,
+          costOverrideCents: agentPlanPrices.costOverrideCents,
+        })
+        .from(agentPlanPrices)
+        .innerJoin(platformPlans, eq(platformPlans.id, agentPlanPrices.planId))
+        .where(
+          and(
+            eq(agentPlanPrices.agentId, agent.id),
+            eq(agentPlanPrices.enabled, true),
+            eq(platformPlans.enabled, true),
+            eq(platformPlans.cardplatformSellable, true),
+          ),
+        )
+        .orderBy(asc(platformPlans.sortOrder), asc(platformPlans.id))
+    : [];
   const sellablePlans = plans.filter(
     (plan) =>
       plan.retailPriceCents > 0 &&
       plan.retailPriceCents >=
         (plan.costOverrideCents ?? plan.globalCostPriceCents),
   );
+
+  // 店铺关闭 / 停售时保留原来的简版提示页，别把装修页面挂在没货的店上
+  if (!open) {
+    return (
+      <main data-theme={themeId} className="km-themed-page">
+        <ApplyTheme themeId={themeId} />
+        <section className="km-shell space-y-8 py-12 md:py-16">
+          <header className="mx-auto max-w-xl space-y-3 text-center">
+            <h1 className="km-page-title">{agent.displayName}</h1>
+            <p className="km-lead mx-auto">
+              {agent.status !== "active" ? "店铺暂时关闭。" : salesGate.publicReason}
+            </p>
+          </header>
+        </section>
+      </main>
+    );
+  }
+
+  const settingsRow = await db.query.agentStorefronts.findFirst({
+    where: eq(agentStorefronts.agentId, agent.id),
+  });
   const channels = (
     await db.query.paymentChannelConfigs.findMany({
       where: eq(paymentChannelConfigs.enabled, true),
@@ -82,29 +110,30 @@ export default async function AgentStorePage({
       (channel): channel is "alipay" | "wxpay" =>
         channel === "alipay" || channel === "wxpay",
     );
+
+  const config: StorefrontConfig = {
+    ...rowToSettings(settingsRow),
+    shopName: agent.displayName,
+    themeId,
+    products: sellablePlans.map((plan) =>
+      planToProduct({
+        planKey: plan.planKey,
+        name: plan.name,
+        description: plan.description,
+        retailPriceCents: plan.retailPriceCents,
+      }),
+    ),
+  };
+
   return (
     <main data-theme={themeId} className="km-themed-page">
       <ApplyTheme themeId={themeId} />
-      <section className="km-shell space-y-8 py-12 md:py-16">
-        <header className="mx-auto max-w-xl space-y-3 text-center">
-          <h1 className="km-page-title">{agent.displayName}</h1>
-          <p className="km-lead mx-auto">
-            {agent.status !== "active"
-              ? "店铺暂时关闭。"
-              : salesGate.open
-                ? "选套餐付款，到账后立刻发一张新卡密。"
-                : salesGate.publicReason}
-          </p>
-        </header>
-        {agent.status === "active" && salesGate.open ? (
-          <StoreCheckout
-            slug={agent.currentSlug}
-            plans={sellablePlans}
-            channels={channels}
-            maxQuantity={await getMaxOrderQuantity()}
-          />
-        ) : null}
-      </section>
+      <AgentStorefront
+        config={config}
+        slug={agent.currentSlug}
+        channels={channels}
+        maxQuantity={await getMaxOrderQuantity()}
+      />
     </main>
   );
 }

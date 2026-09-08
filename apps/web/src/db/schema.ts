@@ -84,6 +84,29 @@ export const agentSlugHistory = sqliteTable(
   }),
 );
 
+/** 代理店铺装修配置：一个代理一行，缺行时用平台默认值兜底 */
+export const agentStorefronts = sqliteTable("agent_storefronts", {
+  agentId: integer("agent_id").primaryKey(),
+  sloganZh: text("slogan_zh").notNull().default(""),
+  sloganEn: text("slogan_en").notNull().default(""),
+  logoLetter: text("logo_letter").notNull().default(""),
+  announcementEnabled: integer("announcement_enabled", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  announcementZh: text("announcement_zh").notNull().default(""),
+  announcementEn: text("announcement_en").notNull().default(""),
+  heroJson: text("hero_json").notNull().default("{}"),
+  statsJson: text("stats_json").notNull().default("[]"),
+  searchEnabled: integer("search_enabled", { mode: "boolean" }).notNull().default(true),
+  queryEnabled: integer("query_enabled", { mode: "boolean" }).notNull().default(true),
+  contactsJson: text("contacts_json").notNull().default("[]"),
+  defaultLang: text("default_lang").notNull().default("zh"),
+  languagesJson: text("languages_json").notNull().default('["zh"]'),
+  updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`(datetime('now'))`),
+});
+
 export const storefronts = sqliteTable("storefronts", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   kind: text("kind").notNull(), // shop | recharge

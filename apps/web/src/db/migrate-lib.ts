@@ -64,6 +64,24 @@ CREATE TABLE IF NOT EXISTS agent_slug_history (
 CREATE UNIQUE INDEX IF NOT EXISTS agent_slug_history_slug_uq ON agent_slug_history(slug);
 CREATE INDEX IF NOT EXISTS agent_slug_history_agent_idx ON agent_slug_history(agent_id);
 
+CREATE TABLE IF NOT EXISTS agent_storefronts (
+  agent_id INTEGER PRIMARY KEY,
+  slogan_zh TEXT NOT NULL DEFAULT '',
+  slogan_en TEXT NOT NULL DEFAULT '',
+  logo_letter TEXT NOT NULL DEFAULT '',
+  announcement_enabled INTEGER NOT NULL DEFAULT 0,
+  announcement_zh TEXT NOT NULL DEFAULT '',
+  announcement_en TEXT NOT NULL DEFAULT '',
+  hero_json TEXT NOT NULL DEFAULT '{}',
+  stats_json TEXT NOT NULL DEFAULT '[]',
+  search_enabled INTEGER NOT NULL DEFAULT 1,
+  query_enabled INTEGER NOT NULL DEFAULT 1,
+  contacts_json TEXT NOT NULL DEFAULT '[]',
+  default_lang TEXT NOT NULL DEFAULT 'zh',
+  languages_json TEXT NOT NULL DEFAULT '["zh"]',
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS storefronts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   kind TEXT NOT NULL,
