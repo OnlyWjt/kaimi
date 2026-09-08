@@ -51,8 +51,8 @@ export const PLATFORM_HERO: HeroSettings = {
   chip: { zh: "自动发货 · 正品保障", en: "Auto delivery · 100% genuine" },
   title: { zh: "AI 工具 · 一站式自助发货", en: "AI tools, self-serve instant delivery" },
   sub: {
-    zh: "主流 AI 会员与效率工具官方直充，付款后卡密秒发到邮箱，无需等待。",
-    en: "Official top-ups for mainstream AI memberships and productivity tools. Codes are sent to your email right after payment.",
+    zh: "主流 AI 会员与效率工具官方直充，付款成功后立即出卡，用下单邮箱随时查回。",
+    en: "Official top-ups for mainstream AI memberships and productivity tools. Codes are issued instantly after payment and can be retrieved anytime with your order email.",
   },
 };
 
@@ -299,8 +299,8 @@ export type StorefrontProduct = {
   /** null 表示不对外展示具体库存（卡台即时发货，没有本地池） */
   stock: number | null;
   hue: number;
+  /** 商品图位置显示的短标识，等后台支持上传封面后可以换成真实图 */
   mark: string;
-  banner: { line1: LocalText; line2: LocalText; line3: string };
   specs: StorefrontSpec[];
   detail: DetailSection[];
 };
@@ -316,10 +316,17 @@ export const PLATFORM_SLOGAN: LocalText = {
   en: "Genuine membership top-ups · one code per order",
 };
 
-/** 套餐名首字母/首词，用于商品图标 */
+/**
+ * 套餐名里第一个英文词，用于商品图标。
+ * 短词整个留着（Plus / Pro），长词才截断——否则 "Plus" 会被切成 "PLU" 这种残句。
+ */
 function markFromName(name: string): string {
-  const ascii = name.match(/[A-Za-z]+/g);
-  if (ascii?.length) return ascii[0].slice(0, 3).toUpperCase();
+  const ascii = name.match(/[A-Za-z][A-Za-z0-9]*/g);
+  if (ascii?.length) {
+    const word = ascii[0];
+    if (word.length <= 5) return word.charAt(0).toUpperCase() + word.slice(1);
+    return word.slice(0, 3).toUpperCase();
+  }
   return name.trim().slice(0, 2) || "AI";
 }
 
@@ -343,29 +350,22 @@ export type SellablePlan = {
 export function planToProduct(plan: SellablePlan): StorefrontProduct {
   const name: LocalText = { zh: plan.name, en: plan.name };
   const desc: LocalText = {
-    zh: plan.description || "付款成功后即时发卡，卡密发送到你填写的邮箱。",
-    en: plan.description || "Codes are delivered to your email right after payment.",
+    zh: plan.description || "付款成功后即时出卡，用下单时填写的邮箱可随时查回。",
+    en: plan.description || "Codes are issued instantly after payment and retrievable with your order email.",
   };
 
   return {
     id: plan.planKey,
     name,
-    subtitle: { zh: "官方直充 · 自动发货", en: "Official top-up · auto delivery" },
+    subtitle: { zh: "官方渠道 · 付款后立即出卡", en: "Official channel · instant delivery" },
     desc,
     category: "all",
-    categoryLabel: markFromName(plan.name),
-    tags: [
-      { zh: "官方直充", en: "Official" },
-      { zh: "自动发货", en: "Auto delivery" },
-    ],
+    // 平台套餐目前没有分类概念，留空让前台不显示"分类"那一行
+    categoryLabel: "",
+    tags: [{ zh: "官方直充", en: "Official" }],
     stock: null,
     hue: hueFromKey(plan.planKey),
     mark: markFromName(plan.name),
-    banner: {
-      line1: name,
-      line2: { zh: "现货自动发货", en: "In stock · auto delivery" },
-      line3: markFromName(plan.name),
-    },
     specs: [
       {
         id: plan.planKey,
@@ -387,8 +387,8 @@ export function planToProduct(plan: SellablePlan): StorefrontProduct {
         lines: [
           {
             text: {
-              zh: "下单并支付成功后，卡密会自动发送到你填写的邮箱，同时可在本页「邮箱查单」随时找回。",
-              en: "After payment the code is emailed to you automatically, and you can always find it again via “Track by email” on this page.",
+              zh: "支付成功后立即出卡，卡密直接显示在订单页；用下单时填写的邮箱在本页「邮箱查单」可随时找回。",
+              en: "The code appears on the order page right after payment, and you can always find it again via “Track by email” on this page using your order email.",
             },
           },
         ],
@@ -398,10 +398,17 @@ export function planToProduct(plan: SellablePlan): StorefrontProduct {
         title: { zh: "质保说明", en: "Warranty" },
         lines: [
           {
-            label: { zh: "购买即认可", en: "By purchasing" },
+            label: { zh: "质保范围", en: "Covered" },
             text: {
-              zh: "虚拟商品一经发货不支持退款，下单前请确认所选套餐无误。",
-              en: "Virtual goods are non-refundable once delivered. Please confirm your plan before ordering.",
+              zh: "只质保订阅本身，账号封禁不在质保范围内。",
+              en: "Only the subscription itself is covered. Account bans are not covered.",
+            },
+          },
+          {
+            label: { zh: "退款", en: "Refunds" },
+            text: {
+              zh: "可自行申请退款，卡台会收取 10% 手续费。",
+              en: "You can request a refund yourself; the card platform charges a 10% fee.",
             },
           },
           {

@@ -19,8 +19,8 @@ function buildDetail(desc: { zh: string; en: string }): DetailSection[] {
       lines: [
         {
           text: {
-            zh: "下单并支付成功后，卡密会自动发送到你填写的邮箱，同时可在本页「邮箱查单」随时找回。",
-            en: "After payment the code is emailed to you automatically, and you can always find it again via “Track by email”.",
+            zh: "支付成功后立即出卡，卡密直接显示在订单页；用下单邮箱在本页「邮箱查单」可随时找回。",
+            en: "The code appears on the order page right after payment, and you can find it again via “Track by email”.",
           },
         },
       ],
@@ -30,10 +30,17 @@ function buildDetail(desc: { zh: string; en: string }): DetailSection[] {
       title: { zh: "质保说明", en: "Warranty" },
       lines: [
         {
-          label: { zh: "购买即认可", en: "By purchasing" },
+          label: { zh: "质保范围", en: "Covered" },
           text: {
-            zh: "虚拟商品一经发货不支持退款，下单前请确认所选套餐无误。",
-            en: "Virtual goods are non-refundable once delivered.",
+            zh: "只质保订阅本身，账号封禁不在质保范围内。",
+            en: "Only the subscription itself is covered. Account bans are not covered.",
+          },
+        },
+        {
+          label: { zh: "退款", en: "Refunds" },
+          text: {
+            zh: "可自行申请退款，卡台会收取 10% 手续费。",
+            en: "You can request a refund yourself; the card platform charges a 10% fee.",
           },
         },
       ],
@@ -45,7 +52,7 @@ const DEMO_PRODUCTS: StorefrontProduct[] = [
   {
     id: "chatgpt-plus",
     name: { zh: "ChatGPT Plus 会员", en: "ChatGPT Plus" },
-    subtitle: { zh: "官方直充 · 自动发货", en: "Official top-up · auto delivery" },
+    subtitle: { zh: "最新 GPT 模型 · 联网与数据分析", en: "Latest GPT models · browsing & analysis" },
     desc: {
       zh: "官方渠道直充 ChatGPT Plus，支持 GPT 最新模型、联网与数据分析，付款后立即发码。",
       en: "Official ChatGPT Plus top-up with the latest GPT models, browsing and data analysis. Codes are delivered instantly.",
@@ -59,11 +66,6 @@ const DEMO_PRODUCTS: StorefrontProduct[] = [
     stock: 128,
     hue: 168,
     mark: "GPT",
-    banner: {
-      line1: { zh: "ChatGPT Plus 会员", en: "ChatGPT Plus" },
-      line2: { zh: "现货自动发货", en: "In stock · auto delivery" },
-      line3: "GPT",
-    },
     specs: [
       {
         id: "chatgpt-plus-1m",
@@ -102,11 +104,6 @@ const DEMO_PRODUCTS: StorefrontProduct[] = [
     stock: 64,
     hue: 28,
     mark: "CL",
-    banner: {
-      line1: { zh: "Claude Pro 会员", en: "Claude Pro" },
-      line2: { zh: "现货自动发货", en: "In stock · auto delivery" },
-      line3: "CL",
-    },
     specs: [
       {
         id: "claude-pro-1m",
@@ -138,11 +135,6 @@ const DEMO_PRODUCTS: StorefrontProduct[] = [
     stock: 32,
     hue: 268,
     mark: "MJ",
-    banner: {
-      line1: { zh: "Midjourney 会员", en: "Midjourney" },
-      line2: { zh: "现货自动发货", en: "In stock · auto delivery" },
-      line3: "MJ",
-    },
     specs: [
       {
         id: "midjourney-basic",
@@ -181,11 +173,6 @@ const DEMO_PRODUCTS: StorefrontProduct[] = [
     stock: 88,
     hue: 208,
     mark: "NA",
-    banner: {
-      line1: { zh: "Notion AI", en: "Notion AI" },
-      line2: { zh: "现货自动发货", en: "In stock · auto delivery" },
-      line3: "NA",
-    },
     specs: [
       {
         id: "notion-ai-1m",
@@ -214,10 +201,13 @@ export const DEMO_STOREFRONT_CONFIG: StorefrontConfig = {
   hero: {
     enabled: true,
     chip: { zh: "自动发货 · 正品保障", en: "Auto delivery · 100% genuine" },
-    title: { zh: "AI 工具 · 一站式自助发货", en: "AI tools, self-serve instant delivery" },
+    title: {
+      zh: "AI 工具 · 一站式自助发货",
+      en: "AI tools, self-serve instant delivery",
+    },
     sub: {
-      zh: "主流 AI 会员与效率工具官方直充，付款后卡密秒发到邮箱，无需等待。",
-      en: "Official top-ups for mainstream AI tools. Codes are emailed right after payment.",
+      zh: "主流 AI 会员与效率工具官方直充，付款成功后立即出卡，用下单邮箱随时查回。",
+      en: "Official top-ups for mainstream AI tools. Codes are issued instantly after payment.",
     },
   },
   stats: {
@@ -230,8 +220,16 @@ export const DEMO_STOREFRONT_CONFIG: StorefrontConfig = {
   searchEnabled: true,
   queryEnabled: true,
   contacts: [
-    { type: "telegram", label: { zh: "Telegram", en: "Telegram" }, value: "@kaimi_support" },
-    { type: "email", label: { zh: "售后邮箱", en: "Support email" }, value: "help@kaimi.shop" },
+    {
+      type: "telegram",
+      label: { zh: "Telegram", en: "Telegram" },
+      value: "@kaimi_support",
+    },
+    {
+      type: "email",
+      label: { zh: "售后邮箱", en: "Support email" },
+      value: "help@kaimi.shop",
+    },
   ],
   defaultLang: "zh",
   languages: ["zh", "en"],

@@ -45,7 +45,7 @@ const I18N = {
     queryPlaceholder: "you@example.com",
     queryButton: "查询订单",
     queryBusy: "正在查询…",
-    queryNote: "无需注册账号，卡密与订单信息都会发送到该邮箱",
+    queryNote: "无需注册账号，用下单时填写的邮箱就能找回订单与卡密",
     queryEmpty: "这个邮箱在本店还没有订单",
     queryScope: "只显示这个邮箱在本店的订单，和其他买家互不影响。",
     productsSub: "浏览当前可售套餐，付款后即时发卡",
@@ -61,14 +61,14 @@ const I18N = {
       category: "分类",
       priceLabel: "价格",
       chooseSpec: "选择规格",
-      descLabel: "商品描述",
       auto: "自动发货",
       inStock: "有库存",
       qty: "购买数量",
       qtyMax: (n: number) => `一次最多 ${n} 张`,
       stock: (n: number) => `库存 ${n} 件`,
       email: "接收邮箱",
-      emailHint: "卡密与订单信息将发送至该邮箱",
+      emailHint: "用于付款后查回订单与卡密，请填常用邮箱",
+      emailRequired: "请先填写接收邮箱",
       channel: "支付方式",
       channelEmpty: "支付方式暂未开放",
       total: "应付金额",
@@ -93,7 +93,7 @@ const I18N = {
     queryPlaceholder: "you@example.com",
     queryButton: "Look up orders",
     queryBusy: "Looking up…",
-    queryNote: "No account needed — codes and order details are sent to this email",
+    queryNote: "No account needed — use the email from checkout to find your orders and codes",
     queryEmpty: "No orders found for this email in this shop",
     queryScope: "Only orders placed with this email in this shop are shown.",
     productsSub: "Browse available plans, codes delivered instantly after payment",
@@ -109,14 +109,14 @@ const I18N = {
       category: "Category",
       priceLabel: "Price",
       chooseSpec: "Choose a plan",
-      descLabel: "Description",
       auto: "Auto delivery",
       inStock: "In stock",
       qty: "Quantity",
       qtyMax: (n: number) => `Up to ${n} per order`,
       stock: (n: number) => `${n} in stock`,
       email: "Delivery email",
-      emailHint: "Codes and order details will be sent to this email",
+      emailHint: "Used to retrieve your order and codes after payment",
+      emailRequired: "Please enter your email first",
       channel: "Payment method",
       channelEmpty: "No payment method available",
       total: "Total",
@@ -266,14 +266,14 @@ function ProductIcon({ product }: { product: StorefrontProduct }) {
   );
 }
 
-/** 详情页左侧商品主图：暂用渐变卡 + 文字，等后台支持上传封面后换成真实图 */
+/** 详情页左侧商品主图：暂用渐变卡 + 短标识，等后台支持上传封面后换成真实图 */
 function ProductBanner({ product, lang }: { product: StorefrontProduct; lang: Lang }) {
   return (
     <div
       className="km-sf-banner"
       style={{
-        background: `radial-gradient(120% 110% at 18% 12%, hsl(${product.hue} 62% 92% / 0.9), transparent 60%),
-          linear-gradient(150deg, color-mix(in oklab, var(--km-bg-muted) 70%, var(--km-bg-elevated)), color-mix(in oklab, hsl(${product.hue} 70% 55%) 14%, var(--km-bg-elevated)))`,
+        background: `radial-gradient(110% 100% at 22% 14%, hsl(${product.hue} 58% 90% / 0.55), transparent 62%),
+          linear-gradient(155deg, color-mix(in oklab, var(--km-bg-muted) 78%, var(--km-bg-elevated)), color-mix(in oklab, hsl(${product.hue} 70% 55%) 9%, var(--km-bg-elevated)))`,
       }}
     >
       <span
@@ -285,11 +285,7 @@ function ProductBanner({ product, lang }: { product: StorefrontProduct; lang: La
       >
         {product.mark}
       </span>
-      <div className="km-sf-banner-copy">
-        <strong>{product.banner.line1[lang] || product.banner.line1.zh}</strong>
-        <span>{product.banner.line2[lang] || product.banner.line2.zh}</span>
-        <em>{product.banner.line3}</em>
-      </div>
+      <span className="km-sf-banner-cap">{pickText(product.subtitle, lang)}</span>
     </div>
   );
 }
@@ -436,7 +432,14 @@ export function AgentStorefront({
   async function buy() {
     if (!activeSpec) return;
     const email = buyerEmail.trim();
-    if (!email) return;
+    if (!email) {
+      setBuyError(t.detail.emailRequired);
+      return;
+    }
+    if (live && !channels.length) {
+      setBuyError(t.detail.channelEmpty);
+      return;
+    }
     if (!live) {
       setBuyError(t.detail.previewNote);
       return;
@@ -750,12 +753,38 @@ export function AgentStorefront({
             <section className="km-sf-detail km-rise">
               <div className="km-sf-detail-art">
                 <ProductBanner product={active} lang={lang} />
+
+                <div className="km-sf-info">
+                  <h2 className="km-sf-info-title">{t.detail.infoTitle}</h2>
+                  {active.detail.map((section) => (
+                    <div key={section.title.en} className="km-sf-info-sec">
+                      <h3 className="km-sf-info-sec-title">
+                        <span aria-hidden>{section.icon}</span>
+                        {pickText(section.title, lang)}
+                      </h3>
+                      {section.lines.map((line, index) => (
+                        <p key={`${section.title.en}-${index}`} className="km-sf-info-line">
+                          {line.label ? <strong>{pickText(line.label, lang)}：</strong> : null}
+                          {line.link ? (
+                            <a href={line.link} target="_blank" rel="noreferrer">
+                              {pickText(line.text, lang)}
+                            </a>
+                          ) : (
+                            pickText(line.text, lang)
+                          )}
+                        </p>
+                      ))}
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div className="km-sf-detail-panel">
-                <p className="km-sf-detail-cat">
-                  {t.detail.category} · {active.categoryLabel}
-                </p>
+                {active.categoryLabel ? (
+                  <p className="km-sf-detail-cat">
+                    {t.detail.category} · {active.categoryLabel}
+                  </p>
+                ) : null}
                 <h1 className="km-sf-detail-title">{pickText(active.name, lang)}</h1>
 
                 <div className="km-sf-badges">
@@ -767,7 +796,9 @@ export function AgentStorefront({
                   <span className="km-sf-badge">{t.detail.inStock}</span>
                 </div>
 
-                <p className="km-sf-field-label">{t.detail.priceLabel}</p>
+                <p className="km-sf-detail-desc">{pickText(active.desc, lang)}</p>
+
+                <p className="km-sf-field-label km-sf-field-label-sep">{t.detail.priceLabel}</p>
                 <p className="km-sf-detail-price">
                   {yuanTextFromCents(totalCents)} <small>CNY</small>
                 </p>
@@ -813,110 +844,85 @@ export function AgentStorefront({
                   </>
                 ) : null}
 
-                <p className="km-sf-field-label">{t.detail.descLabel}</p>
-                <p className="km-sf-detail-desc">{pickText(active.desc, lang)}</p>
-
-                {specMaxQty > 1 ? (
-                  <>
-                    <p className="km-sf-field-label">{t.detail.qty}</p>
-                    <div className="km-sf-qty-row">
-                      <div className="km-sf-qty">
-                        <button
-                          type="button"
-                          aria-label="减少数量"
-                          disabled={qty <= 1}
-                          onClick={() => setQty((value) => Math.max(1, value - 1))}
-                        >
-                          −
-                        </button>
-                        <span>{qty}</span>
-                        <button
-                          type="button"
-                          aria-label="增加数量"
-                          disabled={qty >= specMaxQty}
-                          onClick={() => setQty((value) => Math.min(specMaxQty, value + 1))}
-                        >
-                          ＋
-                        </button>
+                <div className="km-sf-buybox">
+                  {specMaxQty > 1 ? (
+                    <>
+                      <p className="km-sf-field-label">{t.detail.qty}</p>
+                      <div className="km-sf-qty-row">
+                        <div className="km-sf-qty">
+                          <button
+                            type="button"
+                            aria-label="减少数量"
+                            disabled={qty <= 1}
+                            onClick={() => setQty((value) => Math.max(1, value - 1))}
+                          >
+                            −
+                          </button>
+                          <span>{qty}</span>
+                          <button
+                            type="button"
+                            aria-label="增加数量"
+                            disabled={qty >= specMaxQty}
+                            onClick={() => setQty((value) => Math.min(specMaxQty, value + 1))}
+                          >
+                            ＋
+                          </button>
+                        </div>
+                        <span className="km-sf-qty-hint">{t.detail.qtyMax(specMaxQty)}</span>
                       </div>
-                      <span className="km-sf-qty-hint">{t.detail.qtyMax(specMaxQty)}</span>
+                    </>
+                  ) : null}
+
+                  <p className="km-sf-field-label">{t.detail.email}</p>
+                  <input
+                    className="km-input"
+                    type="email"
+                    value={buyerEmail}
+                    onChange={(event) => setBuyerEmail(event.target.value)}
+                    placeholder={t.queryPlaceholder}
+                  />
+                  <p className="km-sf-modal-hint">{t.detail.emailHint}</p>
+
+                  <p className="km-sf-field-label">{t.detail.channel}</p>
+                  {channels.length ? (
+                    <div className="km-sf-channels" role="radiogroup" aria-label={t.detail.channel}>
+                      {channels.map((item) => (
+                        <button
+                          key={item}
+                          type="button"
+                          role="radio"
+                          aria-checked={channel === item}
+                          data-channel={item}
+                          className={`km-sf-channel${channel === item ? " km-sf-channel-active" : ""}`}
+                          onClick={() => setChannel(item)}
+                        >
+                          {CHANNEL_LABEL[item][lang]}
+                        </button>
+                      ))}
                     </div>
-                  </>
-                ) : null}
+                  ) : (
+                    <p className="km-sf-modal-hint">{t.detail.channelEmpty}</p>
+                  )}
 
-                <p className="km-sf-field-label">{t.detail.email}</p>
-                <input
-                  className="km-input"
-                  type="email"
-                  value={buyerEmail}
-                  onChange={(event) => setBuyerEmail(event.target.value)}
-                  placeholder={t.queryPlaceholder}
-                />
-                <p className="km-sf-modal-hint">{t.detail.emailHint}</p>
+                  {buyError ? <p className="km-sf-error">{buyError}</p> : null}
 
-                <p className="km-sf-field-label">{t.detail.channel}</p>
-                {channels.length ? (
-                  <div className="km-sf-channels" role="radiogroup" aria-label={t.detail.channel}>
-                    {channels.map((item) => (
-                      <button
-                        key={item}
-                        type="button"
-                        role="radio"
-                        aria-checked={channel === item}
-                        data-channel={item}
-                        className={`km-sf-channel${channel === item ? " km-sf-channel-active" : ""}`}
-                        onClick={() => setChannel(item)}
-                      >
-                        {CHANNEL_LABEL[item][lang]}
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="km-sf-modal-hint">{t.detail.channelEmpty}</p>
-                )}
+                  <button
+                    type="button"
+                    className="km-btn km-sf-detail-buy"
+                    disabled={buyBusy}
+                    onClick={() => void buy()}
+                  >
+                    {buyBusy
+                      ? t.detail.payBusy
+                      : `${t.detail.pay} · ¥${yuanTextFromCents(totalCents)}`}
+                  </button>
 
-                {buyError ? <p className="km-sf-error">{buyError}</p> : null}
-
-                <button
-                  type="button"
-                  className="km-btn km-sf-detail-buy"
-                  disabled={buyBusy || !buyerEmail.trim() || (live && !channels.length)}
-                  onClick={() => void buy()}
-                >
-                  {buyBusy
-                    ? t.detail.payBusy
-                    : `${t.detail.pay} · ¥${yuanTextFromCents(totalCents)}`}
-                </button>
-
-                <p className="km-sf-secure">
-                  <IconLock />
-                  {t.detail.secure}
-                </p>
-              </div>
-            </section>
-
-            <section className="km-sf-info">
-              <h2 className="km-sf-info-title">{t.detail.infoTitle}</h2>
-              {active.detail.map((section) => (
-                <div key={section.title.en} className="km-sf-info-sec">
-                  <h3 className="km-sf-info-sec-title">
-                    <span aria-hidden>{section.icon}</span>
-                    {pickText(section.title, lang)}
-                  </h3>
-                  {section.lines.map((line, index) => (
-                    <p key={`${section.title.en}-${index}`} className="km-sf-info-line">
-                      {line.label ? <strong>{pickText(line.label, lang)}：</strong> : null}
-                      {line.link ? (
-                        <a href={line.link} target="_blank" rel="noreferrer">
-                          {pickText(line.text, lang)}
-                        </a>
-                      ) : (
-                        pickText(line.text, lang)
-                      )}
-                    </p>
-                  ))}
+                  <p className="km-sf-secure">
+                    <IconLock />
+                    {t.detail.secure}
+                  </p>
                 </div>
-              ))}
+              </div>
             </section>
 
             <div className="km-sf-back-row">

@@ -321,7 +321,7 @@ export function AgentStorefrontSettings() {
         <h3 className="text-sm font-semibold">邮箱查单</h3>
         <Toggle
           label="开放邮箱查单入口"
-          hint="关掉后买家只能通过邮件里的链接找回订单，一般建议保持开启"
+          hint="关掉后买家只能凭付款后拿到的订单链接找回卡密，一般建议保持开启"
           checked={settings.queryEnabled}
           onChange={(queryEnabled) => patch({ queryEnabled })}
         />

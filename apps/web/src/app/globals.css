@@ -1502,8 +1502,9 @@ a.km-sf-contact:hover {
 
 .km-sf-detail {
   display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(20rem, 0.95fr);
-  gap: 1.5rem;
+  grid-template-columns: minmax(0, 1fr) minmax(21rem, 25rem);
+  align-items: start;
+  gap: 1.75rem;
   padding: 1.35rem;
   border-radius: calc(var(--km-radius) + 8px);
   border: 1px solid color-mix(in oklab, var(--km-border) 80%, transparent);
@@ -1512,17 +1513,22 @@ a.km-sf-contact:hover {
 }
 
 .km-sf-detail-art {
+  display: grid;
+  align-content: start;
+  gap: 1.35rem;
   min-width: 0;
 }
 
+/* 商品图占位：固定比例，不跟着右侧下单栏一起拉高 */
 .km-sf-banner {
   position: relative;
   display: grid;
   align-content: center;
-  gap: 1rem;
-  height: 100%;
-  min-height: 19rem;
-  padding: 2rem 2.2rem;
+  justify-items: center;
+  gap: 1.1rem;
+  aspect-ratio: 16 / 9;
+  max-height: 20rem;
+  padding: 1.75rem;
   border-radius: calc(var(--km-radius) + 4px);
   border: 1px solid color-mix(in oklab, var(--km-border) 60%, transparent);
   overflow: hidden;
@@ -1531,48 +1537,32 @@ a.km-sf-contact:hover {
 .km-sf-banner-icon {
   display: grid;
   place-items: center;
-  width: 5.5rem;
+  min-width: 5.5rem;
   height: 5.5rem;
+  padding-inline: 1.05rem;
   border-radius: 1.6rem;
   color: #fff;
   font-family: var(--font-sora), var(--km-font-display);
-  font-size: 1.5rem;
-  font-weight: 700;
-  box-shadow: 0 18px 36px -16px rgb(0 0 0 / 0.55);
-}
-
-.km-sf-banner-copy {
-  display: grid;
-  gap: 0.3rem;
-}
-
-.km-sf-banner-copy strong {
-  font-size: 1.3rem;
+  font-size: 1.6rem;
   font-weight: 700;
   letter-spacing: -0.02em;
+  box-shadow: 0 18px 36px -16px rgb(0 0 0 / 0.45);
 }
 
-.km-sf-banner-copy span {
-  font-size: 0.92rem;
+.km-sf-banner-cap {
+  max-width: 15rem;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  text-align: center;
   color: var(--km-fg-muted);
-}
-
-.km-sf-banner-copy em {
-  margin-top: 0.35rem;
-  font-family: var(--font-sora), var(--km-font-display);
-  font-size: 2.1rem;
-  font-style: normal;
-  font-weight: 700;
-  letter-spacing: -0.04em;
-  color: var(--km-accent);
 }
 
 .km-sf-detail-panel {
   display: grid;
   align-content: start;
-  gap: 0.5rem;
+  gap: 0.45rem;
   min-width: 0;
-  padding: 0.85rem 0.35rem;
+  padding: 0.35rem 0.35rem 0.5rem;
 }
 
 .km-sf-detail-cat {
@@ -1610,12 +1600,33 @@ a.km-sf-contact:hover {
 }
 
 .km-sf-field-label {
-  margin: 0.75rem 0 0;
-  padding-top: 0.7rem;
-  border-top: 1px solid color-mix(in oklab, var(--km-border) 70%, transparent);
+  margin: 0.7rem 0 0;
   font-size: 0.76rem;
   font-weight: 600;
   color: var(--km-fg-muted);
+}
+
+/* 只在“价格”上方保留一条分隔线，把标题区和下单区分开 */
+.km-sf-field-label-sep {
+  margin-top: 0.9rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid color-mix(in oklab, var(--km-border) 70%, transparent);
+}
+
+/* 下单区：数量 / 邮箱 / 支付方式 / 立即购买 收在一张卡里 */
+.km-sf-buybox {
+  display: grid;
+  align-content: start;
+  gap: 0.4rem;
+  margin-top: 1.15rem;
+  padding: 0.95rem 1.1rem 1.1rem;
+  border-radius: calc(var(--km-radius) + 2px);
+  border: 1px solid color-mix(in oklab, var(--km-border) 75%, transparent);
+  background: color-mix(in oklab, var(--km-bg-muted) 40%, var(--km-bg-elevated));
+}
+
+.km-sf-buybox > .km-sf-field-label:first-child {
+  margin-top: 0;
 }
 
 .km-sf-detail-price {
@@ -1687,7 +1698,7 @@ a.km-sf-contact:hover {
 }
 
 .km-sf-detail-desc {
-  margin: 0.1rem 0 0;
+  margin: 0.6rem 0 0;
   font-size: 0.86rem;
   line-height: 1.75;
   color: var(--km-fg-muted);
@@ -1753,13 +1764,9 @@ a.km-sf-contact:hover {
   cursor: not-allowed;
 }
 
-/* —— 详细资讯卡片 —— */
+/* —— 详细资讯：放在详情卡左栏，不用再套一层卡片外框 —— */
 .km-sf-info {
-  padding: 1.5rem 1.65rem;
-  border-radius: calc(var(--km-radius) + 8px);
-  border: 1px solid color-mix(in oklab, var(--km-border) 80%, transparent);
-  background: color-mix(in oklab, var(--km-bg-elevated) 88%, transparent);
-  box-shadow: var(--km-shadow);
+  padding: 0.15rem 0.35rem 0;
 }
 
 .km-sf-info-title {
@@ -1933,17 +1940,26 @@ a.km-sf-contact:hover {
     grid-template-columns: 1fr;
   }
 
+  /* 单栏时把三块拆成同级，让下单栏排在详细资讯前面 */
+  .km-sf-detail-art {
+    display: contents;
+  }
+
   .km-sf-banner {
-    min-height: 14rem;
+    order: 1;
+    aspect-ratio: 16 / 10;
+    max-height: 15rem;
     padding: 1.5rem 1.35rem;
   }
 
   .km-sf-detail-panel {
+    order: 2;
     padding: 0 0.1rem;
   }
 
   .km-sf-info {
-    padding: 1.2rem 1.15rem;
+    order: 3;
+    padding: 0 0.1rem;
   }
 
   .km-sf-query {
