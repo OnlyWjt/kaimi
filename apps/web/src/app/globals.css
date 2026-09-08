@@ -1406,15 +1406,16 @@ a.km-sf-contact:hover {
 .km-sf-card2-art {
   display: grid;
   place-items: center;
-  min-height: 10.5rem;
+  aspect-ratio: 16 / 9;
   overflow: hidden;
   border-bottom: 1px solid color-mix(in oklab, var(--km-border) 70%, transparent);
 }
 
 .km-sf-card2-art img {
   width: 100%;
-  height: 10.5rem;
+  height: 100%;
   object-fit: cover;
+  object-position: center;
   display: block;
 }
 

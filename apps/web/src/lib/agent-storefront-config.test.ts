@@ -29,10 +29,19 @@ describe("planToProduct 分类映射", () => {
 });
 
 describe("coverFromPlan", () => {
-  it("给 GPT / Claude / Grok 配内置装饰图", () => {
-    expect(coverFromPlan("ChatGPT Plus 月卡", "plus")).toBe("/storefront/cover-gpt.png?v=2");
+  it("六个在售套餐各有带标识的封面", () => {
+    expect(coverFromPlan("Plus", "plus")).toBe("/storefront/cover-plus.png?v=4");
+    expect(coverFromPlan("Pro 5x", "pro_5x")).toBe("/storefront/cover-pro-5x.png?v=4");
+    expect(coverFromPlan("Pro", "pro_20x")).toBe("/storefront/cover-pro.png?v=4");
+    expect(coverFromPlan("Codex 点数 250", "credit250")).toBe("/storefront/cover-codex-250.png?v=4");
+    expect(coverFromPlan("Codex 点数 500", "credit500")).toBe("/storefront/cover-codex-500.png?v=4");
+    expect(coverFromPlan("Codex 点数 1000", "credit1000")).toBe(
+      "/storefront/cover-codex-1000.png?v=4",
+    );
+  });
+
+  it("没对上的套餐不硬套 GPT 图", () => {
+    expect(coverFromPlan("其它套餐", "other")).toBe("");
     expect(coverFromPlan("Claude Pro", "claude")).toBe("/storefront/cover-claude.png?v=2");
-    expect(coverFromPlan("Grok", "grok")).toBe("/storefront/cover-grok.png?v=2");
-    expect(coverFromPlan("Codex 点数 250", "credit250")).toBe("");
   });
 });

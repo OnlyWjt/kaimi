@@ -334,14 +334,22 @@ function markFromName(name: string): string {
   return name.trim().slice(0, 2) || "AI";
 }
 
-/** 按套餐名/键匹配内置装饰图。没对上就留空，卡片退回字母标识。 */
+const PLAN_COVERS: Record<string, string> = {
+  plus: "/storefront/cover-plus.png?v=4",
+  pro_5x: "/storefront/cover-pro-5x.png?v=4",
+  pro_20x: "/storefront/cover-pro.png?v=4",
+  credit250: "/storefront/cover-codex-250.png?v=4",
+  credit500: "/storefront/cover-codex-500.png?v=4",
+  credit1000: "/storefront/cover-codex-1000.png?v=4",
+};
+
+/** 按套餐键匹配带标识的封面；没对上再按名字兜底 Claude / Grok。 */
 export function coverFromPlan(name: string, planKey: string): string {
+  const keyed = PLAN_COVERS[planKey];
+  if (keyed) return keyed;
   const hay = `${name} ${planKey}`.toLowerCase();
   if (/\bgrok\b|xai/.test(hay)) return "/storefront/cover-grok.png?v=2";
   if (/\bclaude\b|anthropic/.test(hay)) return "/storefront/cover-claude.png?v=2";
-  if (/\bgpt\b|chatgpt|openai/.test(hay) || /^(plus|pro|pro_5x|pro_20x)$/i.test(planKey)) {
-    return "/storefront/cover-gpt.png?v=2";
-  }
   return "";
 }
 
