@@ -103,7 +103,7 @@ function Toggle({
   );
 }
 
-export function AgentStorefrontSettings({ slug }: { slug: string }) {
+export function AgentStorefrontSettings() {
   const [settings, setSettings] = useState<StorefrontSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -163,25 +163,16 @@ export function AgentStorefrontSettings({ slug }: { slug: string }) {
   if (loading) {
     return (
       <section className="km-panel">
-        <h2 className="text-xl font-semibold">店铺装修</h2>
-        <p className="mt-2 text-sm text-[var(--km-fg-muted)]">正在加载装修配置…</p>
+        <p className="text-sm text-[var(--km-fg-muted)]">正在加载装修配置…</p>
       </section>
     );
   }
 
   return (
     <section className="km-panel space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold">店铺装修</h2>
-          <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-            这里改的是买家在店铺首页看到的文案与模块。留空的文案会自动用平台默认值，不会出现空白区域。
-          </p>
-        </div>
-        <a className="km-btn km-btn-ghost" href={`/s/${slug}`} target="_blank" rel="noreferrer">
-          预览店铺
-        </a>
-      </div>
+      <p className="text-sm text-[var(--km-fg-muted)]">
+        留空的文案会自动用平台默认值，不会出现空白区域。
+      </p>
 
       <div className="space-y-4">
         <h3 className="text-sm font-semibold">品牌</h3>
