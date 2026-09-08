@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planToProduct } from "./agent-storefront-config";
+import { coverFromPlan, planToProduct } from "./agent-storefront-config";
 
 const basePlan = {
   planKey: "plus",
@@ -25,5 +25,14 @@ describe("planToProduct 分类映射", () => {
     const a = planToProduct({ ...basePlan, category: " AI 会员 " });
     const b = planToProduct({ ...basePlan, planKey: "pro", category: "AI  会员" });
     expect(a.category).toBe(b.category);
+  });
+});
+
+describe("coverFromPlan", () => {
+  it("给 GPT / Claude / Grok 配内置装饰图", () => {
+    expect(coverFromPlan("ChatGPT Plus 月卡", "plus")).toBe("/storefront/cover-gpt.png?v=2");
+    expect(coverFromPlan("Claude Pro", "claude")).toBe("/storefront/cover-claude.png?v=2");
+    expect(coverFromPlan("Grok", "grok")).toBe("/storefront/cover-grok.png?v=2");
+    expect(coverFromPlan("Codex 点数 250", "credit250")).toBe("");
   });
 });

@@ -257,7 +257,9 @@ function ProductIcon({ product }: { product: StorefrontProduct }) {
     <span
       className="km-sf-p-icon"
       style={{
-        background: `linear-gradient(140deg, hsl(${product.hue} 82% 60%), hsl(${product.hue + 32} 78% 48%))`,
+        color: `hsl(${product.hue} 28% 34%)`,
+        borderColor: `hsl(${product.hue} 18% 78%)`,
+        background: `hsl(${product.hue} 22% 96%)`,
       }}
       aria-hidden
     >
@@ -266,20 +268,28 @@ function ProductIcon({ product }: { product: StorefrontProduct }) {
   );
 }
 
-/** 详情页左侧商品主图：暂用渐变卡 + 短标识，等后台支持上传封面后换成真实图 */
+/** 详情页左侧商品主图：有封面用图，没有就退回短标识 */
 function ProductBanner({ product, lang }: { product: StorefrontProduct; lang: Lang }) {
+  if (product.cover) {
+    return (
+      <div className="km-sf-banner km-sf-banner-photo">
+        <img src={product.cover} alt="" />
+      </div>
+    );
+  }
   return (
     <div
       className="km-sf-banner"
       style={{
-        background: `radial-gradient(110% 100% at 22% 14%, hsl(${product.hue} 58% 90% / 0.55), transparent 62%),
-          linear-gradient(155deg, color-mix(in oklab, var(--km-bg-muted) 78%, var(--km-bg-elevated)), color-mix(in oklab, hsl(${product.hue} 70% 55%) 9%, var(--km-bg-elevated)))`,
+        background: `linear-gradient(180deg, hsl(${product.hue} 16% 97%), color-mix(in oklab, var(--km-bg-muted) 55%, var(--km-bg-elevated)))`,
       }}
     >
       <span
         className="km-sf-banner-icon"
         style={{
-          background: `linear-gradient(140deg, hsl(${product.hue} 82% 62%), hsl(${product.hue + 32} 78% 46%))`,
+          color: `hsl(${product.hue} 28% 34%)`,
+          borderColor: `hsl(${product.hue} 18% 78%)`,
+          background: `hsl(${product.hue} 22% 96%)`,
         }}
         aria-hidden
       >
@@ -581,7 +591,7 @@ export function AgentStorefront({
         ) : null}
       </div>
 
-      <div id="km-sf-top" className="km-shell-wide space-y-10 py-8 md:py-10">
+      <div id="km-sf-top" className="km-shell-wide space-y-12 py-6 md:py-8">
         {!active || !activeSpec ? (
           <>
             {config.hero.enabled ? (
@@ -632,7 +642,7 @@ export function AgentStorefront({
                     />
                     <button
                       type="button"
-                      className="km-btn km-btn-sm"
+                      className="km-btn km-btn-ghost km-btn-sm km-sf-query-go"
                       disabled={queryBusy || !queryEmail.trim()}
                       onClick={() => void lookupOrders()}
                     >
@@ -675,10 +685,10 @@ export function AgentStorefront({
 
             <section id="km-sf-products" className="space-y-4">
               {showCategories ? (
-                <div className="km-sf-filters km-sf-filters-solo" role="tablist" aria-label="商品分类">
+                <div className="km-sf-filters" role="tablist" aria-label="商品分类">
                   <button
                     type="button"
-                    className={`km-tab${filter === "all" ? " km-tab-active" : ""}`}
+                    className={`km-sf-cat${filter === "all" ? " km-sf-cat-active" : ""}`}
                     onClick={() => setFilter("all")}
                   >
                     {t.allCategory}
@@ -687,7 +697,7 @@ export function AgentStorefront({
                     <button
                       key={item.id}
                       type="button"
-                      className={`km-tab${filter === item.id ? " km-tab-active" : ""}`}
+                      className={`km-sf-cat${filter === item.id ? " km-sf-cat-active" : ""}`}
                       onClick={() => setFilter(item.id)}
                     >
                       {item.label}
@@ -707,32 +717,42 @@ export function AgentStorefront({
                         className="km-sf-card2"
                         onClick={() => openProduct(product)}
                       >
-                        <div className="km-sf-card2-top">
-                          <ProductIcon product={product} />
-                          <div className="km-sf-tags">
-                            {product.tags.map((tag) => (
-                              <span key={tag.en} className="km-sf-tag">
-                                {pickText(tag, lang)}
-                              </span>
-                            ))}
+                        <div
+                          className="km-sf-card2-art"
+                          style={
+                            product.cover
+                              ? undefined
+                              : { background: `hsl(${product.hue} 18% 96%)` }
+                          }
+                        >
+                          {product.cover ? (
+                            <img src={product.cover} alt="" />
+                          ) : (
+                            <ProductIcon product={product} />
+                          )}
+                        </div>
+                        <div className="km-sf-card2-body">
+                          <div className="km-sf-card2-top">
+                            <span className="km-sf-card2-kicker">
+                              {product.categoryLabel || pickText(product.subtitle, lang)}
+                            </span>
+                            <span className="km-sf-stock">
+                              {product.stock === null ? t.inStockShort : t.stock(product.stock)}
+                            </span>
+                          </div>
+                          <h3 className="km-sf-card2-title">{pickText(product.name, lang)}</h3>
+                          <div className="km-sf-card2-foot">
+                            <span className="km-sf-price2">
+                              {product.specs.length > 1
+                                ? t.priceFrom(yuanTextFromCents(minCents))
+                                : `¥${yuanTextFromCents(minCents)}`}
+                            </span>
+                            <span className="km-sf-buy">
+                              {t.buyNow}
+                              <IconArrow />
+                            </span>
                           </div>
                         </div>
-                        <h3 className="km-sf-card2-title">{pickText(product.name, lang)}</h3>
-                        <p className="km-sf-card2-sub">{pickText(product.subtitle, lang)}</p>
-                        <div className="km-sf-card2-foot">
-                          <span className="km-sf-price2">
-                            {product.specs.length > 1
-                              ? t.priceFrom(yuanTextFromCents(minCents))
-                              : `¥${yuanTextFromCents(minCents)}`}
-                          </span>
-                          <span className="km-sf-stock">
-                            {product.stock === null ? t.inStockShort : t.stock(product.stock)}
-                          </span>
-                        </div>
-                        <span className="km-sf-buy">
-                          {t.buyNow}
-                          <IconArrow />
-                        </span>
                       </button>
                     );
                   })}

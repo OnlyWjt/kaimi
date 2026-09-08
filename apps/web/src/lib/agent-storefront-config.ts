@@ -301,8 +301,10 @@ export type StorefrontProduct = {
   /** null 表示不对外展示具体库存（卡台即时发货，没有本地池） */
   stock: number | null;
   hue: number;
-  /** 商品图位置显示的短标识，等后台支持上传封面后可以换成真实图 */
+  /** 商品图位置显示的短标识，没有封面图时用 */
   mark: string;
+  /** 商品卡 / 详情页装饰图，空串表示只用标识 */
+  cover?: string;
   specs: StorefrontSpec[];
   detail: DetailSection[];
 };
@@ -330,6 +332,17 @@ function markFromName(name: string): string {
     return word.slice(0, 3).toUpperCase();
   }
   return name.trim().slice(0, 2) || "AI";
+}
+
+/** 按套餐名/键匹配内置装饰图。没对上就留空，卡片退回字母标识。 */
+export function coverFromPlan(name: string, planKey: string): string {
+  const hay = `${name} ${planKey}`.toLowerCase();
+  if (/\bgrok\b|xai/.test(hay)) return "/storefront/cover-grok.png?v=2";
+  if (/\bclaude\b|anthropic/.test(hay)) return "/storefront/cover-claude.png?v=2";
+  if (/\bgpt\b|chatgpt|openai/.test(hay) || /^(plus|pro|pro_5x|pro_20x)$/i.test(planKey)) {
+    return "/storefront/cover-gpt.png?v=2";
+  }
+  return "";
 }
 
 /** 用套餐键算一个稳定色相，同一套餐每次刷新颜色不变 */
@@ -372,6 +385,7 @@ export function planToProduct(plan: SellablePlan): StorefrontProduct {
     stock: null,
     hue: hueFromKey(plan.planKey),
     mark: markFromName(plan.name),
+    cover: coverFromPlan(plan.name, plan.planKey),
     specs: [
       {
         id: plan.planKey,

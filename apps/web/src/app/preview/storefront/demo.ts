@@ -66,6 +66,7 @@ const DEMO_PRODUCTS: StorefrontProduct[] = [
     stock: 128,
     hue: 168,
     mark: "GPT",
+    cover: "/storefront/cover-gpt.png?v=2",
     specs: [
       {
         id: "chatgpt-plus-1m",
@@ -104,6 +105,7 @@ const DEMO_PRODUCTS: StorefrontProduct[] = [
     stock: 64,
     hue: 28,
     mark: "CL",
+    cover: "/storefront/cover-claude.png?v=2",
     specs: [
       {
         id: "claude-pro-1m",
@@ -116,6 +118,35 @@ const DEMO_PRODUCTS: StorefrontProduct[] = [
     detail: buildDetail({
       zh: "Claude Pro 支持超长上下文与文件分析，适合写作与代码审查。",
       en: "Claude Pro handles very long context and file analysis.",
+    }),
+  },
+  {
+    id: "grok",
+    name: { zh: "Grok 会员", en: "Grok" },
+    subtitle: { zh: "实时信息 · 更敢说", en: "Realtime · a bit more blunt" },
+    desc: {
+      zh: "Grok 会员，适合要看实时信息和少绕弯的回答。付款后立即出卡。",
+      en: "Grok membership for realtime context and more direct answers.",
+    },
+    category: "ai",
+    categoryLabel: "AI 助手",
+    tags: [{ zh: "官方直充", en: "Official" }],
+    stock: 40,
+    hue: 250,
+    mark: "Grok",
+    cover: "/storefront/cover-grok.png?v=2",
+    specs: [
+      {
+        id: "grok-1m",
+        name: { zh: "1 个月", en: "1 month" },
+        priceCents: 16800,
+        auto: true,
+        stock: 40,
+      },
+    ],
+    detail: buildDetail({
+      zh: "Grok 会员，适合要看实时信息和少绕弯的回答。",
+      en: "Grok membership for realtime context and more direct answers.",
     }),
   },
   {
