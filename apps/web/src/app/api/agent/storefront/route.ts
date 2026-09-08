@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { agentStorefronts, agents } from "@/db/schema";
+import { agentPlanPrices, agentStorefronts, agents, platformPlans } from "@/db/schema";
 import { requireAgent } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import {
@@ -19,6 +19,24 @@ async function authorize() {
   }
 }
 
+async function listAssignedPlans(agentId: number) {
+  return db
+    .select({
+      planKey: platformPlans.planKey,
+      name: platformPlans.name,
+    })
+    .from(agentPlanPrices)
+    .innerJoin(platformPlans, eq(platformPlans.id, agentPlanPrices.planId))
+    .where(
+      and(
+        eq(agentPlanPrices.agentId, agentId),
+        eq(agentPlanPrices.enabled, true),
+        eq(platformPlans.enabled, true),
+      ),
+    )
+    .orderBy(asc(platformPlans.sortOrder), asc(platformPlans.id));
+}
+
 export async function GET() {
   const { session, denied } = await authorize();
   if (denied || !session) return denied;
@@ -27,7 +45,10 @@ export async function GET() {
   const row = await db.query.agentStorefronts.findFirst({
     where: eq(agentStorefronts.agentId, session.agentId),
   });
-  return NextResponse.json({ settings: rowToSettings(row) });
+  return NextResponse.json({
+    settings: rowToSettings(row),
+    plans: await listAssignedPlans(session.agentId),
+  });
 }
 
 export async function PATCH(req: Request) {

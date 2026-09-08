@@ -197,5 +197,6 @@ export const DEMO_STOREFRONT_CONFIG: StorefrontConfig = {
   ],
   defaultLang: "zh",
   languages: ["zh", "en"],
+  productNames: {},
   products: DEMO_PRODUCTS,
 };

@@ -42,6 +42,8 @@ export type StorefrontSettings = {
   contacts: ContactItem[];
   defaultLang: Lang;
   languages: Lang[];
+  /** 按套餐键覆盖前台商品名；没写的键继续用平台套餐名 */
+  productNames: Record<string, LocalText>;
 };
 
 export const MAX_STATS = 4;
@@ -69,6 +71,7 @@ export const DEFAULT_SETTINGS: StorefrontSettings = {
   contacts: [],
   defaultLang: "zh",
   languages: ["zh"],
+  productNames: {},
 };
 
 /* ———————————————————————————— 校验 ———————————————————————————— */
@@ -121,6 +124,17 @@ export const storefrontSettingsSchema = z
       .max(MAX_CONTACTS, `联系方式最多 ${MAX_CONTACTS} 条`),
     defaultLang: langSchema,
     languages: z.array(langSchema).min(1, "至少启用一种语言"),
+    productNames: z
+      .record(z.string().trim().max(64), localText)
+      .default({})
+      .transform((map) => {
+        const next: Record<string, LocalText> = {};
+        for (const [key, value] of Object.entries(map)) {
+          if (!key || (!value.zh && !value.en)) continue;
+          next[key] = value;
+        }
+        return next;
+      }),
   })
   .superRefine((value, ctx) => {
     if (!value.languages.includes(value.defaultLang)) {
@@ -164,6 +178,7 @@ type SettingsRow = {
   contactsJson: string;
   defaultLang: string;
   languagesJson: string;
+  productNamesJson?: string;
 };
 
 function parseJson<T>(raw: string, fallback: T): T {
@@ -177,6 +192,34 @@ function parseJson<T>(raw: string, fallback: T): T {
 
 function pickLang(value: string): Lang {
   return value === "en" ? "en" : "zh";
+}
+
+/** 只收下写成 { zh, en } 的套餐名覆盖，脏数据直接丢掉 */
+export function parseProductNames(raw: unknown): Record<string, LocalText> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const next: Record<string, LocalText> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const planKey = key.trim();
+    if (!planKey || !value || typeof value !== "object" || Array.isArray(value)) continue;
+    const blob = value as { zh?: unknown; en?: unknown };
+    const zh = String(blob.zh ?? "").trim();
+    const en = String(blob.en ?? "").trim();
+    if (!zh && !en) continue;
+    next[planKey] = { zh, en };
+  }
+  return next;
+}
+
+/** 代理没写覆盖时用平台套餐名；英文留空回退中文覆盖或平台名 */
+export function resolveProductName(
+  planKey: string,
+  platformName: string,
+  names: Record<string, LocalText> = {},
+): LocalText {
+  const override = names[planKey];
+  const zh = override?.zh.trim() || platformName;
+  const en = override?.en.trim() || override?.zh.trim() || platformName;
+  return { zh, en };
 }
 
 /** DB 行 → 配置；坏数据一律退回默认值，不让店铺打不开 */
@@ -237,6 +280,7 @@ export function rowToSettings(row: SettingsRow | null | undefined): StorefrontSe
     languages: uniqueLanguages.includes(defaultLang)
       ? uniqueLanguages
       : [defaultLang, ...uniqueLanguages],
+    productNames: parseProductNames(parseJson(row.productNamesJson || "{}", {})),
   };
 }
 
@@ -256,6 +300,7 @@ export function settingsToRow(settings: StorefrontSettings) {
     contactsJson: JSON.stringify(settings.contacts),
     defaultLang: settings.defaultLang,
     languagesJson: JSON.stringify(settings.languages),
+    productNamesJson: JSON.stringify(settings.productNames),
   };
 }
 
@@ -372,8 +417,11 @@ export type SellablePlan = {
 };
 
 /** 平台套餐 → 前台商品。一个套餐一个商品、一个规格，下单直接用 planKey */
-export function planToProduct(plan: SellablePlan): StorefrontProduct {
-  const name: LocalText = { zh: plan.name, en: plan.name };
+export function planToProduct(
+  plan: SellablePlan,
+  names: Record<string, LocalText> = {},
+): StorefrontProduct {
+  const name = resolveProductName(plan.planKey, plan.name, names);
   // 分类标签本身就当 id 用：后台改标签等于换分类，不用再维护一张分类表。
   // "all" 是前台「全部」的保留值，未分类的套餐落到这里，只会出现在「全部」下。
   const category = normalizeCategory(plan.category);

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { coverFromPlan, planToProduct } from "./agent-storefront-config";
+import {
+  coverFromPlan,
+  planToProduct,
+  resolveProductName,
+  rowToSettings,
+  settingsToRow,
+} from "./agent-storefront-config";
 
 const basePlan = {
   planKey: "plus",
@@ -25,6 +31,47 @@ describe("planToProduct 分类映射", () => {
     const a = planToProduct({ ...basePlan, category: " AI 会员 " });
     const b = planToProduct({ ...basePlan, planKey: "pro", category: "AI  会员" });
     expect(a.category).toBe(b.category);
+  });
+});
+
+describe("resolveProductName", () => {
+  it("没写覆盖时用平台套餐名", () => {
+    expect(resolveProductName("plus", "Plus")).toEqual({ zh: "Plus", en: "Plus" });
+  });
+
+  it("代理写了中文名就覆盖前台标题", () => {
+    expect(
+      resolveProductName("plus", "Plus", { plus: { zh: "Codex Plus 月卡", en: "" } }),
+    ).toEqual({ zh: "Codex Plus 月卡", en: "Codex Plus 月卡" });
+  });
+});
+
+describe("planToProduct 自定义名称", () => {
+  it("有覆盖时卡片标题用代理写的名字", () => {
+    const product = planToProduct(basePlan, {
+      plus: { zh: "我的 Plus", en: "My Plus" },
+    });
+    expect(product.name).toEqual({ zh: "我的 Plus", en: "My Plus" });
+  });
+});
+
+describe("装修配置商品名落库", () => {
+  it("空覆盖不落库，读回来还是空对象", () => {
+    const row = settingsToRow({
+      slogan: { zh: "", en: "" },
+      logoLetter: "",
+      announcement: { enabled: false, text: { zh: "", en: "" } },
+      hero: { enabled: true, chip: { zh: "", en: "" }, title: { zh: "", en: "" }, sub: { zh: "", en: "" } },
+      stats: { enabled: false, items: [] },
+      searchEnabled: true,
+      queryEnabled: true,
+      contacts: [],
+      defaultLang: "zh",
+      languages: ["zh"],
+      productNames: { plus: { zh: "店内 Plus", en: "" } },
+    });
+    expect(JSON.parse(row.productNamesJson)).toEqual({ plus: { zh: "店内 Plus", en: "" } });
+    expect(rowToSettings(row).productNames).toEqual({ plus: { zh: "店内 Plus", en: "" } });
   });
 });
 

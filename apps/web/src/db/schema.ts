@@ -102,6 +102,8 @@ export const agentStorefronts = sqliteTable("agent_storefronts", {
   contactsJson: text("contacts_json").notNull().default("[]"),
   defaultLang: text("default_lang").notNull().default("zh"),
   languagesJson: text("languages_json").notNull().default('["zh"]'),
+  /** 代理自定义商品名，按 planKey 存 { zh, en }；空对象表示全用平台套餐名 */
+  productNamesJson: text("product_names_json").notNull().default("{}"),
   updatedAt: text("updated_at")
     .notNull()
     .default(sql`(datetime('now'))`),

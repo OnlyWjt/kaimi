@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS agent_storefronts (
   contacts_json TEXT NOT NULL DEFAULT '[]',
   default_lang TEXT NOT NULL DEFAULT 'zh',
   languages_json TEXT NOT NULL DEFAULT '["zh"]',
+  product_names_json TEXT NOT NULL DEFAULT '{}',
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -748,6 +749,9 @@ export async function ensureSchema() {
   // 店铺前台的分类标签。空串表示未分类，只出现在「全部」里。
   await addColumn(
     "ALTER TABLE platform_plans ADD COLUMN category TEXT NOT NULL DEFAULT ''",
+  );
+  await addColumn(
+    "ALTER TABLE agent_storefronts ADD COLUMN product_names_json TEXT NOT NULL DEFAULT '{}'",
   );
   // 一单多张之后 order_id 不能再唯一。DDL 已经建好非唯一索引，这里只负责拆掉老的。
   await client.execute("DROP INDEX IF EXISTS issued_cdks_order_id_uq");

@@ -103,8 +103,11 @@ function Toggle({
   );
 }
 
+type AssignedPlan = { planKey: string; name: string };
+
 export function AgentStorefrontSettings() {
   const [settings, setSettings] = useState<StorefrontSettings>(DEFAULT_SETTINGS);
+  const [plans, setPlans] = useState<AssignedPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -112,10 +115,12 @@ export function AgentStorefrontSettings() {
   useEffect(() => {
     void (async () => {
       try {
-        const data = await readApiJson<{ settings: StorefrontSettings }>(
-          await fetch("/api/agent/storefront", { cache: "no-store" }),
-        );
+        const data = await readApiJson<{
+          settings: StorefrontSettings;
+          plans?: AssignedPlan[];
+        }>(await fetch("/api/agent/storefront", { cache: "no-store" }));
         setSettings(data.settings);
+        setPlans(data.plans ?? []);
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : "装修配置加载失败");
       } finally {
@@ -192,6 +197,32 @@ export function AgentStorefrontSettings() {
           value={settings.slogan}
           onChange={(slogan) => patch({ slogan })}
         />
+      </div>
+
+      <div className="space-y-4 border-t border-[var(--km-border)] pt-5">
+        <h3 className="text-sm font-semibold">商品名称</h3>
+        <p className="text-xs text-[var(--km-fg-muted)]">
+          改的是店铺卡片上的商品名。留空则继续用平台套餐名。
+        </p>
+        {plans.length ? (
+          plans.map((plan) => (
+            <BilingualField
+              key={plan.planKey}
+              label={plan.name}
+              hint={`平台名称：${plan.name}`}
+              value={settings.productNames[plan.planKey] ?? { zh: "", en: "" }}
+              onChange={(name) =>
+                patch({
+                  productNames: { ...settings.productNames, [plan.planKey]: name },
+                })
+              }
+            />
+          ))
+        ) : (
+          <p className="text-sm text-[var(--km-fg-muted)]">
+            还没有可售套餐。先在「我的店铺」里打开套餐并定价，再回来改名字。
+          </p>
+        )}
       </div>
 
       <div className="space-y-4 border-t border-[var(--km-border)] pt-5">

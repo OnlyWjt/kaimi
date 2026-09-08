@@ -3,6 +3,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import {
   agentPlanPrices,
+  agentStorefronts,
   agents,
   paymentChannelConfigs,
   platformPlans,
@@ -21,6 +22,7 @@ import {
 } from "@/lib/payments/fees";
 import { assertStoreSalesOpen } from "@/lib/ops-health";
 import { requirePublicBaseUrl } from "@/lib/public-url";
+import { resolveProductName, rowToSettings } from "@/lib/agent-storefront-config";
 import { getMaxOrderQuantity, resolveOrderQuantity } from "@/lib/store-quantity";
 
 export async function createStoreOrder(input: {
@@ -82,6 +84,14 @@ export async function createStoreOrder(input: {
   if (costCents <= 0 || offer.retailPriceCents < costCents) {
     unavailable(`套餐 ${offer.planKey} 价格配置无效：成本 ${costCents}，零售 ${offer.retailPriceCents}`);
   }
+  const storefront = await db.query.agentStorefronts.findFirst({
+    where: eq(agentStorefronts.agentId, agent.id),
+  });
+  const displayName = resolveProductName(
+    offer.planKey,
+    offer.name,
+    rowToSettings(storefront).productNames,
+  ).zh;
   const channelConfig = await db.query.paymentChannelConfigs.findFirst({
     where: and(
       eq(paymentChannelConfigs.channel, input.channel),
@@ -130,7 +140,7 @@ export async function createStoreOrder(input: {
       agentId: agent.id,
       planId: offer.planId,
       planKeySnapshot: offer.planKey,
-      productNameSnapshot: offer.name,
+      productNameSnapshot: displayName,
       quantity,
       retailPriceCents: offer.retailPriceCents,
       agentCostCents: costCents,
@@ -153,7 +163,7 @@ export async function createStoreOrder(input: {
 
   const payment = await createEpayPayment(epay, {
     outTradeNo: orderNo,
-    name: quantity > 1 ? `CDK ${offer.name} ×${quantity}` : `CDK ${offer.name}`,
+    name: quantity > 1 ? `CDK ${displayName} ×${quantity}` : `CDK ${displayName}`,
     moneyCents: grossCents,
     notifyUrl: `${base}/api/webhooks/epay`,
     returnUrl: `${base}/shop/order/${orderNo}?qt=${encodeURIComponent(queryToken)}`,

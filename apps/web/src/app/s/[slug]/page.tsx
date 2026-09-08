@@ -112,18 +112,22 @@ export default async function AgentStorePage({
         channel === "alipay" || channel === "wxpay",
     );
 
+  const settings = rowToSettings(settingsRow);
   const config: StorefrontConfig = {
-    ...rowToSettings(settingsRow),
+    ...settings,
     shopName: agent.displayName,
     themeId,
     products: sellablePlans.map((plan) =>
-      planToProduct({
-        planKey: plan.planKey,
-        name: plan.name,
-        description: plan.description,
-        retailPriceCents: plan.retailPriceCents,
-        category: plan.category,
-      }),
+      planToProduct(
+        {
+          planKey: plan.planKey,
+          name: plan.name,
+          description: plan.description,
+          retailPriceCents: plan.retailPriceCents,
+          category: plan.category,
+        },
+        settings.productNames,
+      ),
     ),
   };
 
