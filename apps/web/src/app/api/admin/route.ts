@@ -17,6 +17,7 @@ import {
   normalizeMaxOrderQuantity,
 } from "@/lib/store-quantity";
 import { requireAdmin } from "@/lib/auth";
+import { dispatchNotify, SAMPLE_NOTIFY_PAYLOAD } from "@/lib/notify";
 import { bootDb, getAppConfig, getSetting, setSetting } from "@/lib/config";
 import { decryptSecret, encryptSecret, hashLookupValue, maskCode } from "@/lib/crypto";
 import { countByStatus } from "@/lib/inventory";
@@ -375,6 +376,53 @@ export async function POST(req: Request) {
     }
     await setSetting("setup_completed", "1");
     return NextResponse.json({ ok: true });
+  }
+
+  if (action === "test_notify") {
+    const webhookUrl = String(body.notifyWebhookUrl || "").trim();
+    const telegramToken = String(body.telegramBotToken || "").trim();
+    const telegramChatId =
+      body.telegramChatId === undefined ? undefined : String(body.telegramChatId || "").trim();
+    if (webhookUrl && !/^https?:\/\//i.test(webhookUrl)) {
+      return NextResponse.json(
+        { error: "终态通知地址须以 http:// 或 https:// 开头" },
+        { status: 400 },
+      );
+    }
+    const result = await dispatchNotify(
+      SAMPLE_NOTIFY_PAYLOAD,
+      {
+        ...(webhookUrl ? { webhookUrl } : {}),
+        ...(telegramToken ? { telegramToken } : {}),
+        ...(telegramChatId !== undefined ? { telegramChatId } : {}),
+      },
+      "order.terminal.test",
+    );
+    if (!result.webhook.attempted && !result.telegram.attempted) {
+      return NextResponse.json(
+        { error: "先填 Webhook 或 Telegram，再点测试" },
+        { status: 400 },
+      );
+    }
+    const parts = [
+      result.webhook.attempted
+        ? result.webhook.ok
+          ? "Webhook 已发送"
+          : `Webhook 失败：${result.webhook.error}`
+        : "",
+      result.telegram.attempted
+        ? result.telegram.ok
+          ? "Telegram 已发送"
+          : `Telegram 失败：${result.telegram.error}`
+        : "",
+    ].filter(Boolean);
+    const ok = (!result.webhook.attempted || result.webhook.ok) &&
+      (!result.telegram.attempted || result.telegram.ok);
+    return NextResponse.json({
+      ok,
+      message: parts.join("；"),
+      error: ok ? undefined : parts.join("；"),
+    });
   }
 
   if (action === "save_agent_portal") {

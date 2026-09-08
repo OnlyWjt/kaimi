@@ -95,7 +95,6 @@ async function notifyIfTerminal(order: {
     status: order.fulfillStatus,
     message: order.message,
     requestId: order.upstreamRequestId,
-    plan: order.upstreamPlan || undefined,
   }).catch((err) => console.warn("[kaimi] notify skipped", err));
 }
 

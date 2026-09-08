@@ -300,6 +300,10 @@ export default function AdminPage() {
     setIntegration(await loadSection("integration"));
   }
 
+  async function testNotify() {
+    await postAction({ action: "test_notify", ...integForm });
+  }
+
   async function refreshCdks(page = cdkPage) {
     const qs = new URLSearchParams();
     if (cdkQ) qs.set("q", cdkQ);
@@ -926,7 +930,7 @@ export default function AdminPage() {
                   站点通知
                 </h2>
                 <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-                  兑换开通到终态时，可选推送到 Webhook 或 Telegram。和卡台接入无关。
+                  兑换开通到终态时，可选推送到 Webhook 或 Telegram。内容含代理、开通账号、套餐、售价和本次收益。和卡台接入无关。
                 </p>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -971,9 +975,21 @@ export default function AdminPage() {
                   />
                 </label>
               </div>
-              <button className="km-btn" disabled={busy} onClick={() => void saveIntegration()}>
-                保存通知设置
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button className="km-btn" disabled={busy} onClick={() => void saveIntegration()}>
+                  保存通知设置
+                </button>
+                <button
+                  className="km-btn km-btn-ghost"
+                  disabled={busy}
+                  onClick={() => void testNotify()}
+                >
+                  发送测试通知
+                </button>
+              </div>
+              <p className="text-xs text-[var(--km-fg-muted)]">
+                测试会按上面填的地址发一条示例（测试代理店 / demo@example.com / Plus / ¥150）。Telegram Token 留空则用已保存的。
+              </p>
             </div>
           </div>
         ) : null}
