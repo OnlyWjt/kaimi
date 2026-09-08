@@ -63,7 +63,7 @@ export const DEFAULT_SETTINGS: StorefrontSettings = {
   logoLetter: "",
   announcement: { enabled: false, text: { zh: "", en: "" } },
   hero: { enabled: true, chip: { zh: "", en: "" }, title: { zh: "", en: "" }, sub: { zh: "", en: "" } },
-  stats: { enabled: true, items: [] },
+  stats: { enabled: false, items: [] },
   searchEnabled: true,
   queryEnabled: true,
   contacts: [],
@@ -335,12 +335,12 @@ function markFromName(name: string): string {
 }
 
 const PLAN_COVERS: Record<string, string> = {
-  plus: "/storefront/cover-plus.png?v=4",
-  pro_5x: "/storefront/cover-pro-5x.png?v=4",
-  pro_20x: "/storefront/cover-pro.png?v=4",
-  credit250: "/storefront/cover-codex-250.png?v=4",
-  credit500: "/storefront/cover-codex-500.png?v=4",
-  credit1000: "/storefront/cover-codex-1000.png?v=4",
+  plus: "/storefront/cover-plus.png?v=8",
+  pro_5x: "/storefront/cover-pro-5x.png?v=8",
+  pro_20x: "/storefront/cover-pro.png?v=8",
+  credit250: "/storefront/cover-codex-250.png?v=8",
+  credit500: "/storefront/cover-codex-500.png?v=8",
+  credit1000: "/storefront/cover-codex-1000.png?v=8",
 };
 
 /** 按套餐键匹配带标识的封面；没对上再按名字兜底 Claude / Grok。 */
