@@ -12,11 +12,16 @@ export function OrderLookupForm() {
   const [histories, setHistories] = useState<Record<string, ProgressEvent[]>>({});
   const [busy, setBusy] = useState(false);
   const [autoPoll, setAutoPoll] = useState(false);
+  const [error, setError] = useState("");
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async (no = orderNo, quiet = false) => {
-    if (!no.trim()) return;
+    if (!no.trim()) {
+      if (!quiet) setError("请填写订单号");
+      return;
+    }
     if (!quiet) setBusy(true);
+    if (!quiet) setError("");
     try {
       const res = await fetch(`/api/shop/query?orderNo=${encodeURIComponent(no.trim())}`);
       const data = await res.json();
@@ -62,31 +67,43 @@ export function OrderLookupForm() {
   }, [autoPoll, orderNo, load]);
 
   return (
-    <section className="km-shell-narrow space-y-6 pb-4">
-      <div className="km-page-hero km-rise">
-        <p className="km-eyebrow">进度查询</p>
-        <h1 className="km-page-title">订单进度</h1>
-        <p className="km-lead">输入订单号，查看开通进度。</p>
+    <section className="km-shell-narrow km-rx-body">
+      <div className="km-rx-hero km-rise">
+        <h1>订单进度</h1>
+        <p>输入订单号，查看开通到哪一步</p>
       </div>
-      <div className="km-panel km-form-stack km-rise">
-        <label className="block space-y-1.5 text-sm">
-          <span className="font-medium">订单号</span>
-          <input
-            className="km-input font-mono"
-            value={orderNo}
-            onChange={(e) => setOrderNo(e.target.value)}
-            placeholder="例如 KM-…"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void load();
-            }}
-          />
-        </label>
-        <div className="km-form-actions">
-          <button className="km-btn" disabled={!orderNo.trim() || busy} onClick={() => void load()}>
-            {busy ? "查询中…" : "查询进度"}
-          </button>
-          {autoPoll ? (
-            <span className="text-xs text-[var(--km-fg-muted)]">处理中，自动刷新…</span>
+      <div className="km-sf-query km-rise">
+        <div className="min-w-0 flex-1 space-y-1">
+          <h2 className="km-sf-query-title">查询订单</h2>
+          <p className="km-sf-query-desc">兑换提交后拿到的订单号，可以在这里看开通进度</p>
+          <div className="km-sf-query-row">
+            <input
+              className="km-input"
+              value={orderNo}
+              onChange={(e) => setOrderNo(e.target.value)}
+              placeholder="粘贴订单号"
+              autoComplete="off"
+              spellCheck={false}
+              aria-label="订单号"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void load();
+              }}
+            />
+            <button
+              type="button"
+              className="km-btn km-btn-sm km-sf-query-go"
+              disabled={busy}
+              onClick={() => void load()}
+            >
+              {busy ? "查询中…" : "查询"}
+            </button>
+          </div>
+          {error ? (
+            <p className="km-sf-query-note" style={{ color: "var(--km-danger)" }}>
+              {error}
+            </p>
+          ) : autoPoll ? (
+            <p className="km-sf-query-note">处理中，自动刷新…</p>
           ) : null}
         </div>
       </div>
@@ -99,7 +116,7 @@ export function OrderLookupForm() {
         />
       ))}
       {!busy && orderNo && !list.length ? (
-        <p className="text-sm text-[var(--km-fg-muted)]">未找到匹配订单。</p>
+        <p className="km-sf-query-note">没有找到这个订单号。</p>
       ) : null}
     </section>
   );

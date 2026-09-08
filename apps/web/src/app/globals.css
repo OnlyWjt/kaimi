@@ -524,8 +524,8 @@ select.km-input option {
 
 .km-page-hero {
   display: grid;
-  gap: 0.7rem;
-  padding-block: 2.4rem 0.75rem;
+  gap: 0.45rem;
+  padding-block: 1.4rem 0.35rem;
   justify-items: center;
   text-align: center;
 }
@@ -1164,8 +1164,8 @@ select.km-input option {
 .km-sf-hero2 {
   display: grid;
   justify-items: center;
-  gap: 0.9rem;
-  padding: 2.4rem 1.6rem 2rem;
+  gap: 0.7rem;
+  padding: 1.7rem 1.4rem 1.45rem;
   text-align: center;
   border-radius: 1.35rem;
   border: 1px solid var(--km-border);
@@ -1184,9 +1184,9 @@ select.km-input option {
   display: flex;
   align-items: center;
   gap: 0.55rem;
-  width: min(100%, 28rem);
-  margin-top: 0.5rem;
-  padding: 0.35rem 0.85rem 0.35rem 1rem;
+  width: min(100%, 24rem);
+  margin-top: 0.25rem;
+  padding: 0.2rem 0.75rem 0.2rem 0.9rem;
   border-radius: 999px;
   border: 1px solid var(--km-border);
   background: var(--km-bg);
@@ -1316,6 +1316,70 @@ a.km-sf-contact:hover {
 
 .km-sf-query-go {
   min-width: 6.5rem;
+  align-self: stretch;
+  background: var(--km-fg);
+  color: var(--km-bg);
+  box-shadow: none;
+}
+
+.km-sf-query-go:hover {
+  transform: none;
+  box-shadow: none;
+  opacity: 0.88;
+}
+
+.km-sf-query-go:disabled {
+  opacity: 0.28;
+}
+
+.km-sf-nav-redeem {
+  color: var(--km-fg);
+}
+
+.km-sf-redeem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem 1.25rem;
+  padding: 1.05rem 1.25rem;
+  border: 1px solid var(--km-border);
+  border-radius: 1.2rem;
+  background: var(--km-bg-elevated);
+  color: var(--km-fg);
+  text-decoration: none;
+}
+
+.km-sf-redeem:hover {
+  color: var(--km-fg);
+  border-color: var(--km-fg);
+}
+
+.km-sf-redeem-kicker {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.km-sf-redeem-sub {
+  margin: 0.2rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--km-fg-muted);
+}
+
+.km-sf-redeem-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  padding: 0.55rem 0.95rem;
+  border-radius: 999px;
+  background: var(--km-fg);
+  color: var(--km-bg);
+  font-size: 0.86rem;
+  font-weight: 650;
 }
 
 .km-sf-query-note {
@@ -1328,8 +1392,23 @@ a.km-sf-contact:hover {
 /* —— 查单结果 —— */
 .km-sf-orders {
   display: grid;
-  gap: 0.5rem;
-  margin-top: 0.85rem;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+}
+
+.km-sf-orders-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.km-sf-orders-count {
+  margin: 0;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 650;
+  color: var(--km-fg-muted);
 }
 
 .km-sf-order-row {
@@ -1337,8 +1416,8 @@ a.km-sf-contact:hover {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.7rem 0.85rem;
-  border-radius: var(--km-radius);
+  padding: 0.52rem 0.75rem;
+  border-radius: 0.85rem;
   border: 1px solid var(--km-border);
   background: var(--km-bg);
   color: inherit;
@@ -1346,35 +1425,54 @@ a.km-sf-contact:hover {
 }
 
 .km-sf-order-row:hover {
-  border-color: var(--km-accent);
+  border-color: var(--km-fg);
 }
 
 .km-sf-order-row strong {
   display: block;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   font-weight: 650;
 }
 
-.km-sf-order-row em {
+.km-sf-order-status {
   display: block;
-  margin-top: 0.15rem;
-  font-family: var(--km-font-mono, ui-monospace), monospace;
+  margin-top: 0.1rem;
   font-size: 0.72rem;
-  font-style: normal;
   color: var(--km-fg-muted);
 }
 
-.km-sf-order-row > span > span {
-  display: block;
-  margin-top: 0.15rem;
-  font-size: 0.72rem;
+.km-sf-order-ok .km-sf-order-status {
+  color: var(--km-success);
+}
+
+.km-sf-order-wait .km-sf-order-status {
   color: var(--km-fg-muted);
+}
+
+.km-sf-order-bad .km-sf-order-status {
+  color: var(--km-danger);
 }
 
 .km-sf-order-amount {
   flex-shrink: 0;
   font-weight: 650;
-  font-size: 0.92rem;
+  font-size: 0.9rem;
+}
+
+.km-sf-orders-more {
+  margin: 0.1rem 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--km-fg);
+  font-size: 0.8rem;
+  font-weight: 650;
+  padding: 0.45rem 0.15rem;
+  cursor: pointer;
+  text-align: center;
+}
+
+.km-sf-orders-more:hover {
+  text-decoration: underline;
 }
 
 /* —— 商品网格：每件商品是一块独立的目录卡，图区先抓住视线 —— */
@@ -2053,8 +2151,13 @@ a.km-sf-contact:hover {
   }
 
   .km-sf-footer {
-    grid-template-columns: 1fr;
+    flex-direction: column;
     gap: 1.25rem;
+  }
+
+  .km-sf-redeem {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 
@@ -2062,4 +2165,141 @@ a.km-sf-contact:hover {
   .km-sf-grid2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+/* —— 兑换站：跟商城同一套米色底 / 黑按钮 / 白卡片 —— */
+.km-rx {
+  background-image: none;
+}
+
+.km-rx .km-header {
+  border-bottom: 1px solid var(--km-border);
+  background: color-mix(in oklab, var(--km-bg-elevated) 92%, transparent);
+  backdrop-filter: blur(16px);
+}
+
+.km-rx .km-brand-mark {
+  border-radius: 999px;
+  background: var(--km-fg);
+  color: var(--km-bg);
+}
+
+.km-rx-body {
+  display: grid;
+  gap: 1.15rem;
+  padding-bottom: 3rem;
+}
+
+.km-rx-hero {
+  display: grid;
+  gap: 0.4rem;
+  justify-items: center;
+  text-align: center;
+  padding: 1.7rem 0 0.15rem;
+}
+
+.km-rx-hero h1 {
+  margin: 0;
+  font-family: var(--font-sora), var(--km-font-display);
+  font-size: clamp(1.7rem, 3.8vw, 2.25rem);
+  font-weight: 680;
+  letter-spacing: -0.045em;
+  line-height: 1.12;
+}
+
+.km-rx-hero p,
+.km-rx .km-lead {
+  margin: 0;
+  max-width: 28rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--km-fg-muted);
+}
+
+.km-rx .km-page-hero {
+  padding-block: 1.7rem 0.15rem;
+}
+
+.km-rx .km-page-title {
+  font-size: clamp(1.7rem, 3.8vw, 2.25rem);
+}
+
+.km-rx .km-panel {
+  border-radius: 1.25rem;
+  box-shadow: none;
+  backdrop-filter: none;
+  background: var(--km-bg-elevated);
+  padding: 1.3rem 1.35rem;
+}
+
+.km-rx .km-input {
+  background: var(--km-bg);
+  border-radius: 0.9rem;
+}
+
+.km-rx .km-tabs {
+  gap: 0.4rem;
+}
+
+.km-rx .km-tab {
+  border: 1px solid var(--km-border);
+  background: var(--km-bg-elevated);
+  font-weight: 600;
+}
+
+.km-rx .km-tab:hover {
+  color: var(--km-fg);
+  border-color: var(--km-fg);
+  background: var(--km-bg-elevated);
+}
+
+.km-rx .km-tab-active {
+  background: var(--km-fg);
+  color: var(--km-bg);
+  border-color: var(--km-fg);
+}
+
+.km-rx .km-btn:not(.km-btn-ghost):not(.km-btn-danger) {
+  background: var(--km-fg);
+  color: var(--km-bg);
+  box-shadow: none;
+}
+
+.km-rx .km-btn:not(.km-btn-ghost):not(.km-btn-danger):hover {
+  transform: none;
+  box-shadow: none;
+  opacity: 0.88;
+}
+
+.km-rx .km-btn:disabled {
+  opacity: 0.28;
+  transform: none;
+  box-shadow: none;
+}
+
+.km-rx .km-btn-ghost {
+  background: var(--km-bg);
+  box-shadow: none;
+}
+
+.km-rx .km-btn-ghost:hover {
+  background: var(--km-bg-muted);
+}
+
+.km-rx .km-sf-query {
+  background: var(--km-bg-elevated);
+}
+
+.km-rx-codes {
+  min-height: 8.5rem;
+  margin-top: 0.65rem;
+  resize: vertical;
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.km-rx-codes-go {
+  width: 100%;
+  margin-top: 0.65rem;
+  min-width: 0;
 }

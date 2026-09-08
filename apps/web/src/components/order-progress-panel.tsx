@@ -80,11 +80,16 @@ export function OrderProgressPanel({
   polling = false,
   showLookupLink = false,
   events = [],
+  onRetry,
+  retryHref = "/recharge",
 }: {
   row: OrderProgressRow;
   polling?: boolean;
   showLookupLink?: boolean;
   events?: ProgressEvent[];
+  /** 兑换页里当场再提交；查单页没有卡密明文，就跳去兑换页 */
+  onRetry?: () => void;
+  retryHref?: string;
 }) {
   const orderNo = String(row.orderNo || "");
   const status = normalizeOrderStatus(String(row.fulfillStatus || ""));
@@ -183,61 +188,48 @@ export function OrderProgressPanel({
           })}
         </div>
       ) : (
-        <ol className="space-y-0">
+        <div className="grid grid-cols-2 gap-2 text-center text-xs sm:grid-cols-3">
           {ORDER_PIPELINE_STEPS.map((step, i) => {
             const done = stepIdx > i || (terminal && success);
             const current = !terminal && stepIdx === i;
             return (
-              <li key={step} className="flex gap-3">
-                <div className="flex w-5 flex-col items-center">
-                  <span
-                    className="mt-1 h-2.5 w-2.5 rounded-full"
-                    style={{
-                      background: done || current ? "var(--km-accent)" : "var(--km-border)",
-                      boxShadow: current
-                        ? "0 0 0 3px color-mix(in oklab, var(--km-accent) 28%, transparent)"
-                        : undefined,
-                    }}
-                  />
-                  {i < ORDER_PIPELINE_STEPS.length - 1 ? (
-                    <span
-                      className="my-0.5 min-h-4 w-px flex-1"
-                      style={{ background: done ? "var(--km-accent)" : "var(--km-border)" }}
-                    />
-                  ) : null}
-                </div>
-                <div
-                  className={`pb-3 text-sm ${current ? "font-medium" : done ? "" : "text-[var(--km-fg-muted)]"}`}
-                >
-                  {publicStatusLabel(step, "fulfill")}
-                  {current && polling ? (
-                    <span className="ml-2 text-xs font-normal text-[var(--km-fg-muted)]">进行中…</span>
-                  ) : null}
-                </div>
-              </li>
+              <div
+                key={step}
+                className="rounded-[var(--km-radius)] border px-2 py-2"
+                style={{
+                  borderColor: done || current ? "var(--km-accent)" : "var(--km-border)",
+                  background:
+                    done || current
+                      ? "color-mix(in oklab, var(--km-accent) 10%, transparent)"
+                      : undefined,
+                  fontWeight: current ? 650 : undefined,
+                  color: done || current ? undefined : "var(--km-fg-muted)",
+                }}
+              >
+                {publicStatusLabel(step, "fulfill")}
+                {current && polling ? " · 进行中" : ""}
+              </div>
             );
           })}
-          <li className="flex gap-3">
-            <div className="flex w-5 flex-col items-center">
-              <span
-                className="mt-1 h-2.5 w-2.5 rounded-full"
-                style={{
-                  background: terminal
-                    ? success
-                      ? "var(--km-success)"
-                      : "var(--km-danger)"
-                    : "var(--km-border)",
-                }}
-              />
-            </div>
-            <div
-              className={`text-sm ${terminal ? "font-medium" : "text-[var(--km-fg-muted)]"}`}
-              style={terminal ? { color: success ? "var(--km-success)" : "var(--km-danger)" } : undefined}
-            >
-              {terminal ? publicStatusLabel(status, "fulfill") : "开通结果"}
-            </div>
-          </li>
-        </ol>
+          <div
+            className="rounded-[var(--km-radius)] border px-2 py-2"
+            style={{
+              borderColor: terminal
+                ? success
+                  ? "var(--km-success)"
+                  : "var(--km-danger)"
+                : "var(--km-border)",
+              color: terminal
+                ? success
+                  ? "var(--km-success)"
+                  : "var(--km-danger)"
+                : "var(--km-fg-muted)",
+              fontWeight: terminal ? 650 : undefined,
+            }}
+          >
+            {terminal ? publicStatusLabel(status, "fulfill") : "开通结果"}
+          </div>
+        </div>
       )}
 
       {message ? <p className="text-sm leading-relaxed">{message}</p> : null}
@@ -310,9 +302,18 @@ export function OrderProgressPanel({
         </p>
       ) : null}
       {status === "failed" ? (
-        <p className="km-result km-session-fail text-sm">
-          兑换未成功。可以重新兑换，或联系发码方。
-        </p>
+        <div className="km-result km-session-fail space-y-3 text-sm">
+          <p>兑换未成功。卡密一般已退回，可以再试一次，或联系发码方。</p>
+          {onRetry ? (
+            <button type="button" className="km-btn km-btn-sm" onClick={onRetry}>
+              再试一次
+            </button>
+          ) : (
+            <Link href={retryHref} className="km-btn km-btn-sm">
+              再试一次
+            </Link>
+          )}
+        </div>
       ) : null}
 
       {polling && status && !terminal ? (

@@ -1,3 +1,4 @@
+import { ApplyTheme } from "@/components/apply-theme";
 import { SiteFooter, SiteHeader } from "@/components/site-header";
 import { getStorefront } from "@/lib/storefront";
 import { RechargeSwitcher } from "@/components/recharge-switcher";
@@ -28,13 +29,13 @@ export default async function RechargePage({
       : undefined;
   const batchLimit = await getBatchRedeemLimit();
   return (
-    <main data-theme={sf.themeId} className="min-h-screen">
+    <main data-theme={sf.themeId} className="km-themed-page km-rx">
+      <ApplyTheme themeId={sf.themeId} />
       <SiteHeader siteName={sf.brandName} />
-      <section className="km-shell-narrow space-y-8 pb-4">
-        <div className="km-page-hero km-rise">
-          <p className="km-eyebrow">开始兑换</p>
-          <h1 className="km-page-title">{sf.siteName}</h1>
-          <p className="km-lead">{sf.announcement || "先校验卡密识别套餐，再填写 Session 提交开通"}</p>
+      <section className="km-shell-narrow km-rx-body">
+        <div className="km-rx-hero km-rise">
+          <h1>{sf.siteName}</h1>
+          <p>{sf.announcement || "先校验卡密识别套餐，再填写 Session 提交开通"}</p>
         </div>
         <RechargeSwitcher
           initialCode={code}

@@ -19,6 +19,7 @@ import {
 } from "@/lib/agent-storefront-config";
 import { bootDb } from "@/lib/config";
 import { getStoreSalesGate } from "@/lib/ops-health";
+import { getAgentRedeemUrl } from "@/lib/agent-redeem";
 import { getMaxOrderQuantity } from "@/lib/store-quantity";
 import { resolveThemeId } from "@/lib/storefront";
 
@@ -139,6 +140,7 @@ export default async function AgentStorePage({
         slug={agent.currentSlug}
         channels={channels}
         maxQuantity={await getMaxOrderQuantity()}
+        redeemUrl={await getAgentRedeemUrl()}
       />
     </main>
   );

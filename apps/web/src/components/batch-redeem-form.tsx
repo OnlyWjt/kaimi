@@ -454,33 +454,43 @@ export function BatchRedeemForm({
   return (
     <div className="space-y-4">
       {dialog}
-      <div className="km-panel km-form-stack">
-        <label className="block space-y-1.5 text-sm">
-          <span className="font-medium">卡密列表</span>
+      <div className="km-sf-query">
+        <div className="min-w-0 flex-1 space-y-1">
+          <h2 className="km-sf-query-title">粘贴卡密</h2>
+          <p className="km-sf-query-desc">
+            一行一张，也可以用逗号或空格隔开，最多 {parsed.limit} 张。重复的会自动合并。
+          </p>
           <textarea
-            className="km-input min-h-28 font-mono text-xs"
-            placeholder={`一行一张，也可以用逗号或空格隔开，最多 ${parsed.limit} 张`}
+            className="km-input km-rx-codes"
+            placeholder="在这里粘贴多张卡密"
             value={codeText}
             onChange={(event) => setCodeText(event.target.value)}
+            aria-label="卡密列表"
           />
-        </label>
-        <p className="text-xs text-[var(--km-fg-muted)]">
-          已识别 {parsed.codes.length} 张
-          {parsed.dropped > 0 ? `，超出 ${parsed.limit} 张的 ${parsed.dropped} 张没有收下` : ""}
-          。重复的卡密会自动合并。
-        </p>
-        {note ? <p className="text-xs text-[var(--km-fg-muted)]">{note}</p> : null}
-        {error && !checked ? (
-          <p className="text-sm text-[var(--km-danger)]">{error}</p>
-        ) : null}
-        <button
-          type="button"
-          className="km-btn w-full"
-          disabled={!parsed.codes.length || busy}
-          onClick={() => void validateAll()}
-        >
-          {busy && !checked ? "校验中…" : `校验这 ${parsed.codes.length} 张`}
-        </button>
+          <button
+            type="button"
+            className="km-btn km-sf-query-go km-rx-codes-go"
+            disabled={busy}
+            onClick={() => void validateAll()}
+          >
+            {busy && !checked
+              ? "校验中…"
+              : parsed.codes.length
+                ? `校验 ${parsed.codes.length} 张`
+                : "校验"}
+          </button>
+          {note || parsed.dropped > 0 ? (
+            <p className="km-sf-query-note">
+              {note}
+              {parsed.dropped > 0 ? `${note ? " · " : ""}超出上限的 ${parsed.dropped} 张没有收下` : ""}
+            </p>
+          ) : null}
+          {error && !checked ? (
+            <p className="km-sf-query-note" style={{ color: "var(--km-danger)" }}>
+              {error}
+            </p>
+          ) : null}
+        </div>
       </div>
 
       {checked ? (

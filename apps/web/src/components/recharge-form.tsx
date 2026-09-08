@@ -273,39 +273,48 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
   return (
     <div className="mx-auto w-full space-y-6">
       {step === "code" ? (
-        <div className="km-panel km-form-stack">
-          <label className="block space-y-1.5 text-sm">
-            <span className="font-medium">卡密</span>
-            <input
-              className="km-input font-mono"
-              placeholder="CDK-XXXX-XXXX-XXXX"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void validateCode();
-              }}
-            />
-          </label>
-          {error ? <p className="text-sm text-[var(--km-danger)]">{error}</p> : null}
-          <button className="km-btn w-full" disabled={!code.trim() || busy} onClick={() => void validateCode()}>
-            {busy ? "校验中…" : "校验卡密"}
-          </button>
-          <p className="text-xs text-[var(--km-fg-muted)]">校验通过后会自动识别套餐。</p>
+        <div className="km-sf-query">
+          <div className="min-w-0 flex-1 space-y-1">
+            <h2 className="km-sf-query-title">粘贴卡密</h2>
+            <p className="km-sf-query-desc">购买后订单页或邮箱查单里那一串，校验后会识别套餐</p>
+            <div className="km-sf-query-row">
+              <input
+                className="km-input"
+                placeholder="粘贴卡密"
+                value={code}
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(e) => setCode(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void validateCode();
+                }}
+                aria-label="卡密"
+              />
+              <button
+                type="button"
+                className="km-btn km-btn-sm km-sf-query-go"
+                disabled={busy}
+                onClick={() => void validateCode()}
+              >
+                {busy ? "校验中…" : "校验"}
+              </button>
+            </div>
+            {error ? <p className="km-sf-query-note" style={{ color: "var(--km-danger)" }}>{error}</p> : null}
+          </div>
         </div>
       ) : (
         <div className="space-y-4">
           <div className="km-panel space-y-3">
-            <div>
-              <p className="text-xs uppercase tracking-wide text-[var(--km-fg-muted)]">已识别套餐</p>
-              <h2 className="mt-1 text-xl font-semibold" style={{ fontFamily: "var(--font-sora)" }}>
-                {validated?.planName}
-              </h2>
-              <p className="mt-1 font-mono text-sm text-[var(--km-fg-muted)]">{validated?.planKey}</p>
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="text-xs text-[var(--km-fg-muted)]">已识别套餐</p>
+                <h2 className="mt-1 text-xl font-semibold" style={{ fontFamily: "var(--font-sora)" }}>
+                  {validated?.planName}
+                </h2>
+              </div>
+              <span className="km-badge">{validated?.status === "unused" ? "未使用" : validated?.status}</span>
             </div>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-[var(--km-border)] pt-3 text-sm text-[var(--km-fg-muted)]">
-              <span>卡密 {validated?.codeMasked}</span>
-              <span>状态 {validated?.status}</span>
-            </div>
+            <p className="text-sm text-[var(--km-fg-muted)]">卡密 {validated?.codeMasked}</p>
             {!progress ? (
               <button type="button" className="text-sm text-[var(--km-accent)] hover:underline" onClick={resetCode}>
                 更换卡密
@@ -476,7 +485,18 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
             ) : null}
 
             {progress ? (
-              <OrderProgressPanel row={progress} polling={autoPoll} events={events} showLookupLink />
+              <OrderProgressPanel
+                row={progress}
+                polling={autoPoll}
+                events={events}
+                showLookupLink
+                onRetry={() => {
+                  setProgress(null);
+                  setEvents([]);
+                  setAutoPoll(false);
+                  setError("");
+                }}
+              />
             ) : null}
           </div>
         </div>

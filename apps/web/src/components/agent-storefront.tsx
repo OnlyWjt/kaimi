@@ -15,6 +15,10 @@ import {
   type StorefrontConfig,
   type StorefrontProduct,
 } from "@/lib/agent-storefront-config";
+import {
+  DEFAULT_AGENT_REDEEM_URL,
+  isExternalRedeemUrl,
+} from "@/lib/agent-redeem-core";
 import { isThemeId, type ThemeId } from "@kaimi/themes";
 
 type Channel = "alipay" | "wxpay";
@@ -29,6 +33,52 @@ type EmailOrder = {
   queryToken: string;
 };
 
+const QUERY_PREVIEW = 5;
+const PAID_PAY = new Set(["paid", "success"]);
+const ISSUED_FULFILL = new Set(["delivered", "fulfilled", "success", "issued"]);
+const BAD_PAY = new Set(["refunded", "refunding", "chargeback"]);
+const BAD_FULFILL = new Set(["failed", "expired", "cancelled"]);
+
+function isPaidOrder(order: EmailOrder) {
+  return PAID_PAY.has(order.payStatus);
+}
+
+function isIssuedOrder(order: EmailOrder) {
+  return ISSUED_FULFILL.has(order.fulfillStatus);
+}
+
+function orderTone(order: EmailOrder): "ok" | "wait" | "bad" {
+  if (BAD_PAY.has(order.payStatus) || BAD_FULFILL.has(order.fulfillStatus)) return "bad";
+  if (isPaidOrder(order) && isIssuedOrder(order)) return "ok";
+  return "wait";
+}
+
+function orderRank(order: EmailOrder) {
+  const tone = orderTone(order);
+  if (tone === "ok") return 0;
+  if (isPaidOrder(order)) return 1;
+  if (tone === "bad") return 3;
+  return 2;
+}
+
+function orderStatusText(order: EmailOrder) {
+  const pay = publicStatusLabel(order.payStatus, "pay");
+  if (!isPaidOrder(order)) return pay;
+  const fulfill = publicStatusLabel(order.fulfillStatus, "fulfill");
+  return fulfill && fulfill !== pay ? `${pay} · ${fulfill}` : pay;
+}
+
+const DEMO_EMAIL_ORDERS: EmailOrder[] = [
+  { orderNo: "RS20260908001PLUS", productName: "Plus", amountCents: 15000, payStatus: "paid", fulfillStatus: "delivered", queryToken: "" },
+  { orderNo: "RS20260908002PRO", productName: "Pro", amountCents: 115500, payStatus: "paid", fulfillStatus: "delivered", queryToken: "" },
+  { orderNo: "RS20260908003C500", productName: "Codex 点数 500", amountCents: 22200, payStatus: "paid", fulfillStatus: "issuing", queryToken: "" },
+  { orderNo: "RS20260908004PLUS", productName: "Plus", amountCents: 15000, payStatus: "unpaid", fulfillStatus: "pending", queryToken: "" },
+  { orderNo: "RS20260908005PRO", productName: "Pro", amountCents: 115500, payStatus: "unpaid", fulfillStatus: "pending", queryToken: "" },
+  { orderNo: "RS20260908006PLUS", productName: "Plus", amountCents: 13000, payStatus: "unpaid", fulfillStatus: "pending", queryToken: "" },
+  { orderNo: "RS20260908007C250", productName: "Codex 点数 250", amountCents: 11100, payStatus: "unpaid", fulfillStatus: "pending", queryToken: "" },
+  { orderNo: "RS20260908008PLUS", productName: "Plus", amountCents: 15000, payStatus: "refunded", fulfillStatus: "cancelled", queryToken: "" },
+];
+
 const CHANNEL_LABEL: Record<Channel, { zh: string; en: string }> = {
   alipay: { zh: "支付宝", en: "Alipay" },
   wxpay: { zh: "微信支付", en: "WeChat Pay" },
@@ -38,7 +88,10 @@ const CHANNEL_LABEL: Record<Channel, { zh: string; en: string }> = {
 
 const I18N = {
   zh: {
-    nav: { home: "首页", products: "商品中心", query: "订单查询", contact: "联系客服" },
+    nav: { home: "首页", products: "商品中心", query: "订单查询", contact: "联系客服", redeem: "去兑换" },
+    redeemTitle: "已有卡密？",
+    redeemSub: "买完后来这里校验卡密，填写 Session 就能开通。",
+    redeemCta: "去兑换开通",
     searchPlaceholder: "搜索商品名称…",
     queryTitle: "邮箱查单",
     queryDesc: "输入下单时填写的邮箱，即可查询该邮箱在本店的全部订单与卡密。",
@@ -48,6 +101,9 @@ const I18N = {
     queryNote: "无需注册账号，用下单时填写的邮箱就能找回订单与卡密",
     queryEmpty: "这个邮箱在本店还没有订单",
     queryScope: "只显示这个邮箱在本店的订单，和其他买家互不影响。",
+    queryCount: (n: number) => `共 ${n} 单`,
+    queryMore: (n: number) => `展开其余 ${n} 单`,
+    queryLess: "收起订单",
     productsSub: "浏览当前可售套餐，付款后即时发卡",
     priceFrom: (n: string) => `¥${n} 起`,
     stock: (n: number) => `库存 ${n} 件`,
@@ -85,7 +141,10 @@ const I18N = {
     langLabel: "EN",
   },
   en: {
-    nav: { home: "Home", products: "Products", query: "Track Order", contact: "Support" },
+    nav: { home: "Home", products: "Products", query: "Track Order", contact: "Support", redeem: "Redeem" },
+    redeemTitle: "Already have a code?",
+    redeemSub: "Validate it here, add your Session, and the plan will be activated.",
+    redeemCta: "Go redeem",
     searchPlaceholder: "Search products…",
     queryTitle: "Track by email",
     queryDesc: "Enter the email you used at checkout to look up all orders and codes in this shop.",
@@ -95,6 +154,9 @@ const I18N = {
     queryNote: "No account needed — use the email from checkout to find your orders and codes",
     queryEmpty: "No orders found for this email in this shop",
     queryScope: "Only orders placed with this email in this shop are shown.",
+    queryCount: (n: number) => `${n} orders`,
+    queryMore: (n: number) => `Show ${n} more`,
+    queryLess: "Show less",
     productsSub: "Browse available plans, codes delivered instantly after payment",
     priceFrom: (n: string) => `From ¥${n}`,
     stock: (n: number) => `${n} in stock`,
@@ -306,6 +368,7 @@ export function AgentStorefront({
   slug = "",
   channels = [],
   maxQuantity = 5,
+  redeemUrl = DEFAULT_AGENT_REDEEM_URL,
 }: {
   config: StorefrontConfig;
   /** 预览模式：显示主题色板、不真的下单 */
@@ -313,6 +376,7 @@ export function AgentStorefront({
   slug?: string;
   channels?: Channel[];
   maxQuantity?: number;
+  redeemUrl?: string;
 }) {
   const [themeId, setThemeId] = useState<ThemeId>(
     isThemeId(config.themeId) ? config.themeId : "snow",
@@ -326,6 +390,7 @@ export function AgentStorefront({
   const [queryBusy, setQueryBusy] = useState(false);
   const [queryError, setQueryError] = useState("");
   const [myOrders, setMyOrders] = useState<EmailOrder[] | null>(null);
+  const [ordersOpen, setOrdersOpen] = useState(false);
 
   const [active, setActive] = useState<StorefrontProduct | null>(null);
   const [specId, setSpecId] = useState("");
@@ -373,6 +438,13 @@ export function AgentStorefront({
   const totalCents = activeSpec ? activeSpec.priceCents * qty : 0;
   const specMaxQty = Math.min(maxQty, activeSpec?.stock ?? maxQty);
 
+  const rankedOrders = useMemo(() => {
+    if (!myOrders?.length) return [];
+    return [...myOrders].sort((a, b) => orderRank(a) - orderRank(b));
+  }, [myOrders]);
+  const hiddenOrderCount = Math.max(0, rankedOrders.length - QUERY_PREVIEW);
+  const visibleOrders = ordersOpen ? rankedOrders : rankedOrders.slice(0, QUERY_PREVIEW);
+
   useEffect(() => {
     try {
       const saved = window.sessionStorage.getItem("kaimi-store-email") || "";
@@ -419,7 +491,9 @@ export function AgentStorefront({
       return;
     }
     if (!live) {
-      setQueryError(t.detail.previewNote);
+      setMyOrders(DEMO_EMAIL_ORDERS);
+      setOrdersOpen(false);
+      setQueryError("");
       return;
     }
     setQueryBusy(true);
@@ -434,6 +508,7 @@ export function AgentStorefront({
       );
       const list = data.list || [];
       setMyOrders(list);
+      setOrdersOpen(false);
       if (!list.length) setQueryError(t.queryEmpty);
     } catch (reason) {
       setMyOrders(null);
@@ -554,6 +629,15 @@ export function AgentStorefront({
                   {item.label}
                 </button>
               ))}
+              <a
+                href={redeemUrl}
+                className="km-sf-nav-item km-sf-nav-redeem"
+                {...(isExternalRedeemUrl(redeemUrl)
+                  ? { target: "_blank", rel: "noreferrer" }
+                  : undefined)}
+              >
+                {t.nav.redeem}
+              </a>
             </nav>
             <div className="km-sf-tools">
               {config.queryEnabled ? (
@@ -640,7 +724,7 @@ export function AgentStorefront({
                     />
                     <button
                       type="button"
-                      className="km-btn km-btn-ghost km-btn-sm km-sf-query-go"
+                      className="km-btn km-btn-sm km-sf-query-go"
                       disabled={queryBusy || !queryEmail.trim()}
                       onClick={() => void lookupOrders()}
                     >
@@ -650,11 +734,14 @@ export function AgentStorefront({
                   <p className="km-sf-query-note">{queryError || t.queryNote}</p>
                   {myOrders?.length ? (
                     <div className="km-sf-orders">
-                      <p className="km-sf-query-note">{t.queryScope}</p>
-                      {myOrders.map((order) => (
+                      <div className="km-sf-orders-head">
+                        <p className="km-sf-query-note">{t.queryScope}</p>
+                        <p className="km-sf-orders-count">{t.queryCount(myOrders.length)}</p>
+                      </div>
+                      {visibleOrders.map((order) => (
                         <a
                           key={order.orderNo}
-                          className="km-sf-order-row"
+                          className={`km-sf-order-row km-sf-order-${orderTone(order)}`}
                           href={
                             order.queryToken
                               ? `/shop/order/${encodeURIComponent(order.orderNo)}?qt=${encodeURIComponent(order.queryToken)}`
@@ -663,10 +750,8 @@ export function AgentStorefront({
                         >
                           <span className="min-w-0">
                             <strong>{order.productName}</strong>
-                            <em>{order.orderNo}</em>
-                            <span>
-                              {publicStatusLabel(order.payStatus, "pay")} ·{" "}
-                              {publicStatusLabel(order.fulfillStatus, "fulfill")}
+                            <span className="km-sf-order-status">
+                              {orderStatusText(order)}
                               {(order.quantity || 1) > 1 ? ` · ${order.quantity} 张` : ""}
                             </span>
                           </span>
@@ -675,11 +760,49 @@ export function AgentStorefront({
                           </span>
                         </a>
                       ))}
+                      {hiddenOrderCount > 0 ? (
+                        <button
+                          type="button"
+                          className="km-sf-orders-more"
+                          onClick={() => {
+                            setOrdersOpen((open) => {
+                              if (open) {
+                                requestAnimationFrame(() => {
+                                  document.getElementById("km-sf-query")?.scrollIntoView({
+                                    behavior: "smooth",
+                                    block: "start",
+                                  });
+                                });
+                              }
+                              return !open;
+                            });
+                          }}
+                        >
+                          {ordersOpen ? t.queryLess : t.queryMore(hiddenOrderCount)}
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
               </section>
             ) : null}
+
+            <a
+              href={redeemUrl}
+              className="km-sf-redeem"
+              {...(isExternalRedeemUrl(redeemUrl)
+                ? { target: "_blank", rel: "noreferrer" }
+                : undefined)}
+            >
+              <div className="min-w-0">
+                <p className="km-sf-redeem-kicker">{t.redeemTitle}</p>
+                <p className="km-sf-redeem-sub">{t.redeemSub}</p>
+              </div>
+              <span className="km-sf-redeem-cta">
+                {t.redeemCta}
+                <span aria-hidden>↗</span>
+              </span>
+            </a>
 
             <section id="km-sf-products" className="space-y-4">
               {showCategories ? (
@@ -968,6 +1091,15 @@ export function AgentStorefront({
                 <span className="km-brand-name">{config.shopName}</span>
               </div>
               <p className="max-w-sm text-sm leading-6 text-[var(--km-fg-muted)]">{slogan}</p>
+              <a
+                href={redeemUrl}
+                className="km-sf-contact"
+                {...(isExternalRedeemUrl(redeemUrl)
+                  ? { target: "_blank", rel: "noreferrer" }
+                  : undefined)}
+              >
+                {t.nav.redeem}
+              </a>
             </div>
             {config.contacts.length ? (
               <div>
