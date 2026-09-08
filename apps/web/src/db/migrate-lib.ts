@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS platform_plans (
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   cover_url TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT '',
   global_cost_price_cents INTEGER NOT NULL DEFAULT 0,
   max_retail_price_cents INTEGER,
   currency TEXT NOT NULL DEFAULT 'CNY',
@@ -744,6 +745,10 @@ export async function ensureSchema() {
     SET agent_cost_total_cents = agent_cost_cents * quantity
     WHERE agent_cost_total_cents = 0;
   `);
+  // 店铺前台的分类标签。空串表示未分类，只出现在「全部」里。
+  await addColumn(
+    "ALTER TABLE platform_plans ADD COLUMN category TEXT NOT NULL DEFAULT ''",
+  );
   // 一单多张之后 order_id 不能再唯一。DDL 已经建好非唯一索引，这里只负责拆掉老的。
   await client.execute("DROP INDEX IF EXISTS issued_cdks_order_id_uq");
   await ensureCardOpsTables();

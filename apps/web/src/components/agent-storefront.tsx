@@ -342,6 +342,12 @@ export function AgentStorefront({
     return Array.from(seen, ([id, label]) => ({ id, label }));
   }, [products]);
 
+  // 只有一个分类且没有未分类商品时，分类栏等于「全部」，没必要占一行。
+  // 但一个分类 + 一批未分类商品是能筛的，这时候要显示。
+  const showCategories =
+    categories.length > 1 ||
+    (categories.length === 1 && products.some((item) => item.category === "all"));
+
   const visible = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     return products.filter((item) => {
@@ -668,7 +674,7 @@ export function AgentStorefront({
             ) : null}
 
             <section id="km-sf-products" className="space-y-4">
-              {categories.length > 1 ? (
+              {showCategories ? (
                 <div className="km-sf-filters km-sf-filters-solo" role="tablist" aria-label="商品分类">
                   <button
                     type="button"

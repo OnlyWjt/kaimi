@@ -57,6 +57,7 @@ export default async function AgentStorePage({
           planKey: platformPlans.planKey,
           name: platformPlans.name,
           description: platformPlans.description,
+          category: platformPlans.category,
           retailPriceCents: agentPlanPrices.retailPriceCents,
           globalCostPriceCents: platformPlans.globalCostPriceCents,
           costOverrideCents: agentPlanPrices.costOverrideCents,
@@ -121,6 +122,7 @@ export default async function AgentStorePage({
         name: plan.name,
         description: plan.description,
         retailPriceCents: plan.retailPriceCents,
+        category: plan.category,
       }),
     ),
   };

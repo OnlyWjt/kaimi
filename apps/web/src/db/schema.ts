@@ -155,6 +155,8 @@ export const platformPlans = sqliteTable(
     name: text("name").notNull(),
     description: text("description").notNull().default(""),
     coverUrl: text("cover_url").notNull().default(""),
+    /** 店铺前台的分类标签，空串表示未分类 */
+    category: text("category").notNull().default(""),
     globalCostPriceCents: integer("global_cost_price_cents").notNull().default(0),
     /** 代理零售价上限。NULL 或 0 表示不限价。 */
     maxRetailPriceCents: integer("max_retail_price_cents"),

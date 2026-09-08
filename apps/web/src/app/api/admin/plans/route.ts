@@ -6,13 +6,23 @@ import { platformPlans } from "@/db/schema";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
+import { MAX_CATEGORY_LENGTH, normalizeCategory } from "@/lib/plan-category";
 import { maxRetailPriceError } from "@/lib/plan-price-core";
+
+/** 分类标签存的就是展示文案，统一收敛空白后入库，前台按它分组 */
+const categorySchema = z
+  .string()
+  .max(MAX_CATEGORY_LENGTH * 2)
+  .optional()
+  .default("")
+  .transform(normalizeCategory);
 
 const planSchema = z.object({
   planKey: z.string().trim().min(1).max(64).regex(/^[a-z0-9_:-]+$/),
   name: z.string().trim().min(1).max(100),
   description: z.string().trim().max(2000).optional().default(""),
   coverUrl: z.string().trim().max(1000).optional().default(""),
+  category: categorySchema,
   globalCostPriceCents: z.number().int().min(0),
   maxRetailPriceCents: z.number().int().min(0).nullable().optional(),
   enabled: z.boolean().optional().default(false),
@@ -89,6 +99,7 @@ const batchSchema = z.object({
     z.object({
       planKey: z.string().trim().min(1),
       name: z.string().trim().min(1).max(100).optional(),
+      category: categorySchema,
       globalCostPriceCents: z.number().int().min(0),
       maxRetailPriceCents: z.number().int().min(0).nullable().optional(),
       enabled: z.boolean(),
@@ -133,6 +144,7 @@ export async function PUT(req: Request) {
         .update(platformPlans)
         .set({
           name: item.name || existing.name,
+          category: item.category,
           globalCostPriceCents: item.globalCostPriceCents,
           maxRetailPriceCents: item.maxRetailPriceCents ?? null,
           enabled: item.enabled,

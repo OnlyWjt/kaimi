@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { normalizeCategory } from "./plan-category";
+
 /** 代理店铺装修配置：服务端与客户端共用的类型、默认值与校验 */
 
 export type Lang = "zh" | "en";
@@ -344,11 +346,16 @@ export type SellablePlan = {
   name: string;
   description: string;
   retailPriceCents: number;
+  /** 后台给套餐打的分类标签，空串表示未分类 */
+  category?: string;
 };
 
 /** 平台套餐 → 前台商品。一个套餐一个商品、一个规格，下单直接用 planKey */
 export function planToProduct(plan: SellablePlan): StorefrontProduct {
   const name: LocalText = { zh: plan.name, en: plan.name };
+  // 分类标签本身就当 id 用：后台改标签等于换分类，不用再维护一张分类表。
+  // "all" 是前台「全部」的保留值，未分类的套餐落到这里，只会出现在「全部」下。
+  const category = normalizeCategory(plan.category);
   const desc: LocalText = {
     zh: plan.description || "付款成功后即时出卡，用下单时填写的邮箱可随时查回。",
     en: plan.description || "Codes are issued instantly after payment and retrievable with your order email.",
@@ -359,9 +366,8 @@ export function planToProduct(plan: SellablePlan): StorefrontProduct {
     name,
     subtitle: { zh: "官方渠道 · 付款后立即出卡", en: "Official channel · instant delivery" },
     desc,
-    category: "all",
-    // 平台套餐目前没有分类概念，留空让前台不显示"分类"那一行
-    categoryLabel: "",
+    category: category || "all",
+    categoryLabel: category,
     tags: [{ zh: "官方直充", en: "Official" }],
     stock: null,
     hue: hueFromKey(plan.planKey),

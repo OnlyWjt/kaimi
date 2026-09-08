@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/components/toast";
 import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
+import { MAX_CATEGORY_LENGTH, normalizeCategory } from "@/lib/plan-category";
 import { maxRetailPriceError } from "@/lib/plan-price-core";
 
 type CatalogPlan = {
@@ -10,6 +11,7 @@ type CatalogPlan = {
   name: string;
   enabled: boolean;
   cardplatformSellable: boolean;
+  category: string;
   globalCostPriceCents: number;
   maxRetailPriceCents: number | null;
 };
@@ -19,7 +21,18 @@ export function PlanDefaultPricesPanel() {
   const [catalog, setCatalog] = useState<CatalogPlan[]>([]);
   const [costDraft, setCostDraft] = useState<Record<string, string>>({});
   const [capDraft, setCapDraft] = useState<Record<string, string>>({});
+  const [categoryDraft, setCategoryDraft] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+
+  // 已经用过的分类做成候选项，避免同一个分类被打成几种写法
+  const knownCategories = useMemo(() => {
+    const seen = new Set<string>();
+    Object.values(categoryDraft).forEach((value) => {
+      const name = normalizeCategory(value);
+      if (name) seen.add(name);
+    });
+    return Array.from(seen).sort();
+  }, [categoryDraft]);
 
   async function load() {
     const response = await fetch("/api/admin/plans", { cache: "no-store" });
@@ -41,6 +54,9 @@ export function PlanDefaultPricesPanel() {
             : "",
         ]),
       ),
+    );
+    setCategoryDraft(
+      Object.fromEntries(next.map((item) => [item.planKey, item.category || ""])),
     );
   }
 
@@ -68,6 +84,7 @@ export function PlanDefaultPricesPanel() {
         return {
           planKey: item.planKey,
           name: item.name,
+          category: normalizeCategory(categoryDraft[item.planKey] ?? ""),
           globalCostPriceCents: cents,
           maxRetailPriceCents: capRaw.trim() ? capCents : null,
           enabled: item.enabled,
@@ -97,7 +114,16 @@ export function PlanDefaultPricesPanel() {
           每个套餐单独设默认成本和零售价上限。上限留空表示不限价；填了之后代理改价不能超过它。
           已经高于上限的老价格照卖。
         </p>
+        <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
+          「店铺分类」是代理店铺前台的筛选标签，填一样的名字就归到一组。留空表示不分类，
+          只在「全部」里出现；全部套餐都没分类时，前台不显示分类栏。
+        </p>
       </div>
+      <datalist id="km-plan-categories">
+        {knownCategories.map((name) => (
+          <option key={name} value={name} />
+        ))}
+      </datalist>
       {catalog.length === 0 ? (
         <p className="text-sm text-[var(--km-fg-muted)]">
           还没有套餐。先到「接入卡台」同步售卖套餐。
@@ -109,6 +135,7 @@ export function PlanDefaultPricesPanel() {
               <tr className="border-b border-[var(--km-border)]">
                 <th className="py-2 pr-3">套餐</th>
                 <th className="py-2 pr-3">卡台</th>
+                <th className="py-2 pr-3">店铺分类</th>
                 <th className="py-2 pr-3">默认成本（元）</th>
                 <th className="py-2 pr-3">零售价上限（元）</th>
                 <th className="py-2">平台可售</th>
@@ -125,6 +152,21 @@ export function PlanDefaultPricesPanel() {
                   </td>
                   <td className="py-2 pr-3">
                     {plan.cardplatformSellable ? "可售" : "不可售"}
+                  </td>
+                  <td className="py-2 pr-3">
+                    <input
+                      className="km-input w-32"
+                      list="km-plan-categories"
+                      maxLength={MAX_CATEGORY_LENGTH}
+                      placeholder="不分类"
+                      value={categoryDraft[plan.planKey] ?? ""}
+                      onChange={(event) =>
+                        setCategoryDraft((current) => ({
+                          ...current,
+                          [plan.planKey]: event.target.value,
+                        }))
+                      }
+                    />
                   </td>
                   <td className="py-2 pr-3">
                     <input
