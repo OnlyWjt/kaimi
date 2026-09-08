@@ -8,6 +8,7 @@ import { AdminGuide } from "@/components/admin-guide";
 import { AdminOrderTimeline } from "@/components/admin-order-timeline";
 import { CardIntegration } from "@/components/card-integration";
 import { CardSelectionConfig } from "@/components/card-selection-config";
+import { AdminEarningsStats } from "@/components/admin-earnings-stats";
 import { CommerceAdmin } from "@/components/commerce-admin";
 import { toast } from "@/components/toast";
 import { copyText } from "@/lib/copy-text";
@@ -22,6 +23,7 @@ type Tab =
   | "selection"
   | "commerce"
   | "agents"
+  | "earnings"
   | "appearance"
   | "guide";
 
@@ -88,6 +90,7 @@ const HASH_TABS: Tab[] = [
   "selection",
   "commerce",
   "agents",
+  "earnings",
   "appearance",
   "guide",
 ];
@@ -240,6 +243,7 @@ export default function AdminPage() {
         ["selection", "选卡配置"],
         ["commerce", "即时发卡"],
         ["agents", "代理管理"],
+        ["earnings", "收益统计"],
         ["appearance", "外观"],
         ["guide", "使用说明"],
       ] as const,
@@ -979,6 +983,8 @@ export default function AdminPage() {
         {tab === "commerce" ? <CommerceAdmin embedded /> : null}
 
         {tab === "agents" ? <AdminAgents /> : null}
+
+        {tab === "earnings" ? <AdminEarningsStats /> : null}
 
         {tab === "appearance" ? (
           <div className="grid gap-4 lg:grid-cols-2">

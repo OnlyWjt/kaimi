@@ -8,6 +8,7 @@ type GuideTab =
   | "selection"
   | "commerce"
   | "agents"
+  | "earnings"
   | "appearance";
 
 const SECTIONS = [
@@ -142,6 +143,9 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
             </GuideJump>
             <GuideJump title="代理管理" onClick={() => onGo("agents")}>
               新建代理、勾选套餐、复制开户说明。代理从 /login 登录，上手页在 /start。
+            </GuideJump>
+            <GuideJump title="收益统计" onClick={() => onGo("earnings")}>
+              按天 / 周 / 月或自定义区间看平台收益、代理佣金、漏斗和渠道套餐拆分。
             </GuideJump>
           </div>
           <p className="text-sm text-[var(--km-fg-muted)]">
