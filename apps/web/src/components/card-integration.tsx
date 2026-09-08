@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/components/toast";
 import { copyText } from "@/lib/copy-text";
+import { parseDbDate } from "@/lib/datetime";
 import { readApiJson } from "@/lib/http-error";
 
 type Account = {
@@ -35,8 +36,8 @@ type EventRow = {
 
 function formatWhen(value?: string | null) {
   if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
+  const d = parseDbDate(value);
+  if (!d) return value;
   return d.toLocaleString("zh-CN", { hour12: false });
 }
 

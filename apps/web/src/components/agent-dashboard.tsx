@@ -6,6 +6,7 @@ import { ApplyTheme } from "@/components/apply-theme";
 import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
 import { isExternalRedeemUrl } from "@/lib/agent-redeem-core";
+import { formatDateTime } from "@/lib/datetime";
 import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
 import { hasNextPage, pageLabel } from "@/lib/pagination-core";
 import { retailPriceError, retailPriceRangeHint } from "@/lib/plan-price-core";
@@ -600,7 +601,9 @@ export function AgentDashboard({
                 <tbody>
                   {earnings.list.map((item) => (
                     <tr key={item.id} className="border-b border-[var(--km-border)]">
-                      <td className="py-2 pr-3">{item.confirmedAt}</td>
+                      <td className="py-2 pr-3" title={item.confirmedAt}>
+                        {formatDateTime(item.confirmedAt)}
+                      </td>
                       <td className="py-2 pr-3">{item.orderNo}</td>
                       <td className="py-2 pr-3">{item.productName}</td>
                       <td className="py-2 pr-3">

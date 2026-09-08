@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { formatDateTime } from "@/lib/datetime";
 
 export function ShopQueryForm() {
   const [orderNo, setOrderNo] = useState("");
@@ -105,7 +106,7 @@ export function ShopQueryForm() {
               <ul className="mt-2 space-y-1 text-xs text-[var(--km-fg-muted)]">
                 {(o.history as Array<{ at?: string; status?: string; message?: string }>).map((h, i) => (
                   <li key={`${h.at}-${i}`}>
-                    {h.at ? `${h.at} · ` : ""}
+                    {h.at ? `${formatDateTime(h.at)} · ` : ""}
                     {h.status}
                     {h.message ? ` · ${h.message}` : ""}
                   </li>

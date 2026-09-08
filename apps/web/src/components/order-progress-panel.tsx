@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { parseDbDate } from "@/lib/datetime";
 import {
   ORDER_PIPELINE_STEPS,
   isOrderTerminalStatus,
@@ -40,17 +41,14 @@ export type ProgressEvent = {
 };
 
 function formatTime(iso: string) {
-  try {
-    return new Date(iso).toLocaleTimeString("zh-CN", { hour12: false });
-  } catch {
-    return iso;
-  }
+  const at = parseDbDate(iso);
+  if (!at) return iso;
+  return at.toLocaleTimeString("zh-CN", { hour12: false });
 }
 
 function formatStamp(iso: string) {
-  if (!iso) return "";
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return iso;
+  const at = parseDbDate(iso);
+  if (!at) return iso;
   return at.toLocaleString("zh-CN", { hour12: false });
 }
 

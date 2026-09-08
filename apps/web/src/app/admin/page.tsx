@@ -11,6 +11,7 @@ import { CardSelectionConfig } from "@/components/card-selection-config";
 import { CommerceAdmin } from "@/components/commerce-admin";
 import { toast } from "@/components/toast";
 import { copyText } from "@/lib/copy-text";
+import { parseDbDate } from "@/lib/datetime";
 import { THEME_CHOICES } from "@/lib/themes";
 
 type Tab =
@@ -104,8 +105,8 @@ function kindLabel(kind: unknown) {
 function formatWhen(value: unknown) {
   const raw = String(value || "");
   if (!raw) return "—";
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return raw;
+  const d = parseDbDate(raw);
+  if (!d) return raw;
   return d.toLocaleString("zh-CN", {
     month: "2-digit",
     day: "2-digit",

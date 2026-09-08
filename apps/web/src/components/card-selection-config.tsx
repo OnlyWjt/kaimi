@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "@/components/toast";
 import { issuerChannelLabel } from "@/lib/cardplatform/issuer";
+import { parseDbDate } from "@/lib/datetime";
 import { readApiJson } from "@/lib/http-error";
 
 type Account = {
@@ -82,8 +83,8 @@ const emptyHealth: HealthPolicy = {
 
 function formatWhen(value?: string | null) {
   if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
+  const d = parseDbDate(value);
+  if (!d) return value;
   return d.toLocaleString("zh-CN", { hour12: false });
 }
 

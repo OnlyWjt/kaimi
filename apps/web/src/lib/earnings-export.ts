@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { formatBeijingDateTime, formatUtcDate } from "./datetime";
 
 const MONEY_FORMAT = '¥#,##0.00;[Red]-¥#,##0.00';
 const DANGEROUS_FORMULA_PREFIX = /^[=+\-@]/;
@@ -71,6 +72,11 @@ function yuan(cents: number) {
   return cents / 100;
 }
 
+/** 导出文件在服务端生成，没有查看者时区，所以时间点一律按北京时间落格。 */
+function stamp(value: string) {
+  return safeText(formatBeijingDateTime(value));
+}
+
 function configureSheet(
   sheet: ExcelJS.Worksheet,
   columns: Partial<ExcelJS.Column>[],
@@ -106,8 +112,8 @@ export async function buildEarningsWorkbook(input: {
 
   const summary = workbook.addWorksheet("收益汇总");
   configureSheet(summary, [
-    { header: "开始时间", key: "periodStart", width: 22 },
-    { header: "结束时间", key: "periodEnd", width: 22 },
+    { header: "开始日期", key: "periodStart", width: 22 },
+    { header: "结束日期", key: "periodEnd", width: 22 },
     { header: "代理", key: "agentName", width: 20 },
     { header: "成交订单数", key: "orderCount", width: 14 },
     { header: "客户实付", key: "gross", width: 16 },
@@ -122,8 +128,8 @@ export async function buildEarningsWorkbook(input: {
     { header: "账务调整", key: "adjustment", width: 16 },
   ]);
   summary.addRow({
-    periodStart: safeText(input.summary.periodStart),
-    periodEnd: safeText(input.summary.periodEnd),
+    periodStart: safeText(formatUtcDate(input.summary.periodStart)),
+    periodEnd: safeText(formatUtcDate(input.summary.periodEnd)),
     agentName: safeText(input.summary.agentName),
     orderCount: input.summary.orderCount,
     gross: yuan(input.summary.grossCents),
@@ -152,7 +158,7 @@ export async function buildEarningsWorkbook(input: {
 
   const details = workbook.addWorksheet("收益明细");
   configureSheet(details, [
-    { header: "收益确认时间", key: "confirmedAt", width: 22 },
+    { header: "收益确认时间(北京时间)", key: "confirmedAt", width: 24 },
     { header: "订单号", key: "orderNo", width: 25 },
     { header: "代理", key: "agentName", width: 20 },
     { header: "套餐", key: "planName", width: 18 },
@@ -170,7 +176,7 @@ export async function buildEarningsWorkbook(input: {
   ]);
   for (const item of input.details) {
     details.addRow({
-      confirmedAt: safeText(item.confirmedAt),
+      confirmedAt: stamp(item.confirmedAt),
       orderNo: safeText(item.orderNo),
       agentName: safeText(item.agentName),
       planName: safeText(item.planName),
@@ -199,7 +205,7 @@ export async function buildEarningsWorkbook(input: {
 
   const adjustments = workbook.addWorksheet("账务调整");
   configureSheet(adjustments, [
-    { header: "调整时间", key: "createdAt", width: 22 },
+    { header: "调整时间(北京时间)", key: "createdAt", width: 22 },
     { header: "订单号", key: "orderNo", width: 25 },
     { header: "代理", key: "agentName", width: 20 },
     { header: "类型", key: "type", width: 16 },
@@ -211,7 +217,7 @@ export async function buildEarningsWorkbook(input: {
   ]);
   for (const item of input.adjustments || []) {
     adjustments.addRow({
-      createdAt: safeText(item.createdAt),
+      createdAt: stamp(item.createdAt),
       orderNo: safeText(item.orderNo),
       agentName: safeText(item.agentName),
       type: safeText(item.type),
@@ -228,25 +234,25 @@ export async function buildEarningsWorkbook(input: {
   configureSheet(settlements, [
     { header: "结算单号", key: "settlementNo", width: 24 },
     { header: "代理", key: "agentName", width: 20 },
-    { header: "周期开始", key: "periodStart", width: 22 },
-    { header: "周期结束", key: "periodEnd", width: 22 },
+    { header: "周期开始", key: "periodStart", width: 16 },
+    { header: "周期结束", key: "periodEnd", width: 16 },
     { header: "结算金额", key: "amount", width: 16 },
     { header: "打款渠道", key: "paymentMethod", width: 16 },
     { header: "打款流水号", key: "paymentReference", width: 26 },
     { header: "状态", key: "status", width: 14 },
-    { header: "结算时间", key: "settledAt", width: 22 },
+    { header: "结算时间(北京时间)", key: "settledAt", width: 22 },
   ]);
   for (const item of input.settlements) {
     settlements.addRow({
       settlementNo: safeText(item.settlementNo),
       agentName: safeText(item.agentName),
-      periodStart: safeText(item.periodStart),
-      periodEnd: safeText(item.periodEnd),
+      periodStart: safeText(formatUtcDate(item.periodStart)),
+      periodEnd: safeText(formatUtcDate(item.periodEnd)),
       amount: yuan(item.amountCents),
       paymentMethod: safeText(item.paymentMethod),
       paymentReference: safeText(item.paymentReference),
       status: safeText(item.status),
-      settledAt: safeText(item.settledAt),
+      settledAt: stamp(item.settledAt),
     });
   }
   formatMoneyColumns(settlements, ["amount"]);

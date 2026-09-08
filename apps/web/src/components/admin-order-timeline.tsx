@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { formatDateTimeSeconds } from "@/lib/datetime";
 import { adminStatusLabel } from "@/lib/status-labels";
 
 type Snapshot = {
@@ -65,7 +66,7 @@ export function AdminOrderTimeline({ orderNo }: { orderNo: string }) {
           {snapshot.accountEmail ? <span>账号 {snapshot.accountEmail}</span> : null}
           {snapshot.cardLastFour ? <span>卡尾号 {snapshot.cardLastFour}</span> : null}
           {/* 内容没变的那几轮不再写库，所以这是「上次有变化」而不是「上次拉取」。 */}
-          <span>上次变化 {snapshot.fetchedAt}</span>
+          <span>上次变化 {formatDateTimeSeconds(snapshot.fetchedAt)}</span>
         </div>
       ) : null}
 
@@ -80,7 +81,9 @@ export function AdminOrderTimeline({ orderNo }: { orderNo: string }) {
                 <span className="font-mono text-[var(--km-fg-muted)]">
                   {event.category || "—"}
                 </span>
-                <span className="font-mono text-[var(--km-fg-muted)]">{event.at}</span>
+                <span className="font-mono text-[var(--km-fg-muted)]" title={event.at}>
+                  {formatDateTimeSeconds(event.at)}
+                </span>
               </div>
               {event.message ? (
                 <p className="text-[var(--km-fg-muted)]">{event.message}</p>
