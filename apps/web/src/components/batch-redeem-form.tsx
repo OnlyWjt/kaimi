@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useAskDialog } from "@/components/ask-dialog";
+import { useShopToolPaths } from "@/components/use-shop-tool-paths";
 import { toast } from "@/components/toast";
 import { copyText } from "@/lib/copy-text";
 import {
@@ -81,6 +82,7 @@ export function BatchRedeemForm({
   orderRef?: { orderNo: string; queryToken: string };
 }) {
   const { ask, dialog } = useAskDialog();
+  const paths = useShopToolPaths();
   const [codeText, setCodeText] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [checked, setChecked] = useState(false);
@@ -671,7 +673,7 @@ export function BatchRedeemForm({
                     {row.orderNo ? (
                       <Link
                         className="underline"
-                        href={`/lookup?orderNo=${encodeURIComponent(row.orderNo)}`}
+                        href={paths.lookupOrder(row.orderNo)}
                       >
                         查看这张的进度
                       </Link>

@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_AGENT_REDEEM_URL,
+  buildRechargePath,
   isExternalRedeemUrl,
+  isPlatformRedeemPath,
+  keepSearchPath,
   normalizeAgentRedeemUrl,
   resolveAgentRedeemUrl,
+  resolveShopRedeemUrl,
+  shopCdkPath,
+  shopLookupPath,
+  shopRedeemPath,
+  shopSlugFromPathname,
 } from "./agent-redeem-core";
 
 describe("normalizeAgentRedeemUrl", () => {
@@ -78,5 +86,64 @@ describe("resolveAgentRedeemUrl", () => {
     expect(resolveAgentRedeemUrl("https://cdk.other.com/agent", "")).toBe(
       "https://cdk.other.com/agent",
     );
+  });
+});
+
+describe("resolveShopRedeemUrl", () => {
+  it("默认兑换页挂到该店路径", () => {
+    expect(shopRedeemPath("onlywjt")).toBe("/s/onlywjt/recharge");
+    expect(resolveShopRedeemUrl("", "onlywjt")).toBe("/s/onlywjt/recharge");
+    expect(resolveShopRedeemUrl("/recharge", "onlywjt")).toBe("/s/onlywjt/recharge");
+    expect(
+      resolveShopRedeemUrl("https://cdk.jincieryi.top/agent", "onlywjt"),
+    ).toBe("/s/onlywjt/recharge");
+    expect(isPlatformRedeemPath("/recharge?code=ab")).toBe(true);
+  });
+
+  it("管理员配的其它地址不改", () => {
+    expect(resolveShopRedeemUrl("/cdk", "onlywjt")).toBe("/cdk");
+    expect(
+      resolveShopRedeemUrl("https://cdk.other.com/agent", "onlywjt"),
+    ).toBe("https://cdk.other.com/agent");
+  });
+});
+
+describe("buildRechargePath", () => {
+  it("单张带卡密，多张带单号和查询凭证", () => {
+    expect(
+      buildRechargePath("/s/onlywjt/recharge", { codes: ["ABCD"] }),
+    ).toBe("/s/onlywjt/recharge?code=ABCD");
+    expect(
+      buildRechargePath("/s/onlywjt/recharge", {
+        codes: ["A", "B"],
+        orderNo: "RS1",
+        queryToken: "tok",
+      }),
+    ).toBe("/s/onlywjt/recharge?order=RS1&qt=tok");
+  });
+
+  it("外部兑换地址不加本站查询参数", () => {
+    expect(
+      buildRechargePath("https://cdk.other.com/agent", { codes: ["ABCD"] }),
+    ).toBe("https://cdk.other.com/agent");
+  });
+});
+
+describe("shop tool paths from pathname", () => {
+  it("在店铺子页拼本店地址，平台页回裸路径", () => {
+    expect(shopSlugFromPathname("/s/onlywjt/recharge")).toBe("onlywjt");
+    expect(shopCdkPath("onlywjt")).toBe("/s/onlywjt/cdk");
+    expect(shopLookupPath("onlywjt", "RS1")).toBe("/s/onlywjt/lookup?orderNo=RS1");
+    expect(shopLookupPath("", "RS1")).toBe("/lookup?orderNo=RS1");
+    expect(shopRedeemPath("")).toBe("/recharge");
+  });
+});
+
+describe("keepSearchPath", () => {
+  it("旧 slug 跳转时保住查询参数", () => {
+    expect(keepSearchPath("/recharge", { code: "AB", order: "", qt: undefined })).toBe(
+      "/recharge?code=AB",
+    );
+    expect(keepSearchPath("/cdk", {})).toBe("/cdk");
   });
 });

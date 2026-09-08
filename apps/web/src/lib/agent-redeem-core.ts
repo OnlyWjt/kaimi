@@ -69,3 +69,63 @@ export function resolveAgentRedeemUrl(stored: string, selfBaseUrl = "") {
     ? DEFAULT_AGENT_REDEEM_URL
     : normalized;
 }
+
+export function shopRedeemPath(slug: string) {
+  const clean = slug.trim();
+  return clean ? `/s/${clean}/recharge` : DEFAULT_AGENT_REDEEM_URL;
+}
+
+export function shopCdkPath(slug: string) {
+  const clean = slug.trim();
+  return clean ? `/s/${clean}/cdk` : "/cdk";
+}
+
+export function shopLookupPath(slug: string, orderNo = "") {
+  const clean = slug.trim();
+  const base = clean ? `/s/${clean}/lookup` : "/lookup";
+  return orderNo ? `${base}?orderNo=${encodeURIComponent(orderNo)}` : base;
+}
+
+/** 当前在 /s/{slug}/… 就跟店走，否则回平台裸路径。 */
+export function shopSlugFromPathname(pathname: string) {
+  const match = /^\/s\/([^/?#]+)/.exec(pathname);
+  return match?.[1]?.trim() || "";
+}
+
+/** 只有平台默认兑换页才改挂到店铺；管理员配的其它地址原样返回。 */
+export function isPlatformRedeemPath(value: string) {
+  const path = (value.split("?")[0] || "").replace(/\/$/, "");
+  return path === "/recharge";
+}
+
+export function resolveShopRedeemUrl(stored: string, slug: string, selfBaseUrl = "") {
+  const resolved = resolveAgentRedeemUrl(stored, selfBaseUrl);
+  return isPlatformRedeemPath(resolved) ? shopRedeemPath(slug) : resolved;
+}
+
+export function keepSearchPath(pathname: string, search: Record<string, string | undefined>) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(search)) {
+    const trimmed = value?.trim();
+    if (trimmed) query.set(key, trimmed);
+  }
+  const encoded = query.toString();
+  return encoded ? `${pathname}?${encoded}` : pathname;
+}
+
+export function buildRechargePath(
+  basePath: string,
+  input: { codes: string[]; orderNo?: string; queryToken?: string },
+) {
+  if (isExternalRedeemUrl(basePath)) return basePath;
+  const root =
+    (basePath.split("?")[0] || DEFAULT_AGENT_REDEEM_URL).replace(/\/$/, "") ||
+    DEFAULT_AGENT_REDEEM_URL;
+  if (input.codes.length === 1 && input.codes[0]) {
+    return `${root}?code=${encodeURIComponent(input.codes[0])}`;
+  }
+  if (input.codes.length > 1 && input.orderNo && input.queryToken) {
+    return `${root}?order=${encodeURIComponent(input.orderNo)}&qt=${encodeURIComponent(input.queryToken)}`;
+  }
+  return root;
+}

@@ -1,54 +1,25 @@
-import { notFound, redirect } from "next/navigation";
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import {
   agentPlanPrices,
-  agentSlugHistory,
-  agentStorefronts,
-  agents,
   paymentChannelConfigs,
   platformPlans,
 } from "@/db/schema";
 import { AgentStorefront } from "@/components/agent-storefront";
 import { ApplyTheme } from "@/components/apply-theme";
-import { normalizeAgentSlug } from "@/lib/agent-slug";
-import {
-  planToProduct,
-  rowToSettings,
-  type StorefrontConfig,
-} from "@/lib/agent-storefront-config";
-import { bootDb } from "@/lib/config";
-import { getStoreSalesGate } from "@/lib/ops-health";
+import { planToProduct, type StorefrontConfig } from "@/lib/agent-storefront-config";
 import { getAgentRedeemUrl } from "@/lib/agent-redeem";
+import { loadAgentShop } from "@/lib/agent-shop";
+import { getStoreSalesGate } from "@/lib/ops-health";
 import { getMaxOrderQuantity } from "@/lib/store-quantity";
-import { resolveThemeId } from "@/lib/storefront";
 
 export default async function AgentStorePage({
   params,
 }: {
   params: Promise<{ slug: string }>;
 }) {
-  await bootDb();
   const { slug: rawSlug } = await params;
-  const slug = normalizeAgentSlug(rawSlug);
-  const agent = await db.query.agents.findFirst({
-    where: eq(agents.currentSlug, slug),
-  });
-
-  if (!agent) {
-    const historical = await db.query.agentSlugHistory.findFirst({
-      where: eq(agentSlugHistory.slug, slug),
-    });
-    if (historical) {
-      const current = await db.query.agents.findFirst({
-        where: eq(agents.id, historical.agentId),
-      });
-      if (current) redirect(`/s/${current.currentSlug}`);
-    }
-    notFound();
-  }
-
-  const themeId = resolveThemeId(agent.themeId);
+  const { agent, themeId, settings } = await loadAgentShop(rawSlug);
   const salesGate = await getStoreSalesGate();
   const open = agent.status === "active" && salesGate.open;
 
@@ -99,9 +70,6 @@ export default async function AgentStorePage({
     );
   }
 
-  const settingsRow = await db.query.agentStorefronts.findFirst({
-    where: eq(agentStorefronts.agentId, agent.id),
-  });
   const channels = (
     await db.query.paymentChannelConfigs.findMany({
       where: eq(paymentChannelConfigs.enabled, true),
@@ -113,7 +81,6 @@ export default async function AgentStorePage({
         channel === "alipay" || channel === "wxpay",
     );
 
-  const settings = rowToSettings(settingsRow);
   const config: StorefrontConfig = {
     ...settings,
     shopName: agent.displayName,
@@ -140,7 +107,7 @@ export default async function AgentStorePage({
         slug={agent.currentSlug}
         channels={channels}
         maxQuantity={await getMaxOrderQuantity()}
-        redeemUrl={await getAgentRedeemUrl()}
+        redeemUrl={await getAgentRedeemUrl(agent.currentSlug)}
       />
     </main>
   );

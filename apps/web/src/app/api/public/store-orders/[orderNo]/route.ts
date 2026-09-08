@@ -1,8 +1,13 @@
 import { after, NextResponse } from "next/server";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { issuedCdks, storeOrders } from "@/db/schema";
-import { bootDb } from "@/lib/config";
+import { agents, issuedCdks, storeOrders } from "@/db/schema";
+import {
+  buildRechargePath,
+  isExternalRedeemUrl,
+  resolveShopRedeemUrl,
+} from "@/lib/agent-redeem";
+import { bootDb, getSetting } from "@/lib/config";
 import { decryptSecret, hashLookupValue } from "@/lib/crypto";
 import { fulfillStoreOrder } from "@/lib/fulfillment/fulfill-store-order";
 import { sanitizeLog } from "@/lib/log";
@@ -32,18 +37,27 @@ async function serializePublicOrder(
         })
       : [];
   const codes = cdks.map((row) => decryptSecret(row.codeEncrypted));
-  const origin = await getPublicBaseUrl(req);
+  const [origin, storedRedeem, agent] = await Promise.all([
+    getPublicBaseUrl(req),
+    getSetting("agent_redeem_url", ""),
+    db.query.agents.findFirst({
+      where: eq(agents.id, order.agentId),
+      columns: { currentSlug: true },
+    }),
+  ]);
   const queryToken = order.queryTokenEncrypted
     ? decryptSecret(order.queryTokenEncrypted)
     : "";
   // 多张卡不把卡密塞进地址：链接会很长，还会把卡密留在浏览器历史和中间代理的日志里。
   // 只带单号和已有的查询凭证，批量兑换页凭这两个自己去订单接口取卡密。
-  const rechargePath =
-    codes.length === 1
-      ? `/recharge?code=${encodeURIComponent(codes[0]!)}`
-      : codes.length > 1 && queryToken
-        ? `/recharge?order=${encodeURIComponent(order.orderNo)}&qt=${encodeURIComponent(queryToken)}`
-        : "/recharge";
+  const redeemBase = agent?.currentSlug
+    ? resolveShopRedeemUrl(storedRedeem, agent.currentSlug, origin)
+    : "/recharge";
+  const rechargePath = buildRechargePath(redeemBase, {
+    codes,
+    orderNo: order.orderNo,
+    queryToken,
+  });
   const quantity = Math.max(1, order.quantity);
   return {
     orderNo: order.orderNo,
@@ -69,7 +83,11 @@ async function serializePublicOrder(
     codes,
     queryToken,
     rechargePath,
-    rechargeUrl: origin ? `${origin}${rechargePath}` : rechargePath,
+    rechargeUrl: isExternalRedeemUrl(rechargePath)
+      ? rechargePath
+      : origin
+        ? `${origin}${rechargePath}`
+        : rechargePath,
     cdkStatus: cdks[0]?.status ?? null,
     paidAt: order.paidAt,
     deliveredAt: order.deliveredAt,

@@ -28,7 +28,7 @@ export default async function AgentPage() {
   if (!profile) redirect("/login");
 
   const themeId = resolveThemeId(profile.themeId);
-  const redeemUrl = await getAgentRedeemUrl();
+  const redeemUrl = await getAgentRedeemUrl(profile.currentSlug);
   return (
     <main data-theme={themeId} className="km-themed-page">
       <section className="km-shell py-10">

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useShopToolPaths } from "@/components/use-shop-tool-paths";
 import { parseDbDate } from "@/lib/datetime";
 import {
   ORDER_PIPELINE_STEPS,
@@ -81,7 +82,7 @@ export function OrderProgressPanel({
   showLookupLink = false,
   events = [],
   onRetry,
-  retryHref = "/recharge",
+  retryHref,
 }: {
   row: OrderProgressRow;
   polling?: boolean;
@@ -91,6 +92,8 @@ export function OrderProgressPanel({
   onRetry?: () => void;
   retryHref?: string;
 }) {
+  const paths = useShopToolPaths();
+  const retryTo = retryHref || paths.recharge;
   const orderNo = String(row.orderNo || "");
   const status = normalizeOrderStatus(String(row.fulfillStatus || ""));
   const message = row.message != null ? String(row.message) : "";
@@ -309,7 +312,7 @@ export function OrderProgressPanel({
               再试一次
             </button>
           ) : (
-            <Link href={retryHref} className="km-btn km-btn-sm">
+            <Link href={retryTo} className="km-btn km-btn-sm">
               再试一次
             </Link>
           )}
@@ -320,7 +323,7 @@ export function OrderProgressPanel({
         <p className="text-xs text-[var(--km-fg-muted)]">进度更新中…</p>
       ) : null}
       {showLookupLink && orderNo ? (
-        <Link className="inline-block text-sm underline" href={`/lookup?orderNo=${encodeURIComponent(orderNo)}`}>
+        <Link className="inline-block text-sm underline" href={paths.lookupOrder(orderNo)}>
           在订单进度页打开
         </Link>
       ) : null}

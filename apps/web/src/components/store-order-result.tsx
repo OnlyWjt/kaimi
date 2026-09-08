@@ -7,6 +7,7 @@ import { copyText } from "@/lib/copy-text";
 import { readApiJson } from "@/lib/http-error";
 import { yuanTextFromCents } from "@/lib/money";
 import { publicStatusLabel } from "@/lib/status-labels";
+import { isExternalRedeemUrl } from "@/lib/agent-redeem-core";
 import {
   looksLikeStoreQueryToken,
   pickStoreQueryToken,
@@ -180,7 +181,9 @@ export function StoreOrderResultPanel({
   const rechargePath = order.rechargePath || "/recharge";
   const rechargeUrl =
     order.rechargeUrl ||
-    (typeof window !== "undefined" ? `${window.location.origin}${rechargePath}` : rechargePath);
+    (!isExternalRedeemUrl(rechargePath) && typeof window !== "undefined"
+      ? `${window.location.origin}${rechargePath}`
+      : rechargePath);
   const codes = order.codes?.length
     ? order.codes
     : order.code
