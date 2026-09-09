@@ -5,6 +5,7 @@ import {
   resolveProductName,
   rowToSettings,
   settingsToRow,
+  shopNameSchema,
 } from "./agent-storefront-config";
 
 const basePlan = {
@@ -72,6 +73,14 @@ describe("装修配置商品名落库", () => {
     });
     expect(JSON.parse(row.productNamesJson)).toEqual({ plus: { zh: "店内 Plus", en: "" } });
     expect(rowToSettings(row).productNames).toEqual({ plus: { zh: "店内 Plus", en: "" } });
+  });
+});
+
+describe("shopNameSchema", () => {
+  it("收下 1–64 字的店名，空的不要", () => {
+    expect(shopNameSchema.parse(" onlyWjt ")).toBe("onlyWjt");
+    expect(shopNameSchema.safeParse("").success).toBe(false);
+    expect(shopNameSchema.safeParse("x".repeat(65)).success).toBe(false);
   });
 });
 

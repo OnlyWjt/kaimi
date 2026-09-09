@@ -7,6 +7,7 @@ import { bootDb } from "@/lib/config";
 import {
   rowToSettings,
   settingsToRow,
+  shopNameSchema,
   storefrontSettingsSchema,
 } from "@/lib/agent-storefront-config";
 
@@ -42,11 +43,18 @@ export async function GET() {
   if (denied || !session) return denied;
   await bootDb();
 
-  const row = await db.query.agentStorefronts.findFirst({
-    where: eq(agentStorefronts.agentId, session.agentId),
-  });
+  const [row, agent] = await Promise.all([
+    db.query.agentStorefronts.findFirst({
+      where: eq(agentStorefronts.agentId, session.agentId),
+    }),
+    db.query.agents.findFirst({
+      where: eq(agents.id, session.agentId),
+      columns: { displayName: true },
+    }),
+  ]);
   return NextResponse.json({
     settings: rowToSettings(row),
+    shopName: agent?.displayName || "",
     plans: await listAssignedPlans(session.agentId),
   });
 }
@@ -63,23 +71,43 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "代理账号不可用" }, { status: 403 });
   }
 
-  const parsed = storefrontSettingsSchema.safeParse(await req.json());
+  const body = await req.json();
+  const parsed = storefrontSettingsSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.issues[0]?.message || "参数无效" },
       { status: 400 },
     );
   }
+  const shopNameParsed = shopNameSchema.safeParse(body.shopName ?? agent.displayName);
+  if (!shopNameParsed.success) {
+    return NextResponse.json(
+      { error: shopNameParsed.error.issues[0]?.message || "店名无效" },
+      { status: 400 },
+    );
+  }
 
   const columns = settingsToRow(parsed.data);
   const now = new Date().toISOString();
-  await db
-    .insert(agentStorefronts)
-    .values({ agentId: session.agentId, ...columns, updatedAt: now })
-    .onConflictDoUpdate({
-      target: agentStorefronts.agentId,
-      set: { ...columns, updatedAt: now },
-    });
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(agentStorefronts)
+      .values({ agentId: session.agentId, ...columns, updatedAt: now })
+      .onConflictDoUpdate({
+        target: agentStorefronts.agentId,
+        set: { ...columns, updatedAt: now },
+      });
+    if (shopNameParsed.data !== agent.displayName) {
+      await tx
+        .update(agents)
+        .set({ displayName: shopNameParsed.data, updatedAt: now })
+        .where(eq(agents.id, session.agentId));
+    }
+  });
 
-  return NextResponse.json({ ok: true, settings: parsed.data });
+  return NextResponse.json({
+    ok: true,
+    settings: parsed.data,
+    shopName: shopNameParsed.data,
+  });
 }

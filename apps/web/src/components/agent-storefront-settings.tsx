@@ -107,6 +107,7 @@ type AssignedPlan = { planKey: string; name: string };
 
 export function AgentStorefrontSettings() {
   const [settings, setSettings] = useState<StorefrontSettings>(DEFAULT_SETTINGS);
+  const [shopName, setShopName] = useState("");
   const [plans, setPlans] = useState<AssignedPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -117,9 +118,11 @@ export function AgentStorefrontSettings() {
       try {
         const data = await readApiJson<{
           settings: StorefrontSettings;
+          shopName?: string;
           plans?: AssignedPlan[];
         }>(await fetch("/api/agent/storefront", { cache: "no-store" }));
         setSettings(data.settings);
+        setShopName(data.shopName || "");
         setPlans(data.plans ?? []);
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : "装修配置加载失败");
@@ -152,7 +155,7 @@ export function AgentStorefrontSettings() {
         await fetch("/api/agent/storefront", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(settings),
+          body: JSON.stringify({ ...settings, shopName }),
         }),
       );
       toast("店铺装修已保存");
@@ -181,6 +184,19 @@ export function AgentStorefrontSettings() {
 
       <div className="space-y-4">
         <h3 className="text-sm font-semibold">品牌</h3>
+        <label className="block space-y-1.5">
+          <span className="text-sm">店名</span>
+          <input
+            className="km-input max-w-md"
+            maxLength={64}
+            value={shopName}
+            placeholder="显示在顶栏和页脚"
+            onChange={(event) => setShopName(event.target.value)}
+          />
+          <p className="text-xs text-[var(--km-fg-muted)]">
+            店铺头尾、版权行、兑换页标题都会用这个名字。
+          </p>
+        </label>
         <label className="block space-y-1.5">
           <span className="text-sm">Logo 字母</span>
           <input

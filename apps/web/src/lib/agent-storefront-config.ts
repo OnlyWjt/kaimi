@@ -83,6 +83,13 @@ const localText = z.object({
 
 const langSchema = z.enum(["zh", "en"]);
 
+/** 头尾店名，和超管建号时的显示名是同一列 */
+export const shopNameSchema = z
+  .string()
+  .trim()
+  .min(1, "请填写店名")
+  .max(64, "店名最多 64 个字");
+
 export const storefrontSettingsSchema = z
   .object({
     slogan: localText,
