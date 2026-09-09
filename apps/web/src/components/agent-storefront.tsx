@@ -135,7 +135,11 @@ const I18N = {
       infoTitle: "详细资讯",
       back: "返回商品列表",
       secure: "自动发货 · 即买即用",
+      invoiceAskTitle: "需要开具发票吗？",
+      invoiceAskSub: "只开增值税普通发票。勾选后实付金额上浮 10%（开票服务费），该加价归平台、不计入代理佣金。",
       invoiceNeed: "需要开具发票",
+      invoiceCancel: "返回",
+      invoiceContinue: "去支付",
       invoiceWarn: "仅支持增值税普通发票。勾选后实付金额上浮 10%（开票服务费），该加价归平台、不计入代理佣金。",
       invoiceTitle: "发票抬头",
       invoiceTitlePh: "公司或个人名称",
@@ -201,7 +205,11 @@ const I18N = {
       infoTitle: "Details",
       back: "Back to products",
       secure: "Auto delivery · ready to use",
-      invoiceNeed: "Need an invoice",
+      invoiceAskTitle: "Need an invoice?",
+      invoiceAskSub: "VAT regular invoice only. Checking this adds 10% to the amount you pay. The surcharge goes to the platform, not the agent.",
+      invoiceNeed: "I need an invoice",
+      invoiceCancel: "Back",
+      invoiceContinue: "Pay now",
       invoiceWarn: "VAT regular invoice only. Checking this adds 10% to the amount you pay. The surcharge goes to the platform, not the agent.",
       invoiceTitle: "Invoice title",
       invoiceTitlePh: "Company or personal name",
@@ -426,6 +434,7 @@ export function AgentStorefront({
   const [channel, setChannel] = useState<Channel>(channels[0] || "alipay");
   const [buyBusy, setBuyBusy] = useState(false);
   const [buyError, setBuyError] = useState("");
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [wantInvoice, setWantInvoice] = useState(false);
   const [invoiceTitle, setInvoiceTitle] = useState("");
   const [invoiceNote, setInvoiceNote] = useState("");
@@ -496,13 +505,18 @@ export function AgentStorefront({
   }, [buyerEmail, invoiceEmailTouched]);
 
   useEffect(() => {
-    if (!active) return;
+    if (!active && !invoiceOpen) return;
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setActive(null);
+      if (event.key !== "Escape") return;
+      if (invoiceOpen) {
+        if (!buyBusy) setInvoiceOpen(false);
+        return;
+      }
+      setActive(null);
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [active]);
+  }, [active, invoiceOpen, buyBusy]);
 
   function jump(id: "home" | "products" | "query" | "contact") {
     setNav(id);
@@ -519,6 +533,7 @@ export function AgentStorefront({
     setSpecId(product.specs[0]?.id ?? "");
     setQty(1);
     setBuyError("");
+    setInvoiceOpen(false);
     setWantInvoice(false);
     setInvoiceTitle("");
     setInvoiceNote("");
@@ -561,11 +576,31 @@ export function AgentStorefront({
     }
   }
 
+  function openInvoicePrompt() {
+    if (!activeSpec) return;
+    if (!buyerEmail.trim()) {
+      setBuyError(t.detail.emailRequired);
+      return;
+    }
+    if (live && !channels.length) {
+      setBuyError(t.detail.channelEmpty);
+      return;
+    }
+    setBuyError("");
+    setWantInvoice(false);
+    setInvoiceTitle("");
+    setInvoiceNote("");
+    setInvoiceEmailTouched(false);
+    setInvoiceEmail(buyerEmail);
+    setInvoiceOpen(true);
+  }
+
   async function buy() {
     if (!activeSpec) return;
     const email = buyerEmail.trim();
     if (!email) {
       setBuyError(t.detail.emailRequired);
+      setInvoiceOpen(false);
       return;
     }
     if (wantInvoice) {
@@ -1091,61 +1126,6 @@ export function AgentStorefront({
                   />
                   <p className="km-sf-modal-hint">{t.detail.emailHint}</p>
 
-                  <label className="km-sf-invoice-check">
-                    <input
-                      type="checkbox"
-                      checked={wantInvoice}
-                      onChange={(event) => {
-                        setWantInvoice(event.target.checked);
-                        setBuyError("");
-                      }}
-                    />
-                    <span>{t.detail.invoiceNeed}</span>
-                  </label>
-                  {wantInvoice ? (
-                    <div className="km-sf-invoice-form">
-                      <p className="km-sf-invoice-warn">{t.detail.invoiceWarn}</p>
-                      <p className="km-sf-field-label">{t.detail.invoiceTitle}</p>
-                      <input
-                        className="km-input"
-                        value={invoiceTitle}
-                        onChange={(event) => setInvoiceTitle(event.target.value)}
-                        placeholder={t.detail.invoiceTitlePh}
-                        maxLength={120}
-                      />
-                      <p className="km-sf-field-label">{t.detail.invoiceNote}</p>
-                      <input
-                        className="km-input"
-                        value={invoiceNote}
-                        onChange={(event) => setInvoiceNote(event.target.value)}
-                        placeholder={t.detail.invoiceNotePh}
-                        maxLength={200}
-                      />
-                      <p className="km-sf-field-label">{t.detail.invoiceAmount}</p>
-                      <p className="km-sf-invoice-amount">
-                        ¥{yuanTextFromCents(totalCents)}
-                      </p>
-                      <p className="km-sf-modal-hint">
-                        {t.detail.invoiceAmountHint(
-                          yuanTextFromCents(goodsCents),
-                          yuanTextFromCents(surchargeCents),
-                        )}
-                      </p>
-                      <p className="km-sf-field-label">{t.detail.invoiceEmail}</p>
-                      <input
-                        className="km-input"
-                        type="email"
-                        value={invoiceEmail}
-                        onChange={(event) => {
-                          setInvoiceEmailTouched(true);
-                          setInvoiceEmail(event.target.value);
-                        }}
-                        placeholder={t.queryPlaceholder}
-                      />
-                      <p className="km-sf-modal-hint">{t.detail.invoiceEmailHint}</p>
-                    </div>
-                  ) : null}
-
                   <p className="km-sf-field-label">{t.detail.channel}</p>
                   {channels.length ? (
                     <div className="km-sf-channels" role="radiogroup" aria-label={t.detail.channel}>
@@ -1173,11 +1153,11 @@ export function AgentStorefront({
                     type="button"
                     className="km-btn km-sf-detail-buy"
                     disabled={buyBusy}
-                    onClick={() => void buy()}
+                    onClick={openInvoicePrompt}
                   >
                     {buyBusy
                       ? t.detail.payBusy
-                      : `${t.detail.pay} · ¥${yuanTextFromCents(totalCents)}`}
+                      : `${t.detail.pay} · ¥${yuanTextFromCents(goodsCents)}`}
                   </button>
 
                   <p className="km-sf-secure">
@@ -1252,6 +1232,98 @@ export function AgentStorefront({
           </div>
         </footer>
       </div>
+
+      {invoiceOpen ? (
+        <div
+          className="km-modal-backdrop"
+          onClick={() => {
+            if (!buyBusy) setInvoiceOpen(false);
+          }}
+        >
+          <div
+            className="km-modal km-modal-ask km-sf-invoice-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="km-sf-invoice-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="km-sf-invoice-title">{t.detail.invoiceAskTitle}</h2>
+            <p className="km-sf-invoice-warn">{t.detail.invoiceAskSub}</p>
+            <label className={`km-sf-invoice-check-card${wantInvoice ? " is-on" : ""}`}>
+              <input
+                type="checkbox"
+                checked={wantInvoice}
+                onChange={(event) => {
+                  setWantInvoice(event.target.checked);
+                  setBuyError("");
+                }}
+              />
+              <span>{t.detail.invoiceNeed}</span>
+            </label>
+            {wantInvoice ? (
+              <div className="km-sf-invoice-form">
+                <p className="km-sf-field-label">{t.detail.invoiceTitle}</p>
+                <input
+                  className="km-input"
+                  value={invoiceTitle}
+                  onChange={(event) => setInvoiceTitle(event.target.value)}
+                  placeholder={t.detail.invoiceTitlePh}
+                  maxLength={120}
+                />
+                <p className="km-sf-field-label">{t.detail.invoiceNote}</p>
+                <input
+                  className="km-input"
+                  value={invoiceNote}
+                  onChange={(event) => setInvoiceNote(event.target.value)}
+                  placeholder={t.detail.invoiceNotePh}
+                  maxLength={200}
+                />
+                <p className="km-sf-field-label">{t.detail.invoiceAmount}</p>
+                <p className="km-sf-invoice-amount">¥{yuanTextFromCents(totalCents)}</p>
+                <p className="km-sf-modal-hint">
+                  {t.detail.invoiceAmountHint(
+                    yuanTextFromCents(goodsCents),
+                    yuanTextFromCents(surchargeCents),
+                  )}
+                </p>
+                <p className="km-sf-field-label">{t.detail.invoiceEmail}</p>
+                <input
+                  className="km-input"
+                  type="email"
+                  value={invoiceEmail}
+                  onChange={(event) => {
+                    setInvoiceEmailTouched(true);
+                    setInvoiceEmail(event.target.value);
+                  }}
+                  placeholder={t.queryPlaceholder}
+                />
+                <p className="km-sf-modal-hint">{t.detail.invoiceEmailHint}</p>
+              </div>
+            ) : null}
+            {buyError ? <p className="km-sf-error">{buyError}</p> : null}
+            <div className="km-sf-invoice-actions">
+              <button
+                type="button"
+                className="km-btn km-btn-ghost"
+                disabled={buyBusy}
+                onClick={() => setInvoiceOpen(false)}
+              >
+                {t.detail.invoiceCancel}
+              </button>
+              <button
+                type="button"
+                className="km-btn"
+                disabled={buyBusy}
+                onClick={() => void buy()}
+              >
+                {buyBusy
+                  ? t.detail.payBusy
+                  : `${t.detail.invoiceContinue} · ¥${yuanTextFromCents(totalCents)}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
