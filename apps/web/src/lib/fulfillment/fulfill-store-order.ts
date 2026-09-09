@@ -16,6 +16,7 @@ import {
   fulfillmentRetryDelayMs,
   fulfillmentRetryExhausted,
 } from "@/lib/fulfillment/retry-policy";
+import { storeOrderGoodsCents } from "@/lib/invoice-core";
 
 const ISSUING_LEASE_MS = 5 * 60_000;
 
@@ -222,7 +223,7 @@ export async function fulfillStoreOrder(orderId: number) {
           .values({
             orderId: order.id,
             agentId: order.agentId,
-            grossCents: freshOrder.grossCents,
+            grossCents: storeOrderGoodsCents(freshOrder),
             costCents: freshOrder.agentCostTotalCents,
             paymentFeeCents: freshOrder.finalPaymentFeeCents,
             feeSource:

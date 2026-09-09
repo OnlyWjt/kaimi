@@ -7,6 +7,8 @@ import {
 } from "@/db/schema";
 import { hashLookupValue } from "@/lib/crypto";
 import { writeAuditLog } from "@/lib/audit";
+import { sanitizeLog } from "@/lib/log";
+import { notifyStoreInvoicePaid } from "@/lib/notify";
 import { recordOpsAlert } from "@/lib/ops-health";
 import { epayReady, getEpayConfig } from "@/lib/payments/config";
 import { moneyYuan, parseMoneyYuan, queryEpayOrder } from "@/lib/payments/epay";
@@ -177,10 +179,17 @@ export async function confirmStoreOrderPaid(input: {
   const latest = await db.query.storeOrders.findFirst({
     where: eq(storeOrders.id, order.id),
   });
+  const paid = latest || order;
+  const newlyPaid = order.payStatus === "unpaid";
+  if (newlyPaid && paid.invoiceRequested && paid.invoiceNotifyStatus !== "sent") {
+    void notifyStoreInvoicePaid(paid).catch((err) => {
+      console.warn("[kaimi-notify] invoice paid skipped", sanitizeLog(err));
+    });
+  }
   return {
     kind: "ok",
-    order: latest || order,
-    newlyPaid: order.payStatus === "unpaid",
+    order: paid,
+    newlyPaid,
   };
 }
 

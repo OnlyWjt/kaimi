@@ -54,6 +54,28 @@ export function formatNotifyText(payload: NotifyPayload) {
     .join("\n");
 }
 
+export type InvoicePaidPayload = {
+  orderNo: string;
+  title: string;
+  note: string;
+  amountCents: number;
+  email: string;
+  agentName?: string;
+};
+
+export function formatInvoicePaidText(payload: InvoicePaidPayload) {
+  return [
+    `[Kaimi] 待开发票  ${payload.orderNo}`,
+    payload.agentName ? `代理：${payload.agentName}` : "",
+    `抬头：${payload.title}`,
+    payload.note ? `备注：${payload.note}` : "",
+    yuanLine("开票金额", payload.amountCents),
+    `邮箱：${payload.email}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 export function notifyYuanFields(payload: NotifyPayload) {
   return {
     retailYuan: payload.retailCents != null ? yuanTextFromCents(payload.retailCents) : "",

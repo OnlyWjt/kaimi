@@ -282,10 +282,23 @@ export const storeOrders = sqliteTable(
     retailPriceCents: integer("retail_price_cents").notNull(),
     /** 单张成本，同样是单价。 */
     agentCostCents: integer("agent_cost_cents").notNull(),
-    /** 整单总额 = retail_price_cents × quantity。收款金额、到账校验、手续费都按这个算。 */
+    /** 买家实付 = 商品总额 + 开票加价。收款、到账校验、手续费都按这个算。 */
     grossCents: integer("gross_cents").notNull().default(0),
     /** 整单总成本 = agent_cost_cents × quantity。代理收益按这个扣。 */
     agentCostTotalCents: integer("agent_cost_total_cents").notNull().default(0),
+    invoiceRequested: integer("invoice_requested", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    invoiceTitle: text("invoice_title").notNull().default(""),
+    invoiceNote: text("invoice_note").notNull().default(""),
+    invoiceEmail: text("invoice_email").notNull().default(""),
+    /** 开票金额 = 实付。只在勾选开票时写入，否则为 0。 */
+    invoiceAmountCents: integer("invoice_amount_cents").notNull().default(0),
+    /** 开票加价，归平台。代理 GMV / 收益底数要扣掉这一段。 */
+    invoiceSurchargeCents: integer("invoice_surcharge_cents").notNull().default(0),
+    invoiceNotifyStatus: text("invoice_notify_status").notNull().default(""),
+    invoiceNotifyError: text("invoice_notify_error").notNull().default(""),
+    invoiceNotifiedAt: text("invoice_notified_at"),
     paymentChannel: text("payment_channel").notNull(),
     feeRatePpm: integer("fee_rate_ppm").notNull(),
     /** 每笔支付固定费。一单就是一笔支付，不随 quantity 翻倍。 */

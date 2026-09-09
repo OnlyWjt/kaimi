@@ -23,6 +23,7 @@ export async function GET(req: Request) {
     agentId: query.get("agentId"),
     payStatus: query.get("payStatus"),
     fulfillStatus: query.get("fulfillStatus"),
+    invoiceOnly: query.get("invoiceOnly"),
   });
 
   const conditions: SQL[] = [];
@@ -33,6 +34,8 @@ export async function GET(req: Request) {
       like(storeOrders.customerEmail, pattern),
       like(storeOrders.productNameSnapshot, pattern),
       like(storeOrders.planKeySnapshot, pattern),
+      like(storeOrders.invoiceTitle, pattern),
+      like(storeOrders.invoiceEmail, pattern),
       like(agents.displayName, pattern),
     );
     if (textMatch) conditions.push(textMatch);
@@ -45,6 +48,9 @@ export async function GET(req: Request) {
   }
   if (filters.fulfillStatus) {
     conditions.push(eq(storeOrders.fulfillStatus, filters.fulfillStatus));
+  }
+  if (filters.invoiceOnly) {
+    conditions.push(eq(storeOrders.invoiceRequested, true));
   }
   const where = conditions.length ? and(...conditions) : undefined;
 
@@ -77,6 +83,15 @@ export async function GET(req: Request) {
       feeReconcileStatus: storeOrders.feeReconcileStatus,
       lastErrorCode: storeOrders.lastErrorCode,
       lastErrorMessage: storeOrders.lastErrorMessage,
+      invoiceRequested: storeOrders.invoiceRequested,
+      invoiceTitle: storeOrders.invoiceTitle,
+      invoiceNote: storeOrders.invoiceNote,
+      invoiceEmail: storeOrders.invoiceEmail,
+      invoiceAmountCents: storeOrders.invoiceAmountCents,
+      invoiceSurchargeCents: storeOrders.invoiceSurchargeCents,
+      invoiceNotifyStatus: storeOrders.invoiceNotifyStatus,
+      invoiceNotifyError: storeOrders.invoiceNotifyError,
+      invoiceNotifiedAt: storeOrders.invoiceNotifiedAt,
       createdAt: storeOrders.createdAt,
       paidAt: storeOrders.paidAt,
       deliveredAt: storeOrders.deliveredAt,

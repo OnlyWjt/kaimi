@@ -15,15 +15,15 @@ import { newOrderNo } from "@/lib/ids";
 import { getDefaultCardplatformAccount } from "@/lib/cardplatform/config";
 import { createEpayPayment } from "@/lib/payments/epay";
 import { epayReady, getEpayConfig } from "@/lib/payments/config";
-import {
-  calculateAgentEarningCents,
-  calculatePaymentFeeCents,
-  type PaymentChannel,
-} from "@/lib/payments/fees";
+import type { PaymentChannel } from "@/lib/payments/fees";
 import { assertStoreSalesOpen } from "@/lib/ops-health";
 import { requirePublicBaseUrl } from "@/lib/public-url";
 import { resolveProductName, rowToSettings } from "@/lib/agent-storefront-config";
 import { getMaxOrderQuantity, resolveOrderQuantity } from "@/lib/store-quantity";
+import {
+  normalizeInvoiceRequest,
+  quoteStorePayment,
+} from "@/lib/invoice-core";
 
 export async function createStoreOrder(input: {
   request: Request;
@@ -32,6 +32,10 @@ export async function createStoreOrder(input: {
   channel: PaymentChannel;
   customerEmail: string;
   quantity?: number;
+  invoiceRequested?: boolean;
+  invoiceTitle?: string;
+  invoiceNote?: string;
+  invoiceEmail?: string;
 }) {
   /** 配置没弄好是我们的问题，买家只需要知道买不了；真实原因留在服务端日志里。 */
   function unavailable(detail: string): never {
@@ -105,21 +109,29 @@ export async function createStoreOrder(input: {
   const epay = await getEpayConfig();
   if (!epayReady(epay)) unavailable("易支付未配置");
 
-  // 一单只是一笔支付：比例费率按整单总额抽，固定手续费整单只收一次。
-  const grossCents = offer.retailPriceCents * quantity;
+  // 一单只是一笔支付：比例费率按买家实付抽，固定手续费整单只收一次。
+  // 开票加价归平台，代理收益仍按商品额扣成本和手续费。
+  const invoice = normalizeInvoiceRequest({
+    requested: input.invoiceRequested,
+    title: input.invoiceTitle,
+    note: input.invoiceNote,
+    email: input.invoiceEmail,
+    fallbackEmail: input.customerEmail,
+  });
+  const goodsCents = offer.retailPriceCents * quantity;
   const agentCostTotalCents = costCents * quantity;
-  const estimatedFeeCents = calculatePaymentFeeCents(
-    grossCents,
-    {
+  const quote = quoteStorePayment({
+    goodsCents,
+    costTotalCents: agentCostTotalCents,
+    invoiceRequested: invoice.requested,
+    feeRule: {
       ratePpm: channelConfig.feeRatePpm,
       fixedFeeCents: channelConfig.fixedFeeCents,
     },
-  );
-  const earningCents = calculateAgentEarningCents(
-    grossCents,
-    agentCostTotalCents,
-    estimatedFeeCents,
-  );
+  });
+  const grossCents = quote.payCents;
+  const estimatedFeeCents = quote.feeCents;
+  const earningCents = quote.earningCents;
   if (earningCents < 0) {
     unavailable(
       `套餐 ${offer.planKey} 扣手续费后代理收益为负：零售 ${offer.retailPriceCents}，成本 ${costCents}，数量 ${quantity}，手续费 ${estimatedFeeCents}`,
@@ -152,6 +164,12 @@ export async function createStoreOrder(input: {
       estimatedPaymentFeeCents: estimatedFeeCents,
       finalPaymentFeeCents: estimatedFeeCents,
       agentEarningCents: earningCents,
+      invoiceRequested: invoice.requested,
+      invoiceTitle: invoice.title,
+      invoiceNote: invoice.note,
+      invoiceEmail: invoice.email,
+      invoiceAmountCents: invoice.requested ? quote.payCents : 0,
+      invoiceSurchargeCents: quote.surchargeCents,
       customerEmail: input.customerEmail.trim().toLowerCase(),
       fulfillmentIdempotencyKey,
       cardplatformAccountId: cardplatform.id,

@@ -25,6 +25,7 @@ export type StoreOrderQuery = {
   agentId: number | null;
   payStatus: StoreOrderPayStatus | "";
   fulfillStatus: StoreOrderFulfillStatus | "";
+  invoiceOnly: boolean;
 };
 
 export const STORE_ORDER_PAY_FILTERS = PAY_STATUSES;
@@ -54,15 +55,23 @@ export function parseStoreOrderQuery(input: {
   agentId?: string | null;
   payStatus?: string | null;
   fulfillStatus?: string | null;
+  invoiceOnly?: string | null;
 }): StoreOrderQuery {
   return {
     q: normalizeStoreOrderKeyword(String(input.q || "")),
     agentId: parseAgentId(String(input.agentId || "")),
     payStatus: pickAllowed(String(input.payStatus || ""), PAY_STATUSES),
     fulfillStatus: pickAllowed(String(input.fulfillStatus || ""), FULFILL_STATUSES),
+    invoiceOnly: ["1", "true", "yes"].includes(String(input.invoiceOnly || "").trim().toLowerCase()),
   };
 }
 
 export function storeOrderQueryIsEmpty(query: StoreOrderQuery) {
-  return !query.q && query.agentId == null && !query.payStatus && !query.fulfillStatus;
+  return (
+    !query.q &&
+    query.agentId == null &&
+    !query.payStatus &&
+    !query.fulfillStatus &&
+    !query.invoiceOnly
+  );
 }

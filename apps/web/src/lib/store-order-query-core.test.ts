@@ -22,6 +22,7 @@ describe("parseStoreOrderQuery", () => {
       agentId: null,
       payStatus: "",
       fulfillStatus: "",
+      invoiceOnly: false,
     });
     expect(storeOrderQueryIsEmpty(parseStoreOrderQuery({}))).toBe(true);
   });
@@ -38,6 +39,7 @@ describe("parseStoreOrderQuery", () => {
       agentId: 12,
       payStatus: "unpaid",
       fulfillStatus: "pending",
+      invoiceOnly: false,
     });
     expect(storeOrderQueryIsEmpty(parsed)).toBe(false);
   });
@@ -54,6 +56,12 @@ describe("parseStoreOrderQuery", () => {
       agentId: null,
       payStatus: "",
       fulfillStatus: "",
+      invoiceOnly: false,
     });
+  });
+
+  it("invoiceOnly 只认 1/true/yes", () => {
+    expect(parseStoreOrderQuery({ invoiceOnly: "1" }).invoiceOnly).toBe(true);
+    expect(parseStoreOrderQuery({ invoiceOnly: "no" }).invoiceOnly).toBe(false);
   });
 });

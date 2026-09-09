@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ApplyTheme } from "@/components/apply-theme";
 import { readApiJson } from "@/lib/http-error";
+import { invoiceSurchargeCents } from "@/lib/invoice-core";
 import { yuanTextFromCents } from "@/lib/money";
 import { publicStatusLabel } from "@/lib/status-labels";
 import { THEME_CHOICES } from "@/lib/themes";
@@ -134,6 +135,19 @@ const I18N = {
       infoTitle: "详细资讯",
       back: "返回商品列表",
       secure: "自动发货 · 即买即用",
+      invoiceNeed: "需要开具发票",
+      invoiceWarn: "仅支持增值税普通发票。勾选后实付金额上浮 10%（开票服务费），该加价归平台、不计入代理佣金。",
+      invoiceTitle: "发票抬头",
+      invoiceTitlePh: "公司或个人名称",
+      invoiceTitleRequired: "请填写发票抬头",
+      invoiceNote: "发票备注",
+      invoiceNotePh: "如：项目名称、订单用途",
+      invoiceNoteRequired: "请填写发票备注",
+      invoiceAmount: "开票金额",
+      invoiceAmountHint: (goods: string, fee: string) => `商品 ¥${goods} + 开票服务费 10% ¥${fee}`,
+      invoiceEmail: "收票邮箱",
+      invoiceEmailHint: "发票发到这个邮箱，默认使用下单邮箱",
+      invoiceEmailRequired: "请填写收票邮箱",
     },
     footerContact: "联系客服",
     rights: "版权所有",
@@ -187,6 +201,19 @@ const I18N = {
       infoTitle: "Details",
       back: "Back to products",
       secure: "Auto delivery · ready to use",
+      invoiceNeed: "Need an invoice",
+      invoiceWarn: "VAT regular invoice only. Checking this adds 10% to the amount you pay. The surcharge goes to the platform, not the agent.",
+      invoiceTitle: "Invoice title",
+      invoiceTitlePh: "Company or personal name",
+      invoiceTitleRequired: "Please enter the invoice title",
+      invoiceNote: "Invoice note",
+      invoiceNotePh: "e.g. project name or purpose",
+      invoiceNoteRequired: "Please enter an invoice note",
+      invoiceAmount: "Invoice amount",
+      invoiceAmountHint: (goods: string, fee: string) => `Goods ¥${goods} + 10% invoice fee ¥${fee}`,
+      invoiceEmail: "Invoice email",
+      invoiceEmailHint: "The invoice will be sent here. Defaults to your order email.",
+      invoiceEmailRequired: "Please enter an invoice email",
     },
     footerContact: "Contact",
     rights: "All rights reserved",
@@ -399,6 +426,11 @@ export function AgentStorefront({
   const [channel, setChannel] = useState<Channel>(channels[0] || "alipay");
   const [buyBusy, setBuyBusy] = useState(false);
   const [buyError, setBuyError] = useState("");
+  const [wantInvoice, setWantInvoice] = useState(false);
+  const [invoiceTitle, setInvoiceTitle] = useState("");
+  const [invoiceNote, setInvoiceNote] = useState("");
+  const [invoiceEmail, setInvoiceEmail] = useState("");
+  const [invoiceEmailTouched, setInvoiceEmailTouched] = useState(false);
 
   const t = I18N[lang];
   const products = config.products;
@@ -435,7 +467,9 @@ export function AgentStorefront({
   }, [products, filter, keyword]);
 
   const activeSpec = active?.specs.find((spec) => spec.id === specId) ?? active?.specs[0] ?? null;
-  const totalCents = activeSpec ? activeSpec.priceCents * qty : 0;
+  const goodsCents = activeSpec ? activeSpec.priceCents * qty : 0;
+  const surchargeCents = wantInvoice && goodsCents > 0 ? invoiceSurchargeCents(goodsCents) : 0;
+  const totalCents = goodsCents + surchargeCents;
   const specMaxQty = Math.min(maxQty, activeSpec?.stock ?? maxQty);
 
   const rankedOrders = useMemo(() => {
@@ -456,6 +490,10 @@ export function AgentStorefront({
       /* sessionStorage 不可用时忽略 */
     }
   }, []);
+
+  useEffect(() => {
+    if (!invoiceEmailTouched) setInvoiceEmail(buyerEmail);
+  }, [buyerEmail, invoiceEmailTouched]);
 
   useEffect(() => {
     if (!active) return;
@@ -481,6 +519,11 @@ export function AgentStorefront({
     setSpecId(product.specs[0]?.id ?? "");
     setQty(1);
     setBuyError("");
+    setWantInvoice(false);
+    setInvoiceTitle("");
+    setInvoiceNote("");
+    setInvoiceEmailTouched(false);
+    setInvoiceEmail(buyerEmail);
     window.scrollTo({ top: 0, behavior: "auto" });
   }
 
@@ -525,6 +568,20 @@ export function AgentStorefront({
       setBuyError(t.detail.emailRequired);
       return;
     }
+    if (wantInvoice) {
+      if (!invoiceTitle.trim()) {
+        setBuyError(t.detail.invoiceTitleRequired);
+        return;
+      }
+      if (!invoiceNote.trim()) {
+        setBuyError(t.detail.invoiceNoteRequired);
+        return;
+      }
+      if (!(invoiceEmail.trim() || email)) {
+        setBuyError(t.detail.invoiceEmailRequired);
+        return;
+      }
+    }
     if (live && !channels.length) {
       setBuyError(t.detail.channelEmpty);
       return;
@@ -551,6 +608,10 @@ export function AgentStorefront({
             channel,
             customerEmail: email,
             quantity: qty,
+            invoiceRequested: wantInvoice,
+            invoiceTitle: wantInvoice ? invoiceTitle.trim() : undefined,
+            invoiceNote: wantInvoice ? invoiceNote.trim() : undefined,
+            invoiceEmail: wantInvoice ? (invoiceEmail.trim() || email) : undefined,
           }),
         }),
       );
@@ -947,7 +1008,7 @@ export function AgentStorefront({
 
                 <p className="km-sf-field-label km-sf-field-label-sep">{t.detail.priceLabel}</p>
                 <p className="km-sf-detail-price">
-                  {yuanTextFromCents(totalCents)} <small>CNY</small>
+                  {yuanTextFromCents(goodsCents)} <small>CNY</small>
                 </p>
 
                 {active.specs.length ? (
@@ -1029,6 +1090,61 @@ export function AgentStorefront({
                     placeholder={t.queryPlaceholder}
                   />
                   <p className="km-sf-modal-hint">{t.detail.emailHint}</p>
+
+                  <label className="km-sf-invoice-check">
+                    <input
+                      type="checkbox"
+                      checked={wantInvoice}
+                      onChange={(event) => {
+                        setWantInvoice(event.target.checked);
+                        setBuyError("");
+                      }}
+                    />
+                    <span>{t.detail.invoiceNeed}</span>
+                  </label>
+                  {wantInvoice ? (
+                    <div className="km-sf-invoice-form">
+                      <p className="km-sf-invoice-warn">{t.detail.invoiceWarn}</p>
+                      <p className="km-sf-field-label">{t.detail.invoiceTitle}</p>
+                      <input
+                        className="km-input"
+                        value={invoiceTitle}
+                        onChange={(event) => setInvoiceTitle(event.target.value)}
+                        placeholder={t.detail.invoiceTitlePh}
+                        maxLength={120}
+                      />
+                      <p className="km-sf-field-label">{t.detail.invoiceNote}</p>
+                      <input
+                        className="km-input"
+                        value={invoiceNote}
+                        onChange={(event) => setInvoiceNote(event.target.value)}
+                        placeholder={t.detail.invoiceNotePh}
+                        maxLength={200}
+                      />
+                      <p className="km-sf-field-label">{t.detail.invoiceAmount}</p>
+                      <p className="km-sf-invoice-amount">
+                        ¥{yuanTextFromCents(totalCents)}
+                      </p>
+                      <p className="km-sf-modal-hint">
+                        {t.detail.invoiceAmountHint(
+                          yuanTextFromCents(goodsCents),
+                          yuanTextFromCents(surchargeCents),
+                        )}
+                      </p>
+                      <p className="km-sf-field-label">{t.detail.invoiceEmail}</p>
+                      <input
+                        className="km-input"
+                        type="email"
+                        value={invoiceEmail}
+                        onChange={(event) => {
+                          setInvoiceEmailTouched(true);
+                          setInvoiceEmail(event.target.value);
+                        }}
+                        placeholder={t.queryPlaceholder}
+                      />
+                      <p className="km-sf-modal-hint">{t.detail.invoiceEmailHint}</p>
+                    </div>
+                  ) : null}
 
                   <p className="km-sf-field-label">{t.detail.channel}</p>
                   {channels.length ? (

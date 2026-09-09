@@ -16,6 +16,7 @@ import {
   FULFILLMENT_ABANDONED_RESULT,
   FULFILLMENT_FAILED_RESULTS,
 } from "@/lib/fulfillment/retry-policy";
+import { storeOrderGoodsCents } from "@/lib/invoice-core";
 
 const schema = z.discriminatedUnion("action", [
   z.object({
@@ -161,7 +162,7 @@ export async function PATCH(
             .values({
               orderId: order.id,
               agentId: freshOrder.agentId,
-              grossCents: freshOrder.grossCents,
+              grossCents: storeOrderGoodsCents(freshOrder),
               costCents: freshOrder.agentCostTotalCents,
               paymentFeeCents: freshOrder.finalPaymentFeeCents,
               feeSource:

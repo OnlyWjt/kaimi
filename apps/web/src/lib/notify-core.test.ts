@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { SAMPLE_NOTIFY_PAYLOAD, formatNotifyText, notifyYuanFields } from "./notify-core";
+import {
+  SAMPLE_NOTIFY_PAYLOAD,
+  formatInvoicePaidText,
+  formatNotifyText,
+  notifyYuanFields,
+} from "./notify-core";
 
 describe("formatNotifyText", () => {
   it("按代理、开通账号、套餐、售价和收益排版", () => {
@@ -23,6 +28,29 @@ describe("formatNotifyText", () => {
     expect(text).toBe("[Kaimi] 运维告警  OPS\n卡台余额不足");
     expect(text).not.toContain("代理：");
     expect(text).not.toContain("售价：");
+  });
+});
+
+describe("formatInvoicePaidText", () => {
+  it("支付确认后单独推开票信息，不和兑换通知混在一起", () => {
+    const text = formatInvoicePaidText({
+      orderNo: "KS20260909001",
+      title: "某某科技有限公司",
+      note: "项目 A",
+      amountCents: 16500,
+      email: "finance@example.com",
+      agentName: "onlyWjt",
+    });
+    expect(text).toBe(
+      [
+        "[Kaimi] 待开发票  KS20260909001",
+        "代理：onlyWjt",
+        "抬头：某某科技有限公司",
+        "备注：项目 A",
+        "开票金额：¥165.00",
+        "邮箱：finance@example.com",
+      ].join("\n"),
+    );
   });
 });
 

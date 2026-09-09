@@ -6,7 +6,8 @@ import {
   agentSettlements,
   storeOrders,
 } from "@/db/schema";
-import { calculateAgentEarningCents, calculatePaymentFeeCents } from "./fees";
+import { agentEarningCents, storeOrderGoodsCents } from "@/lib/invoice-core";
+import { calculatePaymentFeeCents } from "./fees";
 
 /**
  * 手续费是下单那一刻按当时费率算好写进订单的，之后不会自己变。
@@ -133,15 +134,18 @@ export async function recalculateEstimatedFees(
       continue;
     }
 
-    const feeCents = calculatePaymentFeeCents(order.grossCents, {
+    const feeRule = {
       ratePpm: rule.feeRatePpm,
       fixedFeeCents: rule.fixedFeeCents,
+    };
+    const feeCents = calculatePaymentFeeCents(order.grossCents, feeRule);
+    const earningCents = agentEarningCents({
+      goodsCents: storeOrderGoodsCents(order),
+      costTotalCents: order.agentCostTotalCents,
+      feeRule,
+      gatewayFeeCents: feeCents,
+      invoiceSurchargeCents: order.invoiceSurchargeCents,
     });
-    const earningCents = calculateAgentEarningCents(
-      order.grossCents,
-      order.agentCostTotalCents,
-      feeCents,
-    );
     // 费率高到把毛利吃穿了，宁可报出来让人改配置，也不写一个负收益进结算。
     if (earningCents < 0) {
       result.skippedNegative += 1;

@@ -7,7 +7,7 @@ import {
 } from "@/db/schema";
 import { getEpayConfig, epayReady } from "./config";
 import { queryEpayOrder } from "./epay";
-import { calculateAgentEarningCents } from "./fees";
+import { agentEarningCents, storeOrderGoodsCents } from "@/lib/invoice-core";
 
 /** 算出来是负收益：重试多少次都还是负的，直接转人工，不进退避阶梯。 */
 class NegativeEarningError extends Error {}
@@ -110,11 +110,16 @@ export async function reconcilePaymentFee(
     if (finalFee < 0 || finalFee > order.grossCents) {
       throw new Error("网关手续费金额异常");
     }
-    const earning = calculateAgentEarningCents(
-      order.grossCents,
-      order.agentCostTotalCents,
-      finalFee,
-    );
+    const earning = agentEarningCents({
+      goodsCents: storeOrderGoodsCents(order),
+      costTotalCents: order.agentCostTotalCents,
+      feeRule: {
+        ratePpm: order.feeRatePpm,
+        fixedFeeCents: order.fixedFeeCents,
+      },
+      gatewayFeeCents: finalFee,
+      invoiceSurchargeCents: order.invoiceSurchargeCents,
+    });
     // 网关手续费吃穿了毛利。createStoreOrder 和 recalculateEstimatedFees 都拦着不写负
     // 收益，这条路径以前没拦——负数会同时写进订单和收益表，再被结算拿去和别的单相抵。
     if (earning < 0) {
@@ -189,11 +194,16 @@ export async function reconcilePaymentFee(
     const message = error instanceof Error ? error.message : "手续费对账失败";
     if (isGatewayFeeQueryUnsupported(message)) {
       const now = new Date().toISOString();
-      const earning = calculateAgentEarningCents(
-        order.grossCents,
-        order.agentCostTotalCents,
-        order.estimatedPaymentFeeCents,
-      );
+      const earning = agentEarningCents({
+        goodsCents: storeOrderGoodsCents(order),
+        costTotalCents: order.agentCostTotalCents,
+        feeRule: {
+          ratePpm: order.feeRatePpm,
+          fixedFeeCents: order.fixedFeeCents,
+        },
+        gatewayFeeCents: order.estimatedPaymentFeeCents,
+        invoiceSurchargeCents: order.invoiceSurchargeCents,
+      });
       await db.transaction(async (tx) => {
         await tx
           .update(storeOrders)

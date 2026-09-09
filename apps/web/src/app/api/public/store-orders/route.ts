@@ -17,6 +17,10 @@ const schema = z.object({
     .min(1, "购买数量至少 1 张")
     .max(HARD_MAX_ORDER_QUANTITY, "购买数量超出上限")
     .optional(),
+  invoiceRequested: z.boolean().optional(),
+  invoiceTitle: z.string().max(120).optional(),
+  invoiceNote: z.string().max(200).optional(),
+  invoiceEmail: z.string().max(254).optional(),
 });
 
 const lookupSchema = z.object({

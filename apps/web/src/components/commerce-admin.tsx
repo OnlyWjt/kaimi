@@ -47,6 +47,13 @@ type StoreOrder = {
   fulfillStatus: string;
   feeReconcileStatus: string;
   lastErrorMessage: string;
+  invoiceRequested?: boolean;
+  invoiceTitle?: string;
+  invoiceNote?: string;
+  invoiceEmail?: string;
+  invoiceAmountCents?: number;
+  invoiceNotifyStatus?: string;
+  invoiceNotifyError?: string;
 };
 type BackgroundJob = {
   id: number;
@@ -72,6 +79,13 @@ const emptyRule: ChannelRule = {
   feeRatePpm: 0,
   fixedFeeCents: 0,
 };
+
+function invoiceNotifyLabel(status?: string) {
+  if (status === "sent") return "通知已推送";
+  if (status === "failed") return "通知失败";
+  if (status === "unsent") return "未配置通知";
+  return "待推送";
+}
 
 function localIsoDate(date = new Date()) {
   const year = date.getFullYear();
@@ -110,6 +124,7 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
     agentId: "",
     payStatus: "",
     fulfillStatus: "",
+    invoiceOnly: "",
   };
   const [orderDraft, setOrderDraft] = useState(emptyOrderFilters);
   const [orderFilters, setOrderFilters] = useState(emptyOrderFilters);
@@ -132,6 +147,7 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
     if (filters.agentId) qs.set("agentId", filters.agentId);
     if (filters.payStatus) qs.set("payStatus", filters.payStatus);
     if (filters.fulfillStatus) qs.set("fulfillStatus", filters.fulfillStatus);
+    if (filters.invoiceOnly) qs.set("invoiceOnly", filters.invoiceOnly);
     return qs;
   }
 
@@ -407,13 +423,18 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
     if (data) await load();
   }
 
-  async function storeOrderAction(order: StoreOrder, action: "retry" | "fee" | "recovery") {
+  async function storeOrderAction(
+    order: StoreOrder,
+    action: "retry" | "fee" | "recovery" | "invoice",
+  ) {
     const suffix =
       action === "retry"
         ? "retry-fulfillment"
         : action === "fee"
           ? "reconcile-fee"
-          : "recovery-link";
+          : action === "invoice"
+            ? "invoice-notify"
+            : "recovery-link";
     const data = await submit(
       `/api/admin/store-orders/${encodeURIComponent(order.orderNo)}/${suffix}`,
     );
@@ -425,6 +446,15 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
         setMessage(error instanceof Error ? error.message : "复制失败，请手动复制");
       }
     } else if (data) {
+      if (action === "invoice") {
+        setMessage(
+          data.ok
+            ? "开票通知已推送"
+            : data.invoiceNotifyError || "通知没发出去，订单里仍可查看开票信息",
+        );
+        await loadStoreOrders();
+        return;
+      }
       await load();
     }
   }
@@ -601,7 +631,7 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
         <div>
           <h2 className="text-xl font-semibold">即时发卡订单</h2>
           <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-            按下单时间倒序，每页 {orderPageSize} 条。点筛选后分页只看符合条件的单。
+            按下单时间倒序，每页 {orderPageSize} 条。开票单能搜抬头和收票邮箱；Telegram 没推到也能在这里看见。
           </p>
         </div>
         <form
@@ -615,7 +645,7 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
             <span>关键字</span>
             <input
               className="km-input w-56"
-              placeholder="订单号 / 代理 / 套餐 / 邮箱"
+              placeholder="订单号 / 代理 / 套餐 / 抬头 / 邮箱"
               value={orderDraft.q}
               onChange={(event) =>
                 setOrderDraft((current) => ({ ...current, q: event.target.value }))
@@ -682,6 +712,19 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
               ))}
             </select>
           </label>
+          <label className="flex items-end gap-2 pb-2 text-sm">
+            <input
+              type="checkbox"
+              checked={orderDraft.invoiceOnly === "1"}
+              onChange={(event) =>
+                setOrderDraft((current) => ({
+                  ...current,
+                  invoiceOnly: event.target.checked ? "1" : "",
+                }))
+              }
+            />
+            <span>只看开票</span>
+          </label>
           <button type="submit" className="km-btn" disabled={busy}>
             筛选
           </button>
@@ -735,7 +778,15 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
             <tbody>
               {storeOrders.map((order) => (
                 <tr key={order.id} className="border-b border-[var(--km-border)]">
-                  <td className="py-2 pr-3 font-mono">{order.orderNo}</td>
+                  <td className="py-2 pr-3 font-mono">
+                    <div>{order.orderNo}</div>
+                    {order.invoiceRequested ? (
+                      <div className="mt-1 text-xs text-[var(--km-fg-muted)]">
+                        开票 · {invoiceNotifyLabel(order.invoiceNotifyStatus)}
+                        {order.invoiceNotifyError ? `：${order.invoiceNotifyError}` : ""}
+                      </div>
+                    ) : null}
+                  </td>
                   <td className="py-2 pr-3">
                     {order.agentName} · {order.productName}
                   </td>
@@ -749,6 +800,17 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
                     ).toFixed(2)}
                     {(order.quantity || 1) > 1 ? (
                       <span className="km-badge ml-2">×{order.quantity}</span>
+                    ) : null}
+                    {order.invoiceRequested ? (
+                      <div className="mt-1 space-y-0.5 text-xs text-[var(--km-fg-muted)]">
+                        <div>
+                          开票 ¥
+                          {((order.invoiceAmountCents || order.grossCents) / 100).toFixed(2)}
+                          {order.invoiceTitle ? ` · ${order.invoiceTitle}` : ""}
+                        </div>
+                        {order.invoiceNote ? <div>备注 {order.invoiceNote}</div> : null}
+                        {order.invoiceEmail ? <div>邮箱 {order.invoiceEmail}</div> : null}
+                      </div>
                     ) : null}
                   </td>
                   <td className="py-2 pr-3">
@@ -813,6 +875,15 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
                       >
                         复制查单链接
                       </button>
+                      {order.invoiceRequested && order.payStatus === "paid" ? (
+                        <button
+                          className="km-btn km-btn-ghost"
+                          disabled={busy}
+                          onClick={() => storeOrderAction(order, "invoice")}
+                        >
+                          {order.invoiceNotifyStatus === "sent" ? "再推开票通知" : "补推开票通知"}
+                        </button>
+                      ) : null}
                       {order.payStatus === "paid" ? (
                         <button
                           className="km-btn km-btn-ghost"

@@ -189,11 +189,21 @@ CREATE TABLE IF NOT EXISTS store_orders (
   plan_key_snapshot TEXT NOT NULL,
   product_name_snapshot TEXT NOT NULL,
   quantity INTEGER NOT NULL DEFAULT 1,
-  -- retail_price_cents / agent_cost_cents 是单价，gross_cents / agent_cost_total_cents 是整单总额。
+  -- retail_price_cents / agent_cost_cents 是单价。
+  -- gross_cents 是买家实付（商品额 + 开票加价）；agent_cost_total_cents 是整单成本。
   retail_price_cents INTEGER NOT NULL,
   agent_cost_cents INTEGER NOT NULL,
   gross_cents INTEGER NOT NULL DEFAULT 0,
   agent_cost_total_cents INTEGER NOT NULL DEFAULT 0,
+  invoice_requested INTEGER NOT NULL DEFAULT 0,
+  invoice_title TEXT NOT NULL DEFAULT '',
+  invoice_note TEXT NOT NULL DEFAULT '',
+  invoice_email TEXT NOT NULL DEFAULT '',
+  invoice_amount_cents INTEGER NOT NULL DEFAULT 0,
+  invoice_surcharge_cents INTEGER NOT NULL DEFAULT 0,
+  invoice_notify_status TEXT NOT NULL DEFAULT '',
+  invoice_notify_error TEXT NOT NULL DEFAULT '',
+  invoice_notified_at TEXT,
   payment_channel TEXT NOT NULL,
   fee_rate_ppm INTEGER NOT NULL,
   fixed_fee_cents INTEGER NOT NULL,
@@ -752,6 +762,33 @@ export async function ensureSchema() {
   );
   await addColumn(
     "ALTER TABLE agent_storefronts ADD COLUMN product_names_json TEXT NOT NULL DEFAULT '{}'",
+  );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN invoice_requested INTEGER NOT NULL DEFAULT 0",
+  );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN invoice_title TEXT NOT NULL DEFAULT ''",
+  );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN invoice_note TEXT NOT NULL DEFAULT ''",
+  );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN invoice_email TEXT NOT NULL DEFAULT ''",
+  );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN invoice_amount_cents INTEGER NOT NULL DEFAULT 0",
+  );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN invoice_surcharge_cents INTEGER NOT NULL DEFAULT 0",
+  );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN invoice_notify_status TEXT NOT NULL DEFAULT ''",
+  );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN invoice_notify_error TEXT NOT NULL DEFAULT ''",
+  );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN invoice_notified_at TEXT",
   );
   // 一单多张之后 order_id 不能再唯一。DDL 已经建好非唯一索引，这里只负责拆掉老的。
   await client.execute("DROP INDEX IF EXISTS issued_cdks_order_id_uq");

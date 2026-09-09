@@ -1,10 +1,15 @@
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { agents, storeOrders } from "@/db/schema";
 import { getSetting } from "@/lib/config";
 import { decryptSecret } from "@/lib/crypto";
 import { maskRequestId, sanitizeLog } from "@/lib/log";
 import { loadRedeemNotifyContext } from "@/lib/notify-commerce";
 import {
+  formatInvoicePaidText,
   formatNotifyText,
   notifyYuanFields,
+  type InvoicePaidPayload,
   type NotifyPayload,
 } from "@/lib/notify-core";
 
@@ -73,14 +78,11 @@ export async function resolveNotifyChannels(overrides: NotifyChannelOverrides = 
   return { webhookUrl, telegramToken, telegramChatId };
 }
 
-export async function dispatchNotify(
-  payload: NotifyPayload,
+async function sendNotifyChannels(
+  text: string,
+  webhookBody: Record<string, unknown>,
   overrides: NotifyChannelOverrides = {},
-  event = "order.terminal",
 ): Promise<NotifyDispatchResult> {
-  const maskedRequestId = maskRequestId(payload.requestId);
-  const full = { ...payload, requestId: maskedRequestId };
-  const text = formatNotifyText(full);
   const channels = await resolveNotifyChannels(overrides);
   const result: NotifyDispatchResult = {
     text,
@@ -91,12 +93,7 @@ export async function dispatchNotify(
   if (channels.webhookUrl) {
     result.webhook.attempted = true;
     try {
-      await postJson(channels.webhookUrl, {
-        event,
-        ...full,
-        ...notifyYuanFields(full),
-        text,
-      });
+      await postJson(channels.webhookUrl, webhookBody);
       result.webhook.ok = true;
     } catch (err) {
       result.webhook.error = err instanceof Error ? err.message : "webhook failed";
@@ -118,6 +115,105 @@ export async function dispatchNotify(
     }
   }
 
+  return result;
+}
+
+export async function dispatchNotify(
+  payload: NotifyPayload,
+  overrides: NotifyChannelOverrides = {},
+  event = "order.terminal",
+): Promise<NotifyDispatchResult> {
+  const maskedRequestId = maskRequestId(payload.requestId);
+  const full = { ...payload, requestId: maskedRequestId };
+  const text = formatNotifyText(full);
+  return sendNotifyChannels(
+    text,
+    {
+      event,
+      ...full,
+      ...notifyYuanFields(full),
+      text,
+    },
+    overrides,
+  );
+}
+
+export async function dispatchNotifyText(
+  text: string,
+  extra: Record<string, unknown> = {},
+  event = "invoice.paid",
+  overrides: NotifyChannelOverrides = {},
+): Promise<NotifyDispatchResult> {
+  return sendNotifyChannels(
+    text,
+    {
+      event,
+      text,
+      ...extra,
+    },
+    overrides,
+  );
+}
+
+export async function notifyStoreInvoicePaid(order: {
+  id?: number;
+  orderNo: string;
+  agentId: number;
+  invoiceTitle: string;
+  invoiceNote: string;
+  invoiceEmail: string;
+  invoiceAmountCents: number;
+  grossCents: number;
+  invoiceNotifyStatus?: string | null;
+}, options?: { force?: boolean }) {
+  if (!options?.force && order.invoiceNotifyStatus === "sent") {
+    return {
+      text: "",
+      webhook: { attempted: false, ok: false, error: "" },
+      telegram: { attempted: false, ok: false, error: "" },
+    };
+  }
+  const agent = await db.query.agents.findFirst({
+    where: eq(agents.id, order.agentId),
+    columns: { displayName: true, currentSlug: true },
+  });
+  const payload: InvoicePaidPayload = {
+    orderNo: order.orderNo,
+    title: order.invoiceTitle,
+    note: order.invoiceNote,
+    amountCents: order.invoiceAmountCents || order.grossCents,
+    email: order.invoiceEmail,
+    agentName: agent?.displayName || agent?.currentSlug || "",
+  };
+  const result = await dispatchNotifyText(
+    formatInvoicePaidText(payload),
+    payload,
+    "invoice.paid",
+  );
+  const status =
+    result.telegram.ok || result.webhook.ok
+      ? "sent"
+      : result.telegram.attempted || result.webhook.attempted
+        ? "failed"
+        : "unsent";
+  const error =
+    result.telegram.error ||
+    result.webhook.error ||
+    (status === "unsent" ? "未配置 Telegram 或 Webhook" : "");
+  const now = new Date().toISOString();
+  await db
+    .update(storeOrders)
+    .set({
+      invoiceNotifyStatus: status,
+      invoiceNotifyError: error,
+      invoiceNotifiedAt: now,
+      updatedAt: now,
+    })
+    .where(
+      order.id
+        ? eq(storeOrders.id, order.id)
+        : eq(storeOrders.orderNo, order.orderNo),
+    );
   return result;
 }
 
