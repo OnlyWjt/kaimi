@@ -969,10 +969,13 @@ export default function AdminPage() {
                   <span>Telegram Chat ID</span>
                   <input
                     className="km-input"
-                    placeholder="-100…"
+                    placeholder="chat.id，私聊是一串正数"
                     value={integForm.telegramChatId}
                     onChange={(e) => setIntegForm((s) => ({ ...s, telegramChatId: e.target.value }))}
                   />
+                  <span className="text-xs text-[var(--km-fg-muted)]">
+                    用 getUpdates 里的 chat.id，不要填最外层的 update_id。
+                  </span>
                 </label>
               </div>
               <div className="flex flex-wrap items-center gap-2">
