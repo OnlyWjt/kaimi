@@ -19,7 +19,10 @@ import { sanitizeLog } from "@/lib/log";
 import { notifyOrderTerminal } from "@/lib/notify";
 import { recordOpsAlert } from "@/lib/ops-health";
 import type { AgentCredential } from "@/lib/recharge-types";
-import { isTerminalStatus } from "@/lib/recharge-types";
+import {
+  isTerminalStatus,
+  shouldNotifyTerminalTransition,
+} from "@/lib/recharge-types";
 import {
   parseCardplatformRequestId,
   pollCardplatformResult,
@@ -543,7 +546,7 @@ export async function applyUpstreamStatus(opts: {
       if (opts.cdkCode) await releaseLockedCode(opts.cdkCode);
     }
 
-    if (isTerminalStatus(status) && !isTerminalStatus(prev)) {
+    if (shouldNotifyTerminalTransition(prev, status)) {
       await notifyIfTerminal({
         orderNo: order.orderNo,
         fulfillStatus: status,
@@ -724,6 +727,15 @@ async function pollDirectCardplatformOrder(order: typeof orders.$inferSelect) {
     }
   });
   await appendStatusHistory(order.id, status, message, "cardplatform-poll");
+  if (shouldNotifyTerminalTransition(order.fulfillStatus, status)) {
+    await notifyIfTerminal({
+      orderNo: order.orderNo,
+      fulfillStatus: status,
+      message,
+      upstreamRequestId: order.upstreamRequestId,
+      upstreamPlan: order.upstreamPlan,
+    });
+  }
 }
 
 export async function pollRechargeByRequestId(requestId: string) {
