@@ -20,6 +20,10 @@ import { verifyEpayNotify } from "@/lib/payments/epay";
 import { getPublicBaseUrl } from "@/lib/public-url";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import {
+  isLocalAccountPlan,
+  parseFinishedAccountLine,
+} from "@/lib/finished-account-core";
+import {
   epayParamsFromSearch,
   pickStoreQueryToken,
 } from "@/lib/store-order-access";
@@ -37,6 +41,18 @@ async function serializePublicOrder(
         })
       : [];
   const codes = cdks.map((row) => decryptSecret(row.codeEncrypted));
+  const finishedAccount = isLocalAccountPlan({
+    planKey: order.planKeySnapshot,
+  });
+  const accounts = finishedAccount
+    ? codes.flatMap((line) => {
+        try {
+          return [parseFinishedAccountLine(line)];
+        } catch {
+          return [];
+        }
+      })
+    : [];
   const [origin, storedRedeem, agent] = await Promise.all([
     getPublicBaseUrl(req),
     getSetting("agent_redeem_url", ""),
@@ -53,12 +69,15 @@ async function serializePublicOrder(
   const redeemBase = agent?.currentSlug
     ? resolveShopRedeemUrl(storedRedeem, agent.currentSlug, origin)
     : "/recharge";
-  const rechargePath = buildRechargePath(redeemBase, {
-    codes,
-    orderNo: order.orderNo,
-    queryToken,
-  });
+  const rechargePath = finishedAccount
+    ? ""
+    : buildRechargePath(redeemBase, {
+        codes,
+        orderNo: order.orderNo,
+        queryToken,
+      });
   const quantity = Math.max(1, order.quantity);
+  const unit = finishedAccount ? "个" : "张";
   return {
     orderNo: order.orderNo,
     productName: order.productNameSnapshot,
@@ -69,25 +88,34 @@ async function serializePublicOrder(
     paymentChannel: order.paymentChannel,
     payStatus: order.payStatus,
     fulfillStatus: order.fulfillStatus,
+    deliveryKind: finishedAccount ? "finished_account" : "cdk",
     message:
       order.fulfillStatus === "partially_delivered"
-        ? `已出 ${codes.length}/${quantity} 张，剩下的正在继续生成`
+        ? `已出 ${codes.length}/${quantity} ${unit}，剩下的正在继续发放`
         : order.fulfillStatus === "paid_undelivered"
-          ? "支付成功，正在重试发卡"
+          ? finishedAccount
+            ? "支付成功，正在重试发放账号"
+            : "支付成功，正在重试发卡"
           : order.fulfillStatus === "unknown"
             ? "支付成功，订单正在人工核对"
             : order.payStatus === "paid" && order.fulfillStatus !== "delivered"
-              ? "支付成功，正在生成卡密"
+              ? finishedAccount
+                ? "支付成功，正在发送账号"
+                : "支付成功，正在生成卡密"
               : "",
-    code: codes[0] ?? null,
-    codes,
+    code: finishedAccount ? null : (codes[0] ?? null),
+    codes: finishedAccount ? [] : codes,
+    accounts,
     queryToken,
     rechargePath,
-    rechargeUrl: isExternalRedeemUrl(rechargePath)
-      ? rechargePath
-      : origin
-        ? `${origin}${rechargePath}`
-        : rechargePath,
+    rechargeUrl:
+      finishedAccount || !rechargePath
+        ? ""
+        : isExternalRedeemUrl(rechargePath)
+          ? rechargePath
+          : origin
+            ? `${origin}${rechargePath}`
+            : rechargePath,
     cdkStatus: cdks[0]?.status ?? null,
     paidAt: order.paidAt,
     deliveredAt: order.deliveredAt,

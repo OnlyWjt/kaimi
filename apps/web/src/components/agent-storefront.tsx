@@ -34,6 +34,24 @@ type EmailOrder = {
   queryToken: string;
 };
 
+function productAvailable(product: StorefrontProduct) {
+  return product.available !== false;
+}
+
+function productAvailabilityLabel(
+  product: StorefrontProduct,
+  t: {
+    restocking: string;
+    inStockAccount: string;
+    inStockShort: string;
+    stock: (n: number) => string;
+  },
+) {
+  if (!productAvailable(product)) return t.restocking;
+  if (product.kind === "account") return t.inStockAccount;
+  return product.stock === null ? t.inStockShort : t.stock(product.stock);
+}
+
 const QUERY_PREVIEW = 5;
 const PAID_PAY = new Set(["paid", "success"]);
 const ISSUED_FULFILL = new Set(["delivered", "fulfilled", "success", "issued"]);
@@ -109,6 +127,8 @@ const I18N = {
     priceFrom: (n: string) => `¥${n} 起`,
     stock: (n: number) => `库存 ${n} 件`,
     inStockShort: "现货",
+    inStockAccount: "有货",
+    restocking: "补货中",
     buyNow: "立即购买",
     empty: "当前暂无可售套餐",
     allCategory: "全部",
@@ -120,11 +140,15 @@ const I18N = {
       chooseSpec: "选择规格",
       auto: "自动发货",
       inStock: "有库存",
+      restocking: "补货中",
       qty: "购买数量",
       qtyMax: (n: number) => `一次最多 ${n} 张`,
+      qtyMaxAccount: (n: number) => `一次最多 ${n} 个`,
       stock: (n: number) => `库存 ${n} 件`,
       email: "接收邮箱",
       emailHint: "用于付款后查回订单与卡密，请填常用邮箱",
+      emailHintAccount: "用于付款后查回订单与账号，请填常用邮箱",
+      restockingHint: "这个套餐正在补货中，暂时无法下单。",
       emailRequired: "请先填写接收邮箱",
       channel: "支付方式",
       channelEmpty: "支付方式暂未开放",
@@ -179,6 +203,8 @@ const I18N = {
     priceFrom: (n: string) => `From ¥${n}`,
     stock: (n: number) => `${n} in stock`,
     inStockShort: "In stock",
+    inStockAccount: "In stock",
+    restocking: "Restocking",
     buyNow: "Buy now",
     empty: "No plans available right now",
     allCategory: "All",
@@ -190,11 +216,15 @@ const I18N = {
       chooseSpec: "Choose a plan",
       auto: "Auto delivery",
       inStock: "In stock",
+      restocking: "Restocking",
       qty: "Quantity",
       qtyMax: (n: number) => `Up to ${n} per order`,
+      qtyMaxAccount: (n: number) => `Up to ${n} per order`,
       stock: (n: number) => `${n} in stock`,
       email: "Delivery email",
       emailHint: "Used to retrieve your order and codes after payment",
+      emailHintAccount: "Used to retrieve your order and account after payment",
+      restockingHint: "This plan is restocking and cannot be purchased right now.",
       emailRequired: "Please enter your email first",
       channel: "Payment method",
       channelEmpty: "No payment method available",
@@ -578,6 +608,10 @@ export function AgentStorefront({
 
   function openInvoicePrompt() {
     if (!activeSpec) return;
+    if (active && !productAvailable(active)) {
+      setBuyError(t.detail.restockingHint);
+      return;
+    }
     if (!buyerEmail.trim()) {
       setBuyError(t.detail.emailRequired);
       return;
@@ -953,8 +987,10 @@ export function AgentStorefront({
                             <span className="km-sf-card2-kicker">
                               {product.categoryLabel || pickText(product.subtitle, lang)}
                             </span>
-                            <span className="km-sf-stock">
-                              {product.stock === null ? t.inStockShort : t.stock(product.stock)}
+                            <span
+                              className={`km-sf-stock${productAvailable(product) ? "" : " km-sf-stock-wait"}`}
+                            >
+                              {productAvailabilityLabel(product, t)}
                             </span>
                           </div>
                           <h3 className="km-sf-card2-title">{pickText(product.name, lang)}</h3>
@@ -965,7 +1001,7 @@ export function AgentStorefront({
                                 : `¥${yuanTextFromCents(minCents)}`}
                             </span>
                             <span className="km-sf-buy">
-                              {t.buyNow}
+                              {productAvailable(product) ? t.buyNow : t.restocking}
                               <IconArrow />
                             </span>
                           </div>
@@ -1036,7 +1072,13 @@ export function AgentStorefront({
                       {pickText(tag, lang)}
                     </span>
                   ))}
-                  <span className="km-sf-badge">{t.detail.inStock}</span>
+                  <span className="km-sf-badge">
+                    {active && !productAvailable(active)
+                      ? t.detail.restocking
+                      : active?.kind === "account"
+                        ? t.inStockAccount
+                        : t.detail.inStock}
+                  </span>
                 </div>
 
                 <p className="km-sf-detail-desc">{pickText(active.desc, lang)}</p>
@@ -1066,7 +1108,13 @@ export function AgentStorefront({
                             <span className="km-sf-spec-row-main">
                               <span className="km-sf-spec-row-name">{pickText(spec.name, lang)}</span>
                               <span className="km-sf-spec-row-stock">
-                                {spec.stock === null ? t.detail.inStock : t.detail.stock(spec.stock)}
+                                {active && !productAvailable(active)
+                                  ? t.detail.restocking
+                                  : spec.stock === null
+                                    ? active?.kind === "account"
+                                      ? t.inStockAccount
+                                      : t.detail.inStock
+                                    : t.detail.stock(spec.stock)}
                               </span>
                             </span>
                             <span className="km-sf-spec-row-right">
@@ -1111,7 +1159,11 @@ export function AgentStorefront({
                             ＋
                           </button>
                         </div>
-                        <span className="km-sf-qty-hint">{t.detail.qtyMax(specMaxQty)}</span>
+                        <span className="km-sf-qty-hint">
+                          {active?.kind === "account"
+                            ? t.detail.qtyMaxAccount(specMaxQty)
+                            : t.detail.qtyMax(specMaxQty)}
+                        </span>
                       </div>
                     </>
                   ) : null}
@@ -1124,7 +1176,11 @@ export function AgentStorefront({
                     onChange={(event) => setBuyerEmail(event.target.value)}
                     placeholder={t.queryPlaceholder}
                   />
-                  <p className="km-sf-modal-hint">{t.detail.emailHint}</p>
+                  <p className="km-sf-modal-hint">
+                    {active?.kind === "account"
+                      ? t.detail.emailHintAccount
+                      : t.detail.emailHint}
+                  </p>
 
                   <p className="km-sf-field-label">{t.detail.channel}</p>
                   {channels.length ? (
@@ -1148,16 +1204,23 @@ export function AgentStorefront({
                   )}
 
                   {buyError ? <p className="km-sf-error">{buyError}</p> : null}
+                  {active && !productAvailable(active) ? (
+                    <p className="km-sf-modal-hint">{t.detail.restockingHint}</p>
+                  ) : null}
 
                   <button
                     type="button"
                     className="km-btn km-sf-detail-buy"
-                    disabled={buyBusy}
+                    disabled={
+                      buyBusy || Boolean(active && !productAvailable(active))
+                    }
                     onClick={openInvoicePrompt}
                   >
                     {buyBusy
                       ? t.detail.payBusy
-                      : `${t.detail.pay} · ¥${yuanTextFromCents(goodsCents)}`}
+                      : active && !productAvailable(active)
+                        ? t.restocking
+                        : `${t.detail.pay} · ¥${yuanTextFromCents(goodsCents)}`}
                   </button>
 
                   <p className="km-sf-secure">

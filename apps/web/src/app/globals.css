@@ -1614,6 +1614,10 @@ a.km-sf-contact:hover {
   color: var(--km-fg-muted);
 }
 
+.km-sf-stock-wait {
+  color: var(--km-warn, #b45309);
+}
+
 .km-sf-buy {
   display: inline-flex;
   align-items: center;

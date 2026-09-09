@@ -27,6 +27,7 @@ export async function GET() {
       retailPriceCents: agentPlanPrices.retailPriceCents,
       enabled: agentPlanPrices.enabled,
       cardplatformSellable: platformPlans.cardplatformSellable,
+      fulfillmentKind: platformPlans.fulfillmentKind,
     })
     .from(agentPlanPrices)
     .innerJoin(platformPlans, eq(platformPlans.id, agentPlanPrices.planId))
@@ -49,6 +50,7 @@ export async function GET() {
       retailPriceCents: row.retailPriceCents,
       enabled: row.enabled,
       cardplatformSellable: row.cardplatformSellable,
+      fulfillmentKind: row.fulfillmentKind,
     })),
   });
 }

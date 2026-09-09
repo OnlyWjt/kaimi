@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { platformPlans } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { maskCode } from "@/lib/crypto";
+import { isLocalAccountPlan } from "@/lib/finished-account-core";
 import type { AgentCredential } from "@/lib/recharge-types";
 import {
   getCardplatformClientById,
@@ -59,6 +60,9 @@ async function planNameFor(planKey: string) {
 export async function resolveRedeemClient(code: string) {
   const issued = await findIssuedCdkByCode(code);
   if (issued) {
+    if (isLocalAccountPlan(issued)) {
+      throw new Error("成品账号无需兑换，请到订单页查看。");
+    }
     const { client, account } = await getCardplatformClientById(
       issued.cardplatformAccountId,
       { allowDisabled: true },
@@ -83,6 +87,9 @@ export async function previewRedeemableCdk(
   }
   const issued = await findIssuedCdkByCode(trimmed);
   if (issued) {
+    if (isLocalAccountPlan(issued)) {
+      throw new Error("成品账号无需兑换，请到订单页查看。");
+    }
     if (issued.status === "used") throw new Error("该卡密已使用");
     // 兑换流程会先把卡抢成 locked，再去预检，而预检里又要 preview 一次。不给持锁人
     // 放行的话，本站发出去的卡一张都兑不掉——抢到锁的那一步就把自己挡在门外了。

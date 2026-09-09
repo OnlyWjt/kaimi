@@ -10,6 +10,7 @@ import { CardIntegration } from "@/components/card-integration";
 import { CardSelectionConfig } from "@/components/card-selection-config";
 import { AdminEarningsStats } from "@/components/admin-earnings-stats";
 import { CommerceAdmin } from "@/components/commerce-admin";
+import { FinishedAccountsAdmin } from "@/components/finished-accounts-admin";
 import { toast } from "@/components/toast";
 import { copyText } from "@/lib/copy-text";
 import { parseDbDate } from "@/lib/datetime";
@@ -22,6 +23,7 @@ type Tab =
   | "integration"
   | "selection"
   | "commerce"
+  | "finished"
   | "agents"
   | "earnings"
   | "appearance"
@@ -89,6 +91,7 @@ const HASH_TABS: Tab[] = [
   "integration",
   "selection",
   "commerce",
+  "finished",
   "agents",
   "earnings",
   "appearance",
@@ -242,6 +245,7 @@ export default function AdminPage() {
         ["integration", "接入卡台"],
         ["selection", "选卡配置"],
         ["commerce", "即时发卡"],
+        ["finished", "成品号"],
         ["agents", "代理管理"],
         ["earnings", "收益统计"],
         ["appearance", "外观"],
@@ -1000,6 +1004,8 @@ export default function AdminPage() {
         {tab === "selection" ? <CardSelectionConfig /> : null}
 
         {tab === "commerce" ? <CommerceAdmin embedded /> : null}
+
+        {tab === "finished" ? <FinishedAccountsAdmin /> : null}
 
         {tab === "agents" ? <AdminAgents /> : null}
 

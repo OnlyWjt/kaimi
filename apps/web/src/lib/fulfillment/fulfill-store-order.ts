@@ -4,18 +4,27 @@ import {
   agentEarnings,
   fulfillmentAttempts,
   issuedCdks,
+  platformPlans,
   storeOrders,
 } from "@/db/schema";
 import { CardplatformError } from "@/lib/cardplatform/client";
 import { getCardplatformClientById } from "@/lib/cardplatform/config";
 import { issuePrefFromAccount } from "@/lib/cardplatform/policy";
-import { encryptSecret, hashLookupValue } from "@/lib/crypto";
+import { decryptSecret, encryptSecret, hashLookupValue } from "@/lib/crypto";
 import { issueIdempotencyKey } from "@/lib/fulfillment/issue-keys";
 import {
   FULFILLMENT_FAILED_RESULTS,
   fulfillmentRetryDelayMs,
   fulfillmentRetryExhausted,
 } from "@/lib/fulfillment/retry-policy";
+import {
+  formatFinishedAccountLine,
+  isLocalAccountPlan,
+} from "@/lib/finished-account-core";
+import {
+  allocateFinishedAccounts,
+  decryptFinishedAccount,
+} from "@/lib/finished-accounts";
 import { storeOrderGoodsCents } from "@/lib/invoice-core";
 
 const ISSUING_LEASE_MS = 5 * 60_000;
@@ -34,7 +43,16 @@ export async function fulfillStoreOrder(orderId: number) {
   if (!order) throw new Error("订单不存在");
   if (order.fulfillStatus === "delivered") return order;
   if (order.payStatus !== "paid") throw new Error("订单尚未支付");
-  if (!order.cardplatformAccountId) throw new Error("订单未绑定卡台账户");
+  const plan = await db.query.platformPlans.findFirst({
+    where: eq(platformPlans.planKey, order.planKeySnapshot),
+  });
+  const localAccount = isLocalAccountPlan({
+    planKey: order.planKeySnapshot,
+    fulfillmentKind: plan?.fulfillmentKind,
+  });
+  if (!localAccount && !order.cardplatformAccountId) {
+    throw new Error("订单未绑定卡台账户");
+  }
   const staleBefore = new Date(Date.now() - ISSUING_LEASE_MS).toISOString();
 
   const [claimed] = await db
@@ -65,6 +83,14 @@ export async function fulfillStoreOrder(orderId: number) {
     });
   }
 
+  if (localAccount) {
+    return await fulfillLocalAccountOrder(claimed);
+  }
+  const boundAccountId = claimed.cardplatformAccountId;
+  if (!boundAccountId) {
+    throw new Error("订单未绑定卡台账户");
+  }
+
   let attempt: typeof fulfillmentAttempts.$inferSelect | undefined;
   const quantity = Math.max(1, claimed.quantity);
   let alreadyIssued = 0;
@@ -83,7 +109,7 @@ export async function fulfillStoreOrder(orderId: number) {
       upstreamRef: string;
       upstreamFeeMinor: number;
     }> = [];
-    let accountId: number = order.cardplatformAccountId;
+    let accountId = boundAccountId;
 
     if (remaining > 0) {
       const [{ nextAttempt }] = await db
@@ -126,9 +152,7 @@ export async function fulfillStoreOrder(orderId: number) {
         .returning();
       attempt = createdAttempt;
 
-      const { account, client } = await getCardplatformClientById(
-        order.cardplatformAccountId,
-      );
+      const { account, client } = await getCardplatformClientById(boundAccountId);
       accountId = account.id;
       const pref = await issuePrefFromAccount(account.id);
       const cdks = await client.issueMany(
@@ -314,6 +338,196 @@ export async function fulfillStoreOrder(orderId: number) {
           })
           .where(eq(fulfillmentAttempts.id, attempt.id));
       }
+    });
+  }
+
+  return await db.query.storeOrders.findFirst({
+    where: eq(storeOrders.id, order.id),
+  });
+}
+
+async function fulfillLocalAccountOrder(
+  order: typeof storeOrders.$inferSelect,
+) {
+  const quantity = Math.max(1, order.quantity);
+  const existing = await db.query.issuedCdks.findMany({
+    where: eq(issuedCdks.orderId, order.id),
+  });
+  const remaining = Math.max(0, quantity - existing.length);
+  const now = new Date().toISOString();
+  const [{ nextAttempt }] = await db
+    .select({
+      nextAttempt: sql<number>`coalesce(max(${fulfillmentAttempts.attemptNo}), 0) + 1`,
+    })
+    .from(fulfillmentAttempts)
+    .where(eq(fulfillmentAttempts.orderId, order.id));
+  const [createdAttempt] = await db
+    .insert(fulfillmentAttempts)
+    .values({
+      orderId: order.id,
+      attemptNo: Number(nextAttempt || 1),
+      idempotencyKey: `${order.fulfillmentIdempotencyKey}:local:${existing.length}`,
+      requestSummaryJson: JSON.stringify({
+        plan: order.planKeySnapshot,
+        count: remaining,
+        quantity,
+        alreadyIssued: existing.length,
+      }),
+      result: "running",
+    })
+    .returning();
+
+  try {
+    await db.transaction(async (tx) => {
+      const freshOrder = await tx.query.storeOrders.findFirst({
+        where: eq(storeOrders.id, order.id),
+      });
+      if (!freshOrder) throw new Error("订单在履约过程中被删除");
+      if (
+        freshOrder.payStatus !== "paid" ||
+        freshOrder.fulfillStatus !== "issuing"
+      ) {
+        throw new Error("订单状态已变化，已阻止写入成品号和收益记录");
+      }
+
+      const allocated =
+        remaining > 0
+          ? await allocateFinishedAccounts(tx, {
+              planKey: order.planKeySnapshot,
+              orderId: order.id,
+              quantity: remaining,
+            })
+          : [];
+      if (allocated.length > 0) {
+        await tx.insert(issuedCdks).values(
+          allocated.map((row) => {
+            const parts = decryptFinishedAccount(row, decryptSecret);
+            const line = formatFinishedAccountLine(parts);
+            return {
+              orderId: order.id,
+              agentId: order.agentId,
+              planKey: order.planKeySnapshot,
+              codeEncrypted: encryptSecret(line),
+              codeHash: hashLookupValue(parts.email),
+              codePrefix: parts.email.slice(0, 14),
+              cardplatformAccountId: 0,
+              upstreamRef: `finished:${row.id}`,
+              upstreamFeeMinor: 0,
+              status: "unused",
+              issuedAt: now,
+              updatedAt: now,
+            };
+          }),
+        );
+      }
+
+      const [{ issuedTotal }] = await tx
+        .select({ issuedTotal: sql<number>`count(*)` })
+        .from(issuedCdks)
+        .where(eq(issuedCdks.orderId, order.id));
+      const delivered = Number(issuedTotal || 0);
+      const complete = delivered >= quantity;
+      const short = remaining > 0 && allocated.length < remaining;
+
+      if (complete) {
+        await tx
+          .insert(agentEarnings)
+          .values({
+            orderId: order.id,
+            agentId: order.agentId,
+            grossCents: storeOrderGoodsCents(freshOrder),
+            costCents: freshOrder.agentCostTotalCents,
+            paymentFeeCents: freshOrder.finalPaymentFeeCents,
+            feeSource:
+              freshOrder.feeReconcileStatus === "confirmed"
+                ? "gateway_actual"
+                : freshOrder.feeReconcileStatus === "unsupported"
+                  ? "configured_fallback"
+                  : "estimated",
+            earningCents: freshOrder.agentEarningCents,
+            status: "pending",
+            confirmedAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoNothing({ target: agentEarnings.orderId });
+      }
+
+      await tx
+        .update(storeOrders)
+        .set({
+          fulfillStatus: complete
+            ? "delivered"
+            : delivered > 0
+              ? "partially_delivered"
+              : "paid_undelivered",
+          deliveredAt: complete ? now : freshOrder.deliveredAt,
+          lastErrorCode: complete
+            ? ""
+            : short
+              ? "LOCAL_ACCOUNT_STOCK_SHORT"
+              : "LOCAL_ACCOUNT_PARTIAL",
+          lastErrorMessage: complete
+            ? ""
+            : `成品号库存不足，已出 ${delivered}/${quantity}，补货后会自动继续发放`,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(storeOrders.id, order.id),
+            eq(storeOrders.fulfillStatus, "issuing"),
+          ),
+        );
+
+      await tx
+        .update(fulfillmentAttempts)
+        .set({
+          // 缺货不是故障：补货后还要继续发。打成 failed 会吃掉重试预算，最后卡成 unknown。
+          result: complete ? "success" : "partial",
+          responseSummaryJson: JSON.stringify({
+            issued: allocated.length,
+            deliveredTotal: delivered,
+            quantity,
+            accountIds: allocated.map((row) => row.id),
+          }),
+          errorCode: complete
+            ? ""
+            : short
+              ? "LOCAL_ACCOUNT_STOCK_SHORT"
+              : "",
+          errorMessage: complete
+            ? ""
+            : `成品号库存不足，已出 ${delivered}/${quantity}`,
+          finishedAt: now,
+        })
+        .where(eq(fulfillmentAttempts.id, createdAttempt.id));
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "成品号发放失败";
+    await db.transaction(async (tx) => {
+      await tx
+        .update(storeOrders)
+        .set({
+          fulfillStatus:
+            existing.length > 0 ? "partially_delivered" : "paid_undelivered",
+          lastErrorCode: "LOCAL_ACCOUNT_FAILED",
+          lastErrorMessage: message.slice(0, 500),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(
+          and(
+            eq(storeOrders.id, order.id),
+            eq(storeOrders.fulfillStatus, "issuing"),
+          ),
+        );
+      await tx
+        .update(fulfillmentAttempts)
+        .set({
+          result: "failed",
+          errorCode: "LOCAL_ACCOUNT_FAILED",
+          errorMessage: message.slice(0, 500),
+          finishedAt: new Date().toISOString(),
+        })
+        .where(eq(fulfillmentAttempts.id, createdAttempt.id));
     });
   }
 

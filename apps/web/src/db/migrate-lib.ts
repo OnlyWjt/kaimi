@@ -3,11 +3,17 @@ import { db, client } from "./index";
 import {
   adminUsers,
   paymentChannelConfigs,
+  platformPlans,
   settings,
   storefronts,
   users,
 } from "./schema";
 import bcrypt from "bcryptjs";
+import {
+  FINISHED_GPT_COST_CENTS,
+  FINISHED_GPT_PLAN_KEY,
+  LOCAL_ACCOUNT_FULFILLMENT,
+} from "../lib/finished-account-core";
 
 const DDL = `
 CREATE TABLE IF NOT EXISTS settings (
@@ -130,6 +136,7 @@ CREATE TABLE IF NOT EXISTS platform_plans (
   enabled INTEGER NOT NULL DEFAULT 0,
   sort_order INTEGER NOT NULL DEFAULT 0,
   cardplatform_sellable INTEGER NOT NULL DEFAULT 0,
+  fulfillment_kind TEXT NOT NULL DEFAULT 'cardplatform',
   cardplatform_raw_json TEXT NOT NULL DEFAULT '{}',
   synced_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -257,6 +264,23 @@ CREATE TABLE IF NOT EXISTS issued_cdks (
 CREATE INDEX IF NOT EXISTS issued_cdks_order_idx ON issued_cdks(order_id);
 CREATE UNIQUE INDEX IF NOT EXISTS issued_cdks_code_hash_uq ON issued_cdks(code_hash);
 CREATE INDEX IF NOT EXISTS issued_cdks_agent_issued_idx ON issued_cdks(agent_id, issued_at);
+
+CREATE TABLE IF NOT EXISTS finished_accounts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plan_key TEXT NOT NULL,
+  email TEXT NOT NULL,
+  gpt_password_encrypted TEXT NOT NULL,
+  mailbox_password_encrypted TEXT NOT NULL,
+  session_encrypted TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'unused',
+  store_order_id INTEGER,
+  imported_at TEXT NOT NULL DEFAULT (datetime('now')),
+  sold_at TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS finished_accounts_email_uq ON finished_accounts(email);
+CREATE INDEX IF NOT EXISTS finished_accounts_plan_status_idx ON finished_accounts(plan_key, status);
+CREATE INDEX IF NOT EXISTS finished_accounts_order_idx ON finished_accounts(store_order_id);
 
 CREATE TABLE IF NOT EXISTS fulfillment_attempts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -790,6 +814,39 @@ export async function ensureSchema() {
   await addColumn(
     "ALTER TABLE store_orders ADD COLUMN invoice_notified_at TEXT",
   );
+  await addColumn(
+    "ALTER TABLE platform_plans ADD COLUMN fulfillment_kind TEXT NOT NULL DEFAULT 'cardplatform'",
+  );
+
+  const finishedGpt = await db.query.platformPlans.findFirst({
+    where: eq(platformPlans.planKey, FINISHED_GPT_PLAN_KEY),
+  });
+  const now = new Date().toISOString();
+  if (!finishedGpt) {
+    await db.insert(platformPlans).values({
+      planKey: FINISHED_GPT_PLAN_KEY,
+      name: "GPT 成品号",
+      description:
+        "成品 ChatGPT 账号，付款后立即发送邮箱、密码和 Session，无需兑换。",
+      category: "会员",
+      globalCostPriceCents: FINISHED_GPT_COST_CENTS,
+      fulfillmentKind: LOCAL_ACCOUNT_FULFILLMENT,
+      cardplatformSellable: false,
+      enabled: true,
+      sortOrder: 80,
+      createdAt: now,
+      updatedAt: now,
+    });
+  } else if (finishedGpt.fulfillmentKind !== LOCAL_ACCOUNT_FULFILLMENT) {
+    await db
+      .update(platformPlans)
+      .set({
+        fulfillmentKind: LOCAL_ACCOUNT_FULFILLMENT,
+        cardplatformSellable: false,
+        updatedAt: now,
+      })
+      .where(eq(platformPlans.id, finishedGpt.id));
+  }
   // 一单多张之后 order_id 不能再唯一。DDL 已经建好非唯一索引，这里只负责拆掉老的。
   await client.execute("DROP INDEX IF EXISTS issued_cdks_order_id_uq");
   await ensureCardOpsTables();

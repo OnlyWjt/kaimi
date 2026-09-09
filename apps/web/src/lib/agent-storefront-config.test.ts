@@ -56,6 +56,23 @@ describe("planToProduct 自定义名称", () => {
   });
 });
 
+describe("planToProduct 成品号", () => {
+  it("成品号不显示库存数，缺货也只标补货中", () => {
+    const product = planToProduct({
+      planKey: "finished_gpt",
+      name: "GPT 成品号",
+      description: "",
+      retailPriceCents: 990,
+      fulfillmentKind: "local_account",
+      available: false,
+    });
+    expect(product.kind).toBe("account");
+    expect(product.available).toBe(false);
+    expect(product.stock).toBeNull();
+    expect(product.subtitle.zh).toContain("成品账号");
+  });
+});
+
 describe("装修配置商品名落库", () => {
   it("空覆盖不落库，读回来还是空对象", () => {
     const row = settingsToRow({

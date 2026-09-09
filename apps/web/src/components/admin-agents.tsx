@@ -5,6 +5,7 @@ import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
 import { buildAgentWelcomeText } from "@/lib/agent-welcome-core";
 import { copyText } from "@/lib/copy-text";
+import { isLocalAccountPlan } from "@/lib/finished-account-core";
 import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
 import {
   isOverMaxRetailPrice,
@@ -26,6 +27,7 @@ type CatalogPlan = {
   name: string;
   enabled: boolean;
   cardplatformSellable: boolean;
+  fulfillmentKind?: string;
   globalCostPriceCents: number;
   maxRetailPriceCents: number | null;
 };
@@ -93,7 +95,13 @@ export function AdminAgents() {
   }
 
   const enabledCatalog = useMemo(
-    () => catalog.filter((item) => item.cardplatformSellable || item.enabled),
+    () =>
+      catalog.filter(
+        (item) =>
+          item.cardplatformSellable ||
+          item.enabled ||
+          isLocalAccountPlan(item),
+      ),
     [catalog],
   );
 
@@ -497,7 +505,11 @@ export function AdminAgents() {
                       </div>
                     </td>
                     <td className="py-2 pr-3">
-                      {plan.cardplatformSellable ? "可售" : "不可售"}
+                      {plan.cardplatformSellable || isLocalAccountPlan(plan)
+                        ? isLocalAccountPlan(plan)
+                          ? "本地库存"
+                          : "可售"
+                        : "不可售"}
                     </td>
                     <td className="py-2 pr-3">
                       <input
@@ -864,7 +876,7 @@ export function AdminAgents() {
               <p className="text-sm font-medium">可售套餐</p>
               {enabledCatalog.length === 0 ? (
                 <p className="text-sm text-[var(--km-fg-muted)]">
-                  还没有可售套餐，先同步卡台再勾选。
+                  还没有可售套餐，先同步卡台或启用成品号后再勾选。
                 </p>
               ) : (
                 <div className="grid gap-2 sm:grid-cols-2">

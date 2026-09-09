@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { isLocalAccountPlan } from "./finished-account-core";
 import { normalizeCategory } from "./plan-category";
 
 /** 代理店铺装修配置：服务端与客户端共用的类型、默认值与校验 */
@@ -357,6 +358,10 @@ export type StorefrontProduct = {
   tags: LocalText[];
   /** null 表示不对外展示具体库存（卡台即时发货，没有本地池） */
   stock: number | null;
+  /** false = 补货中，仍展示商品，但不允许下单。缺省当有货。 */
+  available?: boolean;
+  /** cdk = 卡密；account = 成品账号，订单页不走兑换 */
+  kind?: "cdk" | "account";
   hue: number;
   /** 商品图位置显示的短标识，没有封面图时用 */
   mark: string;
@@ -398,6 +403,7 @@ const PLAN_COVERS: Record<string, string> = {
   credit250: "/storefront/cover-codex-250.png?v=8",
   credit500: "/storefront/cover-codex-500.png?v=8",
   credit1000: "/storefront/cover-codex-1000.png?v=8",
+  finished_gpt: "/storefront/cover-plus.png?v=8",
 };
 
 /** 按套餐键匹配带标识的封面；没对上再按名字兜底 Claude / Grok。 */
@@ -426,6 +432,8 @@ export type SellablePlan = {
   retailPriceCents: number;
   /** 后台给套餐打的分类标签，空串表示未分类 */
   category?: string;
+  fulfillmentKind?: string;
+  available?: boolean;
 };
 
 /** 平台套餐 → 前台商品。一个套餐一个商品、一个规格，下单直接用 planKey */
@@ -437,20 +445,36 @@ export function planToProduct(
   // 分类标签本身就当 id 用：后台改标签等于换分类，不用再维护一张分类表。
   // "all" 是前台「全部」的保留值，未分类的套餐落到这里，只会出现在「全部」下。
   const category = normalizeCategory(plan.category);
-  const desc: LocalText = {
-    zh: plan.description || "付款成功后即时出卡，用下单时填写的邮箱可随时查回。",
-    en: plan.description || "Codes are issued instantly after payment and retrievable with your order email.",
-  };
+  const account = isLocalAccountPlan(plan);
+  const desc: LocalText = account
+    ? {
+        zh:
+          plan.description ||
+          "付款成功后立即发送成品账号（邮箱、密码和 Session），用下单邮箱可随时查回。无需兑换。",
+        en:
+          plan.description ||
+          "A finished account is delivered right after payment. Retrieve it anytime with your order email. No redeem step.",
+      }
+    : {
+        zh: plan.description || "付款成功后即时出卡，用下单时填写的邮箱可随时查回。",
+        en: plan.description || "Codes are issued instantly after payment and retrievable with your order email.",
+      };
 
   return {
     id: plan.planKey,
     name,
-    subtitle: { zh: "官方渠道 · 付款后立即出卡", en: "Official channel · instant delivery" },
+    subtitle: account
+      ? { zh: "成品账号 · 付款后立即发送", en: "Finished account · instant delivery" }
+      : { zh: "官方渠道 · 付款后立即出卡", en: "Official channel · instant delivery" },
     desc,
     category: category || "all",
     categoryLabel: category,
-    tags: [{ zh: "官方直充", en: "Official" }],
+    tags: account
+      ? [{ zh: "成品账号", en: "Account" }]
+      : [{ zh: "官方直充", en: "Official" }],
     stock: null,
+    available: plan.available !== false,
+    kind: account ? "account" : "cdk",
     hue: hueFromKey(plan.planKey),
     mark: markFromName(plan.name),
     cover: coverFromPlan(plan.name, plan.planKey),
@@ -474,10 +498,15 @@ export function planToProduct(
         title: { zh: "使用说明", en: "How to use" },
         lines: [
           {
-            text: {
-              zh: "支付成功后立即出卡，卡密直接显示在订单页；用下单时填写的邮箱在本页「邮箱查单」可随时找回。",
-              en: "The code appears on the order page right after payment, and you can always find it again via “Track by email” on this page using your order email.",
-            },
+            text: account
+              ? {
+                  zh: "支付成功后账号显示在订单页，四个字段可分别复制。这不是卡密，不要去兑换页。用下单邮箱在本页「邮箱查单」可随时找回。",
+                  en: "The account appears on the order page after payment. Copy each field separately. This is not a redeem code. Find it again via “Track by email”.",
+                }
+              : {
+                  zh: "支付成功后立即出卡，卡密直接显示在订单页；用下单时填写的邮箱在本页「邮箱查单」可随时找回。",
+                  en: "The code appears on the order page right after payment, and you can always find it again via “Track by email” on this page using your order email.",
+                },
           },
         ],
       },
@@ -494,10 +523,15 @@ export function planToProduct(
           },
           {
             label: { zh: "退款", en: "Refunds" },
-            text: {
-              zh: "可自行申请退款，卡台会收取 10% 手续费。",
-              en: "You can request a refund yourself; the card platform charges a 10% fee.",
-            },
+            text: account
+              ? {
+                  zh: "数字商品售出后不支持无理由退款；账号问题请联系客服。",
+                  en: "Digital goods are non-refundable without cause. Contact support for account issues.",
+                }
+              : {
+                  zh: "可自行申请退款，卡台会收取 10% 手续费。",
+                  en: "You can request a refund yourself; the card platform charges a 10% fee.",
+                },
           },
           {
             text: {

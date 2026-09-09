@@ -1,7 +1,8 @@
-import type {
-  DetailSection,
-  StorefrontConfig,
-  StorefrontProduct,
+import {
+  planToProduct,
+  type DetailSection,
+  type StorefrontConfig,
+  type StorefrontProduct,
 } from "@/lib/agent-storefront-config";
 
 /** 静态预览用的假数据，只服务 /preview/storefront，不参与线上店铺 */
@@ -156,6 +157,15 @@ const DEMO_PRODUCTS: StorefrontProduct[] = [
     hue: 180,
     mark: "1000",
     subtitle: "官方渠道 · 付款后立即出卡",
+  }),
+  planToProduct({
+    planKey: "finished_gpt",
+    name: "GPT 成品号",
+    description: "",
+    retailPriceCents: 990,
+    category: "会员",
+    fulfillmentKind: "local_account",
+    available: false,
   }),
 ];
 

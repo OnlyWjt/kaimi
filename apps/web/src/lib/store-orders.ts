@@ -24,6 +24,8 @@ import {
   normalizeInvoiceRequest,
   quoteStorePayment,
 } from "@/lib/invoice-core";
+import { isLocalAccountPlan } from "@/lib/finished-account-core";
+import { countUnusedFinishedAccounts } from "@/lib/finished-accounts";
 
 export async function createStoreOrder(input: {
   request: Request;
@@ -65,6 +67,7 @@ export async function createStoreOrder(input: {
       name: platformPlans.name,
       globalCostPriceCents: platformPlans.globalCostPriceCents,
       cardplatformSellable: platformPlans.cardplatformSellable,
+      fulfillmentKind: platformPlans.fulfillmentKind,
       assignmentEnabled: agentPlanPrices.enabled,
       costOverrideCents: agentPlanPrices.costOverrideCents,
       retailPriceCents: agentPlanPrices.retailPriceCents,
@@ -79,7 +82,17 @@ export async function createStoreOrder(input: {
       ),
     )
     .limit(1);
-  if (!offer || !offer.assignmentEnabled || !offer.cardplatformSellable) {
+  const localAccount = offer
+    ? isLocalAccountPlan({
+        planKey: offer.planKey,
+        fulfillmentKind: offer.fulfillmentKind,
+      })
+    : false;
+  if (
+    !offer ||
+    !offer.assignmentEnabled ||
+    (!offer.cardplatformSellable && !localAccount)
+  ) {
     throw new Error("这个套餐现在买不了，换一个或联系店主。");
   }
 
@@ -103,8 +116,16 @@ export async function createStoreOrder(input: {
     ),
   });
   if (!channelConfig) throw new Error("这个支付方式暂时不可用，换一个试试。");
-  const cardplatform = await getDefaultCardplatformAccount();
-  if (!cardplatform) unavailable("没有可用的卡台账户");
+  const cardplatform = localAccount
+    ? null
+    : await getDefaultCardplatformAccount();
+  if (!localAccount && !cardplatform) unavailable("没有可用的卡台账户");
+  if (localAccount) {
+    const unused = await countUnusedFinishedAccounts(offer.planKey);
+    if (unused < quantity) {
+      throw new Error("这个套餐正在补货中，请稍后再试。");
+    }
+  }
 
   const epay = await getEpayConfig();
   if (!epayReady(epay)) unavailable("易支付未配置");
@@ -172,7 +193,7 @@ export async function createStoreOrder(input: {
       invoiceSurchargeCents: quote.surchargeCents,
       customerEmail: input.customerEmail.trim().toLowerCase(),
       fulfillmentIdempotencyKey,
-      cardplatformAccountId: cardplatform.id,
+      cardplatformAccountId: cardplatform?.id ?? null,
       createdAt,
       updatedAt: createdAt,
     })
@@ -181,7 +202,9 @@ export async function createStoreOrder(input: {
 
   const payment = await createEpayPayment(epay, {
     outTradeNo: orderNo,
-    name: quantity > 1 ? `CDK ${displayName} ×${quantity}` : `CDK ${displayName}`,
+    name: quantity > 1
+      ? `${localAccount ? "账号" : "CDK"} ${displayName} ×${quantity}`
+      : `${localAccount ? "账号" : "CDK"} ${displayName}`,
     moneyCents: grossCents,
     notifyUrl: `${base}/api/webhooks/epay`,
     returnUrl: `${base}/shop/order/${orderNo}?qt=${encodeURIComponent(queryToken)}`,

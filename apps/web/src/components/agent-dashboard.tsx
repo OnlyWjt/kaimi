@@ -9,6 +9,7 @@ import { isExternalRedeemUrl } from "@/lib/agent-redeem-core";
 import { formatDateTime } from "@/lib/datetime";
 import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
 import { hasNextPage, pageLabel } from "@/lib/pagination-core";
+import { isLocalAccountPlan } from "@/lib/finished-account-core";
 import { retailPriceError, retailPriceRangeHint } from "@/lib/plan-price-core";
 import { publicStatusLabel } from "@/lib/status-labels";
 import { THEME_CHOICES } from "@/lib/themes";
@@ -29,6 +30,7 @@ type AgentPlan = {
   retailPriceCents: number;
   enabled: boolean;
   cardplatformSellable: boolean;
+  fulfillmentKind?: string;
 };
 
 type AgentCdk = {
@@ -502,7 +504,7 @@ export function AgentDashboard({
                     <td className="py-2">
                       {!plan.enabled
                         ? "未开放"
-                        : plan.cardplatformSellable
+                        : plan.cardplatformSellable || isLocalAccountPlan(plan)
                           ? "可售"
                           : "平台暂时缺货"}
                     </td>

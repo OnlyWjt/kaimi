@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import {
   agentEarnings,
+  finishedAccounts,
   fulfillmentAttempts,
   issuedCdks,
   storeOrders,
@@ -12,6 +13,11 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { encryptSecret, hashLookupValue } from "@/lib/crypto";
+import {
+  formatFinishedAccountLine,
+  isLocalAccountPlan,
+  parseFinishedAccountLine,
+} from "@/lib/finished-account-core";
 import {
   FULFILLMENT_ABANDONED_RESULT,
   FULFILLMENT_FAILED_RESULTS,
@@ -25,7 +31,7 @@ const schema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("confirm_issued"),
-    code: z.string().trim().min(6).max(512),
+    code: z.string().trim().min(6).max(20_000),
     upstreamRef: z.string().trim().max(128).optional().default(""),
   }),
 ]);
@@ -107,10 +113,32 @@ export async function PATCH(
       );
   } else {
     const resolution = parsed.data;
-    if (!order.cardplatformAccountId) {
+    const localAccount = isLocalAccountPlan({
+      planKey: order.planKeySnapshot,
+    });
+    if (!localAccount && !order.cardplatformAccountId) {
       return NextResponse.json({ error: "订单未绑定卡台账户" }, { status: 409 });
     }
     const code = resolution.code.trim();
+    let finishedLine = "";
+    let finishedEmail = "";
+    if (localAccount) {
+      try {
+        const parts = parseFinishedAccountLine(code);
+        finishedLine = formatFinishedAccountLine(parts);
+        finishedEmail = parts.email;
+      } catch (error) {
+        return NextResponse.json(
+          {
+            error:
+              error instanceof Error
+                ? error.message
+                : "成品号格式应为 邮箱----GPT密码----邮箱密码----Session",
+          },
+          { status: 400 },
+        );
+      }
+    }
     try {
       await db.transaction(async (tx) => {
         const freshOrder = await tx.query.storeOrders.findFirst({
@@ -125,12 +153,40 @@ export async function PATCH(
         }
         // fulfillStoreOrder 补发时会做这一步：不查一遍就 onConflictDoNothing，
         // 粘错成别的订单的卡密时会静默什么都不做，管理员以为补录成功了。
-        const codeHash = hashLookupValue(code.toUpperCase());
+        const deliveredCode = localAccount ? finishedLine : code;
+        const codeHash = localAccount
+          ? hashLookupValue(finishedEmail)
+          : hashLookupValue(code.toUpperCase());
         const clash = await tx.query.issuedCdks.findFirst({
           where: eq(issuedCdks.codeHash, codeHash),
         });
         if (clash && clash.orderId !== order.id) {
-          throw new Error("这张卡密已经绑定在别的订单上，请核对后再补录");
+          throw new Error(
+            localAccount
+              ? "这个成品号已经绑定在别的订单上，请核对后再补录"
+              : "这张卡密已经绑定在别的订单上，请核对后再补录",
+          );
+        }
+        if (localAccount && finishedEmail) {
+          const stock = await tx.query.finishedAccounts.findFirst({
+            where: eq(finishedAccounts.email, finishedEmail),
+          });
+          if (stock?.status === "unused") {
+            await tx
+              .update(finishedAccounts)
+              .set({
+                status: "sold",
+                storeOrderId: order.id,
+                soldAt: now,
+                updatedAt: now,
+              })
+              .where(
+                and(
+                  eq(finishedAccounts.id, stock.id),
+                  eq(finishedAccounts.status, "unused"),
+                ),
+              );
+          }
         }
         await tx
           .insert(issuedCdks)
@@ -138,11 +194,19 @@ export async function PATCH(
             orderId: order.id,
             agentId: freshOrder.agentId,
             planKey: freshOrder.planKeySnapshot,
-            codeEncrypted: encryptSecret(code),
+            codeEncrypted: encryptSecret(deliveredCode),
             codeHash,
-            codePrefix: code.length >= 14 ? code.slice(0, 14) : "",
-            cardplatformAccountId: freshOrder.cardplatformAccountId!,
-            upstreamRef: resolution.upstreamRef,
+            codePrefix: localAccount
+              ? finishedEmail.slice(0, 14)
+              : code.length >= 14
+                ? code.slice(0, 14)
+                : "",
+            cardplatformAccountId: localAccount
+              ? 0
+              : freshOrder.cardplatformAccountId!,
+            upstreamRef: localAccount
+              ? resolution.upstreamRef || `manual:${finishedEmail}`
+              : resolution.upstreamRef,
             status: "unused",
             issuedAt: now,
             updatedAt: now,
@@ -185,8 +249,10 @@ export async function PATCH(
             deliveredAt: complete ? now : freshOrder.deliveredAt,
             lastErrorCode: complete ? "" : "CARDPLATFORM_PARTIAL_ISSUE",
             lastErrorMessage: complete
-              ? "管理员已从卡台核对并补录卡密"
-              : `管理员已补录到 ${delivered}/${quantity} 张，剩余继续自动补发`,
+              ? localAccount
+                ? "管理员已补录成品号"
+                : "管理员已从卡台核对并补录卡密"
+              : `管理员已补录到 ${delivered}/${quantity} ${localAccount ? "个" : "张"}，剩余继续自动补发`,
             updatedAt: now,
           })
           .where(

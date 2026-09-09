@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { and, desc, eq, inArray, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
 import { isThemeId } from "@kaimi/themes";
 import { db } from "@/db";
 import { agents, cdkPool, issuedCdks, orders, storefronts, storeOrders } from "@/db/schema";
@@ -210,17 +210,16 @@ export async function GET(req: Request) {
     const q = searchParams.get("q")?.trim() || "";
     const page = Math.max(1, Number(searchParams.get("page") || "1") || 1);
     const pageSize = Math.min(100, Math.max(1, Number(searchParams.get("page_size") || "20") || 20));
-    const conditions = [];
+    const conditions = [ne(issuedCdks.cardplatformAccountId, 0)];
     if (status) conditions.push(eq(issuedCdks.status, status));
     if (q) {
-      conditions.push(
-        or(
-          like(storeOrders.orderNo, `%${q}%`),
-          like(issuedCdks.planKey, `%${q}%`),
-          like(issuedCdks.codePrefix, `%${q}%`),
-          eq(issuedCdks.codeHash, hashLookupValue(q.toUpperCase())),
-        ),
+      const textMatch = or(
+        like(storeOrders.orderNo, `%${q}%`),
+        like(issuedCdks.planKey, `%${q}%`),
+        like(issuedCdks.codePrefix, `%${q}%`),
+        eq(issuedCdks.codeHash, hashLookupValue(q.toUpperCase())),
       );
+      if (textMatch) conditions.push(textMatch);
     }
     const where = conditions.length ? and(...conditions) : undefined;
 

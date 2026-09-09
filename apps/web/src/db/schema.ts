@@ -168,6 +168,8 @@ export const platformPlans = sqliteTable(
     cardplatformSellable: integer("cardplatform_sellable", { mode: "boolean" })
       .notNull()
       .default(false),
+    /** cardplatform = 卡台即时发卡；local_account = 平台本地成品号库存 */
+    fulfillmentKind: text("fulfillment_kind").notNull().default("cardplatform"),
     cardplatformRawJson: text("cardplatform_raw_json").notNull().default("{}"),
     syncedAt: text("synced_at"),
     createdAt: text("created_at")
@@ -386,6 +388,33 @@ export const issuedCdks = sqliteTable(
       t.agentId,
       t.issuedAt,
     ),
+  }),
+);
+
+export const finishedAccounts = sqliteTable(
+  "finished_accounts",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    planKey: text("plan_key").notNull(),
+    email: text("email").notNull(),
+    gptPasswordEncrypted: text("gpt_password_encrypted").notNull(),
+    mailboxPasswordEncrypted: text("mailbox_password_encrypted").notNull(),
+    sessionEncrypted: text("session_encrypted").notNull(),
+    /** unused | sold | disabled */
+    status: text("status").notNull().default("unused"),
+    storeOrderId: integer("store_order_id"),
+    importedAt: text("imported_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+    soldAt: text("sold_at"),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (t) => ({
+    emailIdx: uniqueIndex("finished_accounts_email_uq").on(t.email),
+    unusedIdx: index("finished_accounts_plan_status_idx").on(t.planKey, t.status),
+    orderIdx: index("finished_accounts_order_idx").on(t.storeOrderId),
   }),
 );
 

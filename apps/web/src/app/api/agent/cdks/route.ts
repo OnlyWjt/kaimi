@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { and, desc, eq, like, sql } from "drizzle-orm";
+import { and, desc, eq, like, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { issuedCdks, storeOrders } from "@/db/schema";
 import { requireAgent } from "@/lib/auth";
@@ -19,7 +19,10 @@ export async function GET(req: Request) {
   const page = Math.max(1, Number(query.get("page") || 1));
   const pageSize = Math.max(1, Math.min(100, Number(query.get("pageSize") || 20)));
   const q = query.get("q")?.trim() || "";
-  const conditions = [eq(issuedCdks.agentId, session.agentId)];
+  const conditions = [
+    eq(issuedCdks.agentId, session.agentId),
+    ne(issuedCdks.cardplatformAccountId, 0),
+  ];
   if (q) conditions.push(like(storeOrders.orderNo, `%${q}%`));
   const where = and(...conditions);
 

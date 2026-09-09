@@ -13,6 +13,7 @@ import { requireAdmin } from "@/lib/auth";
 import { getCardplatformClientById } from "@/lib/cardplatform/config";
 import { CardplatformError } from "@/lib/cardplatform/client";
 import { bootDb } from "@/lib/config";
+import { isLocalAccountPlan } from "@/lib/finished-account-core";
 
 const schema = z.object({
   type: z.enum(["refund", "chargeback"]),
@@ -99,6 +100,13 @@ export async function PATCH(
   }
   for (const cdk of cdks) {
     if (cdk.status !== "unused") continue;
+    // 成品号不在卡台，upstreamRef 也不是卡台 ID，禁用只走本地。
+    if (
+      cdk.cardplatformAccountId === 0 ||
+      isLocalAccountPlan(cdk)
+    ) {
+      continue;
+    }
     const upstreamId = Number(cdk.upstreamRef);
     if (!Number.isSafeInteger(upstreamId) || upstreamId <= 0) {
       return NextResponse.json(

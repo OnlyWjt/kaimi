@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { issuedCdks } from "@/db/schema";
 import { decryptSecret, hashLookupValue } from "@/lib/crypto";
+import { isLocalAccountPlan } from "@/lib/finished-account-core";
 import { getCardplatformClientById } from "./config";
 
 export function nestedString(
@@ -45,6 +46,9 @@ export async function findIssuedCdkByCode(code: string) {
 export async function previewIssuedCdk(code: string) {
   const issued = await findIssuedCdkByCode(code);
   if (!issued) return null;
+  if (isLocalAccountPlan(issued)) {
+    throw new Error("成品账号无需兑换，请到订单页查看。");
+  }
   if (issued.status === "used") throw new Error("该卡密已使用");
   if (issued.status === "locked" || issued.status === "redeeming") {
     throw new Error("该卡密兑换处理中，请稍后查询");

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/components/toast";
+import { isLocalAccountPlan } from "@/lib/finished-account-core";
 import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
 import { MAX_CATEGORY_LENGTH, normalizeCategory } from "@/lib/plan-category";
 import { maxRetailPriceError } from "@/lib/plan-price-core";
@@ -11,6 +12,7 @@ type CatalogPlan = {
   name: string;
   enabled: boolean;
   cardplatformSellable: boolean;
+  fulfillmentKind?: string;
   category: string;
   globalCostPriceCents: number;
   maxRetailPriceCents: number | null;
@@ -151,7 +153,11 @@ export function PlanDefaultPricesPanel() {
                     </div>
                   </td>
                   <td className="py-2 pr-3">
-                    {plan.cardplatformSellable ? "可售" : "不可售"}
+                    {plan.cardplatformSellable || isLocalAccountPlan(plan)
+                      ? isLocalAccountPlan(plan)
+                        ? "本地库存"
+                        : "可售"
+                      : "不可售"}
                   </td>
                   <td className="py-2 pr-3">
                     <input

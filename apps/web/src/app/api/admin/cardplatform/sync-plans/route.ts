@@ -5,6 +5,7 @@ import { cardplatformAccounts, platformPlans } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth";
 import { getDefaultCardplatformClient } from "@/lib/cardplatform/config";
 import { bootDb } from "@/lib/config";
+import { isLocalAccountPlan } from "@/lib/finished-account-core";
 
 export async function POST() {
   try {
@@ -21,12 +22,14 @@ export async function POST() {
     await db.transaction(async (tx) => {
       await tx
         .update(platformPlans)
-        .set({ cardplatformSellable: false, updatedAt: now });
+        .set({ cardplatformSellable: false, updatedAt: now })
+        .where(eq(platformPlans.fulfillmentKind, "cardplatform"));
       for (const plan of plans) {
         const existing = await tx.query.platformPlans.findFirst({
           where: eq(platformPlans.planKey, plan.key),
         });
         if (existing) {
+          if (isLocalAccountPlan(existing)) continue;
           await tx
             .update(platformPlans)
             .set({

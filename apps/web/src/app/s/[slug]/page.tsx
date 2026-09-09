@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, or } from "drizzle-orm";
 import { db } from "@/db";
 import {
   agentPlanPrices,
@@ -10,6 +10,8 @@ import { ApplyTheme } from "@/components/apply-theme";
 import { planToProduct, type StorefrontConfig } from "@/lib/agent-storefront-config";
 import { getAgentRedeemUrl } from "@/lib/agent-redeem";
 import { loadAgentShop } from "@/lib/agent-shop";
+import { LOCAL_ACCOUNT_FULFILLMENT } from "@/lib/finished-account-core";
+import { unusedFinishedAccountCounts } from "@/lib/finished-accounts";
 import { getStoreSalesGate } from "@/lib/ops-health";
 import { getMaxOrderQuantity } from "@/lib/store-quantity";
 
@@ -30,6 +32,7 @@ export default async function AgentStorePage({
           name: platformPlans.name,
           description: platformPlans.description,
           category: platformPlans.category,
+          fulfillmentKind: platformPlans.fulfillmentKind,
           retailPriceCents: agentPlanPrices.retailPriceCents,
           globalCostPriceCents: platformPlans.globalCostPriceCents,
           costOverrideCents: agentPlanPrices.costOverrideCents,
@@ -41,7 +44,10 @@ export default async function AgentStorePage({
             eq(agentPlanPrices.agentId, agent.id),
             eq(agentPlanPrices.enabled, true),
             eq(platformPlans.enabled, true),
-            eq(platformPlans.cardplatformSellable, true),
+            or(
+              eq(platformPlans.cardplatformSellable, true),
+              eq(platformPlans.fulfillmentKind, LOCAL_ACCOUNT_FULFILLMENT),
+            ),
           ),
         )
         .orderBy(asc(platformPlans.sortOrder), asc(platformPlans.id))
@@ -81,6 +87,11 @@ export default async function AgentStorePage({
         channel === "alipay" || channel === "wxpay",
     );
 
+  const unusedByPlan = await unusedFinishedAccountCounts(
+    sellablePlans
+      .filter((plan) => plan.fulfillmentKind === LOCAL_ACCOUNT_FULFILLMENT)
+      .map((plan) => plan.planKey),
+  );
   const config: StorefrontConfig = {
     ...settings,
     shopName: agent.displayName,
@@ -93,6 +104,11 @@ export default async function AgentStorePage({
           description: plan.description,
           retailPriceCents: plan.retailPriceCents,
           category: plan.category,
+          fulfillmentKind: plan.fulfillmentKind,
+          available:
+            plan.fulfillmentKind === LOCAL_ACCOUNT_FULFILLMENT
+              ? (unusedByPlan.get(plan.planKey) || 0) > 0
+              : true,
         },
         settings.productNames,
       ),
