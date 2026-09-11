@@ -1,82 +1,9 @@
-"use client";
-
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import {
-  agentRangeYmd,
-  dealLine,
-  moneyYuan,
-  type AgentCouponItem,
-} from "@/lib/agent-console-core";
-import { readApiJson } from "@/lib/http-error";
-import type { UsageStatsPayload } from "@/components/usage-stats-panel";
+import { dealLine, moneyYuan, type AgentOverviewSnapshot } from "@/lib/agent-console-core";
 
-type EarningsPayload = {
-  summary: {
-    orderCount: number;
-    grossCents: number;
-    pendingCents: number;
-  };
-  list: Array<{
-    id: number;
-    orderNo: string;
-    productName: string;
-    quantity?: number;
-    couponCode?: string;
-    grossCents: number;
-  }>;
-};
-
-export function AgentOverview() {
-  const [week, setWeek] = useState<EarningsPayload | null>(null);
-  const [pendingCents, setPendingCents] = useState(0);
-  const [usage, setUsage] = useState<UsageStatsPayload | null>(null);
-  const [coupons, setCoupons] = useState<AgentCouponItem[]>([]);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const { start, end } = agentRangeYmd("7d");
-        const [weekData, allData, usageData, couponData] = await Promise.all([
-          readApiJson<EarningsPayload>(
-            await fetch(`/api/agent/earnings?pageSize=5&start=${start}&end=${end}`, {
-              cache: "no-store",
-            }),
-          ),
-          readApiJson<EarningsPayload>(
-            await fetch("/api/agent/earnings?pageSize=1", { cache: "no-store" }),
-          ),
-          readApiJson<UsageStatsPayload>(
-            await fetch(`/api/agent/usage/stats?start=${start}&end=${end}`, {
-              cache: "no-store",
-            }),
-          ),
-          readApiJson<{ list?: AgentCouponItem[] }>(
-            await fetch("/api/agent/coupons", { cache: "no-store" }),
-          ),
-        ]);
-        if (cancelled) return;
-        setWeek(weekData);
-        setPendingCents(allData.summary.pendingCents);
-        setUsage(usageData);
-        setCoupons(couponData.list || []);
-      } catch (reason) {
-        if (!cancelled) {
-          setError(reason instanceof Error ? reason.message : "概览加载失败");
-        }
-      }
-    }
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const activeCoupons = coupons.filter((item) => item.enabled);
-  const risky = activeCoupons.find((item) => item.warnings.length);
-  const unused = usage?.cdks.unusedBacklog ?? 0;
+export function AgentOverview({ snapshot }: { snapshot: AgentOverviewSnapshot }) {
+  const unused = snapshot.unusedBacklog;
+  const risky = snapshot.riskyCoupon;
 
   return (
     <>
@@ -86,30 +13,27 @@ export function AgentOverview() {
           <p>打开后台先看店况，不要先看表格。有风险用一句话点出来，点进去再处理。</p>
         </div>
       </header>
-      {error ? <p className="text-sm text-[var(--km-danger)]">{error}</p> : null}
       <div className="km-acp-kpis">
         <div className="km-acp-kpi">
           <span>近 7 天成交</span>
-          <strong>{week ? moneyYuan(week.summary.grossCents) : "—"}</strong>
-          <small>{week ? `${week.summary.orderCount} 笔已付` : "正在汇总"}</small>
+          <strong>{moneyYuan(snapshot.weekGrossCents)}</strong>
+          <small>{snapshot.weekOrderCount} 笔已付</small>
         </div>
         <div className="km-acp-kpi">
           <span>待结算</span>
-          <strong>{week ? moneyYuan(pendingCents) : "—"}</strong>
+          <strong>{moneyYuan(snapshot.pendingCents)}</strong>
           <small>已扣通道费</small>
         </div>
         <div className="km-acp-kpi">
           <span>未兑换积压</span>
-          <strong>{usage ? unused : "—"}</strong>
+          <strong>{unused}</strong>
           <small>发出去还没人兑</small>
         </div>
         <div className="km-acp-kpi">
           <span>在用的券</span>
-          <strong>{week ? activeCoupons.length : "—"}</strong>
+          <strong>{snapshot.activeCouponCount}</strong>
           <small>
-            {risky
-              ? `${activeCoupons.filter((item) => item.warnings.length).length} 张有成本提醒`
-              : "按当前售价没有成本提醒"}
+            {risky ? "有成本提醒，点右边待办" : "按当前售价没有成本提醒"}
           </small>
         </div>
       </div>
@@ -125,7 +49,7 @@ export function AgentOverview() {
             </Link>
           </div>
           <div className="km-acp-list">
-            {(week?.list || []).map((item) => (
+            {snapshot.deals.map((item) => (
               <div key={item.id} className="km-acp-row">
                 <div>
                   <b>{dealLine(item)}</b>
@@ -134,7 +58,7 @@ export function AgentOverview() {
                 <strong>{moneyYuan(item.grossCents)}</strong>
               </div>
             ))}
-            {week && !week.list.length ? (
+            {snapshot.deals.length === 0 ? (
               <p className="text-sm text-[var(--km-fg-muted)]">近 7 天还没有成交。</p>
             ) : null}
           </div>
@@ -152,7 +76,7 @@ export function AgentOverview() {
                 <div>
                   <b>有一张券可能亏本</b>
                   <span>
-                    {risky.name} · {risky.warnings[0]?.message || "用在部分套餐上要复核"}
+                    {risky.name} · {risky.message}
                   </span>
                 </div>
                 <span>去看</span>
@@ -167,7 +91,7 @@ export function AgentOverview() {
                 <span>去查</span>
               </Link>
             ) : null}
-            {week && !risky && unused === 0 ? (
+            {!risky && unused === 0 ? (
               <p className="text-sm text-[var(--km-fg-muted)]">这会儿没有要立刻处理的事。</p>
             ) : null}
           </div>

@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   agentStoreCouponPlans,
@@ -95,14 +95,12 @@ function emptyCdks(): UsageCdkCounts {
   };
 }
 
-function bumpCdk(target: UsageCdkCounts, status: string, inRange: boolean) {
-  if (status === "unused") target.unusedBacklog += 1;
-  if (!inRange) return;
-  target.issued += 1;
-  if (status === "unused") target.unused += 1;
-  else if (status === "used") target.used += 1;
-  else if (status === "disabled") target.disabled += 1;
-  else if (status === "locked" || status === "redeeming") target.redeeming += 1;
+function addCdkRange(target: UsageCdkCounts, status: string, total: number) {
+  target.issued += total;
+  if (status === "unused") target.unused += total;
+  else if (status === "used") target.used += total;
+  else if (status === "disabled") target.disabled += total;
+  else if (status === "locked" || status === "redeeming") target.redeeming += total;
 }
 
 function planBucket(
@@ -139,54 +137,72 @@ export async function loadUsageStats(input: {
     orderWhere.push(eq(storeOrders.agentId, input.agentId));
   }
 
-  const orders = await db
-    .select({
-      id: storeOrders.id,
-      agentId: storeOrders.agentId,
-      planKey: storeOrders.planKeySnapshot,
-      planName: storeOrders.productNameSnapshot,
-      quantity: storeOrders.quantity,
-      payStatus: storeOrders.payStatus,
-      fulfillStatus: storeOrders.fulfillStatus,
-      couponId: storeOrders.couponId,
-      couponDiscountCents: storeOrders.couponDiscountCents,
-    })
-    .from(storeOrders)
-    .where(and(...orderWhere));
-
-  const agentIds = [...new Set(orders.map((row) => row.agentId))];
-  if (input.agentId && input.agentId > 0) agentIds.push(input.agentId);
-
   const scopedAgent = input.agentId && input.agentId > 0 ? input.agentId : 0;
-  const cdks = scopedAgent
-    ? await db
-        .select({
-          agentId: issuedCdks.agentId,
-          planKey: issuedCdks.planKey,
-          status: issuedCdks.status,
-          issuedAt: issuedCdks.issuedAt,
-        })
-        .from(issuedCdks)
-        .where(eq(issuedCdks.agentId, scopedAgent))
-    : await db
-        .select({
-          agentId: issuedCdks.agentId,
-          planKey: issuedCdks.planKey,
-          status: issuedCdks.status,
-          issuedAt: issuedCdks.issuedAt,
-        })
-        .from(issuedCdks);
+  const cdkScope = scopedAgent ? eq(issuedCdks.agentId, scopedAgent) : undefined;
 
-  const couponRows = scopedAgent
-    ? await db
-        .select()
-        .from(agentStoreCoupons)
-        .where(eq(agentStoreCoupons.agentId, scopedAgent))
-        .orderBy(asc(agentStoreCoupons.id))
-    : await db
-        .select()
-        .from(agentStoreCoupons)
-        .orderBy(asc(agentStoreCoupons.agentId), asc(agentStoreCoupons.id));
+  const [orders, unusedGroups, rangeGroups, couponRows] = await Promise.all([
+    db
+      .select({
+        id: storeOrders.id,
+        agentId: storeOrders.agentId,
+        planKey: storeOrders.planKeySnapshot,
+        planName: storeOrders.productNameSnapshot,
+        quantity: storeOrders.quantity,
+        payStatus: storeOrders.payStatus,
+        fulfillStatus: storeOrders.fulfillStatus,
+        couponId: storeOrders.couponId,
+        couponDiscountCents: storeOrders.couponDiscountCents,
+      })
+      .from(storeOrders)
+      .where(and(...orderWhere)),
+    db
+      .select({
+        agentId: issuedCdks.agentId,
+        planKey: issuedCdks.planKey,
+        total: sql<number>`count(*)`,
+      })
+      .from(issuedCdks)
+      .where(cdkScope ? and(cdkScope, eq(issuedCdks.status, "unused")) : eq(issuedCdks.status, "unused"))
+      .groupBy(issuedCdks.agentId, issuedCdks.planKey),
+    db
+      .select({
+        planKey: issuedCdks.planKey,
+        status: issuedCdks.status,
+        total: sql<number>`count(*)`,
+      })
+      .from(issuedCdks)
+      .where(
+        cdkScope
+          ? and(
+              cdkScope,
+              gte(issuedCdks.issuedAt, input.startIso),
+              lte(issuedCdks.issuedAt, input.endIso),
+            )
+          : and(
+              gte(issuedCdks.issuedAt, input.startIso),
+              lte(issuedCdks.issuedAt, input.endIso),
+            ),
+      )
+      .groupBy(issuedCdks.planKey, issuedCdks.status),
+    scopedAgent
+      ? db
+          .select()
+          .from(agentStoreCoupons)
+          .where(eq(agentStoreCoupons.agentId, scopedAgent))
+          .orderBy(asc(agentStoreCoupons.id))
+      : db
+          .select()
+          .from(agentStoreCoupons)
+          .orderBy(asc(agentStoreCoupons.agentId), asc(agentStoreCoupons.id)),
+  ]);
+
+  const agentIds = [
+    ...new Set([
+      ...orders.map((row) => row.agentId),
+      ...unusedGroups.map((row) => row.agentId),
+      ...(scopedAgent ? [scopedAgent] : []),
+    ]),
+  ];
   const couponIds = couponRows.map((row) => row.id);
   const couponLinks = couponIds.length
     ? await db
@@ -267,15 +283,16 @@ export async function loadUsageStats(input: {
     }
   }
 
-  for (const cdk of cdks) {
-    const inRange = cdk.issuedAt >= input.startIso && cdk.issuedAt <= input.endIso;
-    bumpCdk(cdkCounts, cdk.status, inRange);
-    const plan = planBucket(byPlan, cdk.planKey, cdk.planKey);
-    if (inRange) plan.cdkIssued += 1;
-    if (cdk.status === "unused") {
-      plan.cdkUnused += 1;
-      agentBucket(cdk.agentId).unusedBacklog += 1;
-    }
+  for (const row of unusedGroups) {
+    const total = Number(row.total || 0);
+    cdkCounts.unusedBacklog += total;
+    planBucket(byPlan, row.planKey, row.planKey).cdkUnused += total;
+    agentBucket(row.agentId).unusedBacklog += total;
+  }
+  for (const row of rangeGroups) {
+    const total = Number(row.total || 0);
+    planBucket(byPlan, row.planKey, row.planKey).cdkIssued += total;
+    addCdkRange(cdkCounts, row.status, total);
   }
 
   const coupons: UsageCouponRow[] = couponRows.map((row) => ({

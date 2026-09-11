@@ -1,8 +1,12 @@
 import { redirect } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { cache } from "react";
+import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { agents, users } from "@/db/schema";
-import { type AgentConsoleProfile } from "@/lib/agent-console-core";
+import { agentPlanPrices, agents, platformPlans, users } from "@/db/schema";
+import {
+  type AgentConsoleProfile,
+  type AgentPlanRow,
+} from "@/lib/agent-console-core";
 import { getAgentRedeemUrl } from "@/lib/agent-redeem";
 import { getSession } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
@@ -10,7 +14,45 @@ import { resolveThemeId } from "@/lib/storefront";
 
 export type { AgentConsoleProfile };
 
-export async function requireAgentConsoleProfile(): Promise<AgentConsoleProfile> {
+export const requireAgentId = cache(async () => {
+  const session = await getSession();
+  if (!session) redirect("/login");
+  if (session.role !== "agent" || !session.agentId) redirect("/admin");
+  return session.agentId;
+});
+
+export async function listAgentConsolePlans(agentId: number): Promise<AgentPlanRow[]> {
+  await bootDb();
+  const rows = await db
+    .select({
+      planKey: platformPlans.planKey,
+      name: platformPlans.name,
+      globalCostPriceCents: platformPlans.globalCostPriceCents,
+      maxRetailPriceCents: platformPlans.maxRetailPriceCents,
+      costOverrideCents: agentPlanPrices.costOverrideCents,
+      retailPriceCents: agentPlanPrices.retailPriceCents,
+      enabled: agentPlanPrices.enabled,
+      cardplatformSellable: platformPlans.cardplatformSellable,
+      fulfillmentKind: platformPlans.fulfillmentKind,
+    })
+    .from(agentPlanPrices)
+    .innerJoin(platformPlans, eq(platformPlans.id, agentPlanPrices.planId))
+    .where(and(eq(agentPlanPrices.agentId, agentId), eq(platformPlans.enabled, true)))
+    .orderBy(asc(platformPlans.sortOrder), asc(platformPlans.id));
+
+  return rows.map((row) => ({
+    planKey: row.planKey,
+    name: row.name,
+    costPriceCents: row.costOverrideCents ?? row.globalCostPriceCents,
+    maxRetailPriceCents: row.maxRetailPriceCents,
+    retailPriceCents: row.retailPriceCents,
+    enabled: row.enabled,
+    cardplatformSellable: row.cardplatformSellable,
+    fulfillmentKind: row.fulfillmentKind,
+  }));
+}
+
+export const requireAgentConsoleProfile = cache(async (): Promise<AgentConsoleProfile> => {
   const session = await getSession();
   if (!session) redirect("/login");
   if (session.role !== "agent" || !session.agentId) redirect("/admin");
@@ -34,4 +76,4 @@ export async function requireAgentConsoleProfile(): Promise<AgentConsoleProfile>
     themeId: resolveThemeId(profile.themeId),
     redeemUrl: await getAgentRedeemUrl(profile.currentSlug),
   };
-}
+});

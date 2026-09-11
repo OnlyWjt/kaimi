@@ -34,6 +34,7 @@ export function AgentConsoleShell({
   const router = useRouter();
   const { ask, dialog } = useAskDialog();
   const [origin, setOrigin] = useState("");
+  const [pendingHref, setPendingHref] = useState("");
   const [passwordBusy, setPasswordBusy] = useState(false);
   const shopPath = `/s/${profile.currentSlug}`;
   const shopUrl = origin ? `${origin}${shopPath}` : shopPath;
@@ -41,6 +42,10 @@ export function AgentConsoleShell({
   useEffect(() => {
     setOrigin(window.location.origin);
   }, []);
+
+  useEffect(() => {
+    setPendingHref("");
+  }, [pathname]);
 
   async function copyShop() {
     try {
@@ -134,14 +139,26 @@ export function AgentConsoleShell({
                 {index === 0 || NAV[index - 1].group !== item.group ? (
                   <div className="km-acp-nav-label">{item.group}</div>
                 ) : null}
-                <Link href={item.href} className={navActive(item.href, pathname) ? "is-on" : ""}>
+                <Link
+                  href={item.href}
+                  prefetch
+                  className={
+                    navActive(item.href, pendingHref || pathname) ? "is-on" : ""
+                  }
+                  onClick={() => setPendingHref(item.href)}
+                >
                   {item.label}
                   <em>{item.hint}</em>
                 </Link>
               </div>
             ))}
             <div className="km-acp-nav-label">工具</div>
-            <Link href="/agent/guide" className={navActive("/agent/guide", pathname) ? "is-on" : ""}>
+            <Link
+              href="/agent/guide"
+              prefetch
+              className={navActive("/agent/guide", pendingHref || pathname) ? "is-on" : ""}
+              onClick={() => setPendingHref("/agent/guide")}
+            >
               使用说明
               <em>第一次</em>
             </Link>
@@ -156,7 +173,9 @@ export function AgentConsoleShell({
             </a>
             <Link
               href="/agent/batch-redeem"
-              className={navActive("/agent/batch-redeem", pathname) ? "is-on" : ""}
+              prefetch
+              className={navActive("/agent/batch-redeem", pendingHref || pathname) ? "is-on" : ""}
+              onClick={() => setPendingHref("/agent/batch-redeem")}
             >
               批量兑换
               <em>工具</em>

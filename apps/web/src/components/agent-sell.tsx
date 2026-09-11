@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "@/components/toast";
 import {
   couponFaceHint,
@@ -25,10 +25,20 @@ function planStatus(plan: AgentPlanRow) {
   return { label: "平台暂时缺货", tone: "warn" as const };
 }
 
-export function AgentSell() {
-  const [plans, setPlans] = useState<AgentPlanRow[]>([]);
-  const [prices, setPrices] = useState<Record<string, string>>({});
-  const [coupons, setCoupons] = useState<AgentCouponItem[]>([]);
+export function AgentSell({
+  initialPlans,
+  initialCoupons,
+}: {
+  initialPlans: AgentPlanRow[];
+  initialCoupons: AgentCouponItem[];
+}) {
+  const [plans, setPlans] = useState(initialPlans);
+  const [prices, setPrices] = useState(() =>
+    Object.fromEntries(
+      initialPlans.map((plan) => [plan.planKey, yuanTextFromCents(plan.retailPriceCents)]),
+    ),
+  );
+  const [coupons, setCoupons] = useState(initialCoupons);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -51,12 +61,6 @@ export function AgentSell() {
     );
     setCoupons(data.list || []);
   }
-
-  useEffect(() => {
-    void Promise.all([loadPlans(), loadCoupons()]).catch((reason) => {
-      setError(reason instanceof Error ? reason.message : "加载失败");
-    });
-  }, []);
 
   async function savePrices() {
     setBusy(true);

@@ -1,9 +1,7 @@
 import { BatchRedeemForm } from "@/components/batch-redeem-form";
-import { requireAgentConsoleProfile } from "@/lib/agent-console";
 import { getBatchRedeemLimit } from "@/lib/batch-redeem-limit";
 
 export default async function AgentBatchRedeemPage() {
-  await requireAgentConsoleProfile();
   const batchLimit = await getBatchRedeemLimit();
   return (
     <>

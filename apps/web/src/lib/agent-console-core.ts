@@ -39,6 +39,25 @@ export type AgentCouponItem = {
   warnings: AgentCouponWarning[];
 };
 
+export type AgentOverviewDeal = {
+  id: number;
+  orderNo: string;
+  productName: string;
+  quantity?: number;
+  couponCode?: string;
+  grossCents: number;
+};
+
+export type AgentOverviewSnapshot = {
+  weekGrossCents: number;
+  weekOrderCount: number;
+  pendingCents: number;
+  unusedBacklog: number;
+  activeCouponCount: number;
+  riskyCoupon: { name: string; message: string } | null;
+  deals: AgentOverviewDeal[];
+};
+
 export function localYmd(date = new Date()) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");

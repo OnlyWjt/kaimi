@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { cache } from "react";
 import { SignJWT, jwtVerify } from "jose";
 import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
@@ -99,7 +100,7 @@ export async function logoutUser() {
 
 export const logoutAdmin = logoutUser;
 
-export async function getSession(): Promise<AuthSession | null> {
+export const getSession = cache(async (): Promise<AuthSession | null> => {
   const jar = await cookies();
   const token = jar.get(COOKIE)?.value ?? jar.get(LEGACY_ADMIN_COOKIE)?.value;
   if (!token) return null;
@@ -121,7 +122,7 @@ export async function getSession(): Promise<AuthSession | null> {
   } catch {
     return null;
   }
-}
+});
 
 export async function getAdminSession() {
   const session = await getSession();
