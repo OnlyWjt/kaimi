@@ -17,9 +17,18 @@ const plex = IBM_Plex_Sans({
   display: "swap",
 });
 
+async function siteAppearanceOrFallback() {
+  try {
+    return await getSiteAppearance();
+  } catch (error) {
+    console.warn("[layout] 读站点外观失败，先用默认主题", error);
+    return { siteName: "Kaimi", themeId: "snow" as const, shopEnabled: false };
+  }
+}
+
 export async function generateMetadata(): Promise<Metadata> {
   // 站点名后台可改，标签页标题跟着它走，别写死。
-  const { siteName } = await getSiteAppearance();
+  const { siteName } = await siteAppearanceOrFallback();
   return {
     title: siteName || "Kaimi",
     description: "卡密兑换开通",
@@ -29,7 +38,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export const dynamic = "force-dynamic";
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const { themeId } = await getSiteAppearance();
+  const { themeId } = await siteAppearanceOrFallback();
 
   return (
     <html lang="zh-CN" data-theme={themeId} className={`${sora.variable} ${plex.variable}`}>

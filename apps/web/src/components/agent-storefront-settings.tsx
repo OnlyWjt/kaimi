@@ -236,7 +236,7 @@ export function AgentStorefrontSettings() {
           ))
         ) : (
           <p className="text-sm text-[var(--km-fg-muted)]">
-            还没有可售套餐。先在「我的店铺」里打开套餐并定价，再回来改名字。
+            还没有可售套餐。先在「售价与优惠」里定价，再回来改名字。
           </p>
         )}
       </div>

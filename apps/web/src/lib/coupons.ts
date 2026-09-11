@@ -13,14 +13,18 @@ import {
   couponUsesLeft,
   parseCouponDraft,
   previewCouponWarnings,
+  quoteCouponTicket,
   specFromDraft,
   specFromRecord,
   type CouponDraft,
+  type CouponPreviewTicket,
   type CouponSpec,
   type CouponWarning,
 } from "@/lib/coupon-core";
 import { getMaxOrderQuantity } from "@/lib/store-quantity";
 import type { PaymentChannel } from "@/lib/payments/fees";
+
+export type { CouponPreviewTicket };
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -97,27 +101,6 @@ export async function assertCouponPlanKeys(agentId: number, planKeys: string[]) 
   }
 }
 
-async function warningsForDraft(agentId: number, draft: CouponDraft) {
-  const [plans, channels, maxQuantity] = await Promise.all([
-    loadAgentPlans(agentId),
-    loadFeeChannels(),
-    getMaxOrderQuantity(),
-  ]);
-  return previewCouponWarnings({
-    spec: specFromDraft(draft),
-    planKeys: draft.planKeys,
-    maxQuantity,
-    channels,
-    plans: plans.map((plan) => ({
-      planKey: plan.planKey,
-      planName: plan.planName,
-      retailPriceCents: plan.retailPriceCents,
-      costPriceCents: plan.costOverrideCents ?? plan.globalCostPriceCents,
-      enabled: plan.enabled && plan.planEnabled,
-    })),
-  });
-}
-
 async function replaceCouponPlans(tx: Tx, couponId: number, planKeys: string[]) {
   await tx
     .delete(agentStoreCouponPlans)
@@ -189,13 +172,54 @@ export async function listAgentCoupons(agentId: number): Promise<CouponRow[]> {
   });
 }
 
+export async function getAgentCoupon(agentId: number, couponId: number) {
+  const [item] = (await listAgentCoupons(agentId)).filter((row) => row.id === couponId);
+  return item ?? null;
+}
+
 export async function previewAgentCoupon(
   agentId: number,
   body: Record<string, unknown>,
 ) {
   const draft = parseCouponDraft(body);
   await assertCouponPlanKeys(agentId, draft.planKeys);
-  return { draft, warnings: await warningsForDraft(agentId, draft) };
+  const [plans, channels, maxQuantity] = await Promise.all([
+    loadAgentPlans(agentId),
+    loadFeeChannels(),
+    getMaxOrderQuantity(),
+  ]);
+  const previewPlans = plans.map((plan) => ({
+    planKey: plan.planKey,
+    planName: plan.planName,
+    retailPriceCents: plan.retailPriceCents,
+    costPriceCents: plan.costOverrideCents ?? plan.globalCostPriceCents,
+    enabled: plan.enabled && plan.planEnabled,
+  }));
+  const warnings = previewCouponWarnings({
+    spec: specFromDraft(draft),
+    planKeys: draft.planKeys,
+    maxQuantity,
+    channels,
+    plans: previewPlans,
+  });
+  const feeRule = channels[0]?.feeRule ?? { ratePpm: 0, fixedFeeCents: 0 };
+  const tickets: CouponPreviewTicket[] = draft.planKeys.flatMap((planKey) => {
+    const plan = previewPlans.find((item) => item.planKey === planKey);
+    if (!plan) return [];
+    return [
+      {
+        planKey: plan.planKey,
+        planName: plan.planName,
+        ...quoteCouponTicket({
+          spec: specFromDraft(draft),
+          listCents: plan.retailPriceCents,
+          costCents: plan.costPriceCents,
+          feeRule,
+        }),
+      },
+    ];
+  });
+  return { draft, warnings, tickets };
 }
 
 export async function createAgentCoupon(

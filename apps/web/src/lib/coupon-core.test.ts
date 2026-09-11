@@ -6,6 +6,7 @@ import {
   normalizeCouponCode,
   parseCouponDraft,
   previewCouponWarnings,
+  quoteCouponTicket,
 } from "./coupon-core";
 
 const feeRule = { ratePpm: 60_000, fixedFeeCents: 0 };
@@ -40,6 +41,38 @@ describe("applyCoupon", () => {
       goodsCents: 0,
       discountCents: 1500,
     });
+  });
+});
+
+describe("quoteCouponTicket", () => {
+  it("折扣券按买 1 张算出券后价、开票价和收益", () => {
+    const ticket = quoteCouponTicket({
+      spec: { kind: "percent", percentZhe: 8, thresholdCents: 0, amountCents: 0 },
+      listCents: 15000,
+      costCents: 3000,
+      feeRule,
+    });
+    expect(ticket).toMatchObject({
+      applied: true,
+      listCents: 15000,
+      discountCents: 3000,
+      goodsCents: 12000,
+      invoicePayCents: 13200,
+    });
+    expect(ticket.earningCents).toBe(12000 - 3000 - ticket.feeOnGoodsCents);
+  });
+
+  it("未满门槛时优惠不生效，票面仍按原价开票", () => {
+    const ticket = quoteCouponTicket({
+      spec: { kind: "threshold", percentZhe: 0, thresholdCents: 20000, amountCents: 2000 },
+      listCents: 15000,
+      costCents: 3000,
+      feeRule,
+    });
+    expect(ticket.applied).toBe(false);
+    expect(ticket.discountCents).toBe(0);
+    expect(ticket.goodsCents).toBe(15000);
+    expect(ticket.invoicePayCents).toBe(16500);
   });
 });
 

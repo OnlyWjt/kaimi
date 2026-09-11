@@ -82,6 +82,8 @@ export async function GET(req: Request) {
       status: agentEarnings.status,
       orderNo: storeOrders.orderNo,
       productName: storeOrders.productNameSnapshot,
+      quantity: storeOrders.quantity,
+      couponCode: storeOrders.couponCodeSnapshot,
       paymentChannel: storeOrders.paymentChannel,
       feeReconcileStatus: storeOrders.feeReconcileStatus,
       ...issuedCdkCountsFor(storeOrders.id),

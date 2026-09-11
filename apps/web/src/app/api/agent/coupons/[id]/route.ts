@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { requireAgent } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
-import { setCouponEnabled, updateAgentCoupon } from "@/lib/coupons";
+import { getAgentCoupon, setCouponEnabled, updateAgentCoupon } from "@/lib/coupons";
+
+function parseCouponId(raw: string) {
+  const couponId = Number(raw);
+  return Number.isSafeInteger(couponId) && couponId > 0 ? couponId : null;
+}
 
 async function authorize() {
   try {
@@ -12,6 +17,24 @@ async function authorize() {
   }
 }
 
+export async function GET(
+  _req: Request,
+  context: { params: Promise<{ id: string }> },
+) {
+  const { session, error } = await authorize();
+  if (!session) return error;
+  await bootDb();
+  const couponId = parseCouponId((await context.params).id);
+  if (!couponId) {
+    return NextResponse.json({ error: "优惠券不存在" }, { status: 404 });
+  }
+  const coupon = await getAgentCoupon(session.agentId, couponId);
+  if (!coupon) {
+    return NextResponse.json({ error: "优惠券不存在" }, { status: 404 });
+  }
+  return NextResponse.json({ coupon });
+}
+
 export async function PATCH(
   req: Request,
   context: { params: Promise<{ id: string }> },
@@ -19,8 +42,8 @@ export async function PATCH(
   const { session, error } = await authorize();
   if (!session) return error;
   await bootDb();
-  const couponId = Number((await context.params).id);
-  if (!Number.isSafeInteger(couponId) || couponId < 1) {
+  const couponId = parseCouponId((await context.params).id);
+  if (!couponId) {
     return NextResponse.json({ error: "优惠券不存在" }, { status: 404 });
   }
   try {

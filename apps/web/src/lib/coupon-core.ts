@@ -130,6 +130,49 @@ export function couponEarningQuote(input: {
   });
 }
 
+export type CouponTicketQuote = {
+  applied: boolean;
+  missReason?: string;
+  listCents: number;
+  discountCents: number;
+  goodsCents: number;
+  invoicePayCents: number;
+  feeOnGoodsCents: number;
+  earningCents: number;
+};
+
+export type CouponPreviewTicket = CouponTicketQuote & {
+  planKey: string;
+  planName: string;
+};
+
+/** 做券页右侧票面：按买 1 张、开票加价、通道费估算。 */
+export function quoteCouponTicket(input: {
+  spec: CouponSpec;
+  listCents: number;
+  costCents: number;
+  feeRule: FeeRule;
+}): CouponTicketQuote {
+  const applied = applyCoupon(input.listCents, input.spec);
+  const goodsCents = applied.ok ? applied.goodsCents : input.listCents;
+  const quote = quoteStorePayment({
+    goodsCents,
+    costTotalCents: input.costCents,
+    invoiceRequested: true,
+    feeRule: input.feeRule,
+  });
+  return {
+    applied: applied.ok,
+    missReason: applied.ok ? undefined : applied.error,
+    listCents: input.listCents,
+    discountCents: applied.ok ? applied.discountCents : 0,
+    goodsCents,
+    invoicePayCents: quote.payCents,
+    feeOnGoodsCents: quote.feeOnGoodsCents,
+    earningCents: quote.earningCents,
+  };
+}
+
 function asTrimmedString(value: unknown, field: string, max: number) {
   if (typeof value !== "string") throw new Error(`请填写${field}`);
   const text = value.trim();

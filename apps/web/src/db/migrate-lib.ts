@@ -277,7 +277,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS store_orders_payment_trade_no_uq ON store_orde
 CREATE UNIQUE INDEX IF NOT EXISTS store_orders_fulfillment_idempotency_key_uq ON store_orders(fulfillment_idempotency_key);
 CREATE INDEX IF NOT EXISTS store_orders_agent_created_idx ON store_orders(agent_id, created_at);
 CREATE INDEX IF NOT EXISTS store_orders_pay_fulfill_idx ON store_orders(pay_status, fulfill_status);
-CREATE INDEX IF NOT EXISTS store_orders_coupon_idx ON store_orders(coupon_id);
 
 CREATE TABLE IF NOT EXISTS issued_cdks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

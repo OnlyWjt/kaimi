@@ -59,10 +59,10 @@ export function AgentGuide({ slug }: { slug: string }) {
           <h2 className="text-lg font-semibold">开店三步</h2>
           <ol className="km-guide-steps">
             <li>
-              第一次登录先点右上角「修改密码」。再在「店铺外观与链接」挑主题、改店铺名，一定要点「保存店铺设置」。
+              第一次登录先在左侧点「修改密码」。再进「店铺」挑主题、改链接和店名，一定要点保存。
             </li>
             <li>
-              在「店铺零售价」把售价填进旁边的「可填区间」：不能低于成本，也不能超过平台上限。没填、填出区间，或显示「平台暂时缺货」，客户都看不到这个套餐。
+              在「售价与优惠」把售价填进旁边的「可填区间」：不能低于成本，也不能超过平台上限。没填、填出区间，或显示「平台暂时缺货」，客户都看不到这个套餐。
             </li>
             <li>把店铺链接发给客户。收款、出卡密、兑换都是客户自助，不用你手动发货。</li>
           </ol>
@@ -95,7 +95,7 @@ export function AgentGuide({ slug }: { slug: string }) {
             <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm">
               <p className="font-medium">卡密弄丢了怎么办</p>
               <p className="mt-1 text-[var(--km-fg-muted)]">
-                让他回店铺页查单。只填下单邮箱只能看到卡密后几位；要完整卡密必须用订单号。你也能在「我的卡密」里帮他查。
+                让他回店铺页查单。只填下单邮箱只能看到卡密后几位；要完整卡密必须用订单号。你也能在「已售卡密」里帮他查。
               </p>
             </div>
           </div>
@@ -119,7 +119,7 @@ export function AgentGuide({ slug }: { slug: string }) {
             <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm">
               <p className="font-medium">批量兑换</p>
               <p className="mt-1 text-[var(--km-fg-muted)]">
-                把卡密粘进去，填一次账号一起开。只兑你手动粘的码，不会读取「我的卡密」。已卖给客户的码不要自己兑。
+                把卡密粘进去，填一次账号一起开。只兑你手动粘的码，不会读取「已售卡密」。已卖给客户的码不要自己兑。
               </p>
             </div>
             <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm">
@@ -143,7 +143,7 @@ export function AgentGuide({ slug }: { slug: string }) {
             </p>
           </div>
           <p className="text-sm text-[var(--km-fg-muted)]">
-            「收益」那一栏可以切今天、近 7 天、本月、全部，也能导出 Excel。手续费按下单当时的费率算，之后不会再变。
+            「账本」可以切今天、近 7 天、本月、全部，也能导出 Excel。手续费按下单当时的费率算，之后不会再变。
           </p>
         </section>
 
@@ -158,7 +158,7 @@ export function AgentGuide({ slug }: { slug: string }) {
             <li>平台实际打款给你之后，结算单变成「已返佣」，并会记下打款方式和流水号。</li>
           </ol>
           <p className="text-sm text-[var(--km-fg-muted)]">
-            在「返佣结算记录」里能看到每一张结算单和它的状态。
+            在「账本」下面的结算里能看到每一张结算单和它的状态。
           </p>
         </section>
 
@@ -174,7 +174,7 @@ export function AgentGuide({ slug }: { slug: string }) {
             <div>
               <dt className="font-medium">「卡密用不了 / 说无效」</dt>
               <dd className="mt-1 text-[var(--km-fg-muted)]">
-                先在「我的卡密」里看状态。如果是「已使用」或「兑换中」，说明已经兑过或正在开，问他是不是之前点过。其他情况找平台。
+                先在「已售卡密」里看状态。如果是「已使用」或「兑换中」，说明已经兑过或正在开，问他是不是之前点过。其他情况找平台。
               </dd>
             </div>
             <div>
@@ -186,19 +186,19 @@ export function AgentGuide({ slug }: { slug: string }) {
             <div>
               <dt className="font-medium">「能便宜点吗」</dt>
               <dd className="mt-1 text-[var(--km-fg-muted)]">
-                零售价你自己改，但必须落在可填区间里。改价只影响之后的新订单，已经付过款的不会变。
+                零售价你自己改，也可以在「售价与优惠」做一张券。改价和券都只影响之后的新订单，已经付过款的不会变。券后价扣完通道费不能低于成本，否则下单时这张券用不了。
               </dd>
             </div>
             <div>
               <dt className="font-medium">我的收益怎么比想的少</dt>
               <dd className="mt-1 text-[var(--km-fg-muted)]">
-                收益是扣掉成本和这一笔支付手续费之后的净额。买多张时，差价按张数乘，手续费仍只扣一次。点开「收益」明细能看到每笔怎么拆的。
+                收益是扣掉成本和这一笔支付手续费之后的净额。买多张时，差价按张数乘，手续费仍只扣一次。点开「账本」明细能看到每笔怎么拆的。
               </dd>
             </div>
             <div>
               <dt className="font-medium">某个套餐客户说看不到</dt>
               <dd className="mt-1 text-[var(--km-fg-muted)]">
-                看「店铺零售价」的状态。没填、填出区间、平台没给你开，或显示「平台暂时缺货」，客户都看不到。
+                看「售价与优惠」的状态。没填、填出区间、平台没给你开，或显示「平台暂时缺货」，客户都看不到。
               </dd>
             </div>
           </dl>
