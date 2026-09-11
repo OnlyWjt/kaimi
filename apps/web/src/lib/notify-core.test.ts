@@ -25,7 +25,8 @@ describe("formatNotifyText", () => {
       status: "alert",
       message: "卡台余额不足",
     });
-    expect(text).toBe("[Kaimi] 运维告警  OPS\n卡台余额不足");
+    expect(text).toBe("[Kaimi] 运维告警\n卡台余额不足");
+    expect(text).not.toContain("OPS");
     expect(text).not.toContain("代理：");
     expect(text).not.toContain("售价：");
   });

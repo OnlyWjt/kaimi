@@ -4,12 +4,21 @@ import { backgroundJobs, platformPlans } from "@/db/schema";
 import { getDefaultCardplatformClient } from "@/lib/cardplatform/config";
 import { getSetting, setSetting } from "@/lib/config";
 import { notifyOpsAlert } from "@/lib/notify";
+import {
+  DEFAULT_MIN_SPENDABLE_CENTS,
+  DEFAULT_WARN_SPENDABLE_CENTS,
+  JOBS_FAILED,
+  cardplatformRecoveredNotify,
+  classifyCardplatformHealth,
+  jobsFailedNotify,
+  opsHealthNotifications,
+} from "@/lib/ops-health-core";
 import { epayReady, getEpayConfig } from "@/lib/payments/config";
 
 const HEALTH_KEY = "ops_health_json";
 const MANUAL_KEY = "store_sales_manual_closed";
 const MIN_SPENDABLE_KEY = "cardplatform_min_spendable_cents";
-const DEFAULT_MIN_SPENDABLE_CENTS = 500;
+const WARN_SPENDABLE_KEY = "cardplatform_warn_spendable_cents";
 
 export type OpsAlert = {
   level: "warning" | "critical";
@@ -26,8 +35,10 @@ export type OpsHealth = {
     ok: boolean;
     spendableCents: number | null;
     minSpendableCents: number;
+    warnSpendableCents: number;
     currency: string;
     message: string;
+    issueCode: string | null;
   };
   payment: { ok: boolean; message: string };
   jobs: { failed: number; retrying: number };
@@ -110,72 +121,58 @@ export async function recordOpsAlert(alert: Omit<OpsAlert, "at">) {
   await notifyOpsAlert(next.message);
 }
 
+function readCentsSetting(raw: string, fallback: number) {
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(0, Math.trunc(value));
+}
+
+function previousCardplatformCode(previous: OpsHealth | null) {
+  if (!previous) return null;
+  if (previous.cardplatform?.issueCode) return previous.cardplatform.issueCode;
+  return (
+    previous.alerts.find((row) => row.code.startsWith("cardplatform."))?.code ?? null
+  );
+}
+
 export async function refreshOpsHealth() {
   const previous = await getOpsHealth();
-  const minSpendableCents = Math.max(
-    0,
-    Number(await getSetting(MIN_SPENDABLE_KEY, String(DEFAULT_MIN_SPENDABLE_CENTS))) ||
-      DEFAULT_MIN_SPENDABLE_CENTS,
+  const minSpendableCents = readCentsSetting(
+    await getSetting(MIN_SPENDABLE_KEY, String(DEFAULT_MIN_SPENDABLE_CENTS)),
+    DEFAULT_MIN_SPENDABLE_CENTS,
   );
-  const alerts: OpsAlert[] = [];
+  const warnSpendableCents = Math.max(
+    minSpendableCents,
+    readCentsSetting(
+      await getSetting(WARN_SPENDABLE_KEY, String(DEFAULT_WARN_SPENDABLE_CENTS)),
+      DEFAULT_WARN_SPENDABLE_CENTS,
+    ),
+  );
   const now = new Date().toISOString();
 
-  let cardplatform = {
-    ok: false,
-    spendableCents: null as number | null,
-    minSpendableCents,
-    currency: "USD",
-    message: "卡台未配置",
-  };
+  let spendableCents: number | null = null;
+  let currency = "USD";
+  let error: string | undefined;
   try {
     const { client } = await getDefaultCardplatformClient();
     const balance = await client.getBalance();
-    const spendable = balance.spendableCents;
-    if (spendable === null) {
-      cardplatform = {
-        ok: false,
-        spendableCents: null,
-        minSpendableCents,
-        currency: balance.currency,
-        message: "卡台未返回可用余额",
-      };
-    } else if (spendable < minSpendableCents) {
-      cardplatform = {
-        ok: false,
-        spendableCents: spendable,
-        minSpendableCents,
-        currency: balance.currency,
-        message: `卡台可用余额 ${(spendable / 100).toFixed(2)} ${balance.currency}，低于最低 ${(minSpendableCents / 100).toFixed(2)}`,
-      };
-    } else {
-      cardplatform = {
-        ok: true,
-        spendableCents: spendable,
-        minSpendableCents,
-        currency: balance.currency,
-        message: `卡台可用余额 ${(spendable / 100).toFixed(2)} ${balance.currency}`,
-      };
-    }
-  } catch (error) {
-    cardplatform = {
-      ok: false,
-      spendableCents: null,
-      minSpendableCents,
-      currency: "USD",
-      message: error instanceof Error ? error.message : "卡台不可用",
-    };
+    spendableCents = balance.spendableCents;
+    currency = balance.currency;
+  } catch (reason) {
+    error = reason instanceof Error ? reason.message : "卡台不可用";
   }
 
   const sellable = await db.query.platformPlans.findFirst({
     where: eq(platformPlans.cardplatformSellable, true),
   });
-  if (!sellable) {
-    cardplatform = {
-      ...cardplatform,
-      ok: false,
-      message: cardplatform.ok ? "没有可售卡台套餐" : cardplatform.message,
-    };
-  }
+  const verdict = classifyCardplatformHealth({
+    spendableCents,
+    minCents: minSpendableCents,
+    warnCents: warnSpendableCents,
+    currency,
+    error,
+    hasSellablePlan: Boolean(sellable),
+  });
 
   const epay = await getEpayConfig();
   const payment = epayReady(epay)
@@ -195,11 +192,12 @@ export async function refreshOpsHealth() {
     retrying: Number(retryingRow?.n || 0),
   };
 
-  if (!cardplatform.ok) {
+  const alerts: OpsAlert[] = [];
+  if (verdict.issue) {
     alerts.push({
-      level: "critical",
-      code: "cardplatform.unavailable",
-      message: cardplatform.message,
+      level: verdict.issue.level,
+      code: verdict.issue.code,
+      message: verdict.issue.notify.what,
       at: now,
     });
   }
@@ -214,8 +212,8 @@ export async function refreshOpsHealth() {
   if (jobs.failed > 0) {
     alerts.push({
       level: "warning",
-      code: "jobs.failed",
-      message: `有 ${jobs.failed} 个后台任务失败，请到商务后台重试`,
+      code: JOBS_FAILED,
+      message: jobsFailedNotify(jobs.failed).what,
       at: now,
     });
   }
@@ -233,27 +231,59 @@ export async function refreshOpsHealth() {
   ].slice(0, 30);
 
   const manual = (await getSetting(MANUAL_KEY, "0")) === "1";
-  const autoClosed = !cardplatform.ok;
+  const autoClosed = verdict.closeSales;
   const salesOpen = !manual && !autoClosed;
   const reason = manual
     ? "管理员已手动关闭店铺购买"
     : autoClosed
-      ? cardplatform.message
+      ? verdict.message
       : "";
 
   const health: OpsHealth = {
     checkedAt: now,
     salesOpen,
     reason,
-    cardplatform,
+    cardplatform: {
+      ok: verdict.ok,
+      spendableCents: verdict.spendableCents,
+      minSpendableCents,
+      warnSpendableCents,
+      currency: verdict.currency,
+      message: verdict.message,
+      issueCode: verdict.issue?.code ?? null,
+    },
     payment,
     jobs,
     alerts: mergedAlerts,
   };
   await setSetting(HEALTH_KEY, JSON.stringify(health));
 
-  const becameClosed = previous?.salesOpen !== false && !salesOpen;
-  if (becameClosed && reason) await notifyOpsAlert(reason);
+  const outgoing = opsHealthNotifications(
+    previous
+      ? {
+          salesOpen: previous.salesOpen,
+          cardplatformCode: previousCardplatformCode(previous),
+          jobsFailed: previous.jobs.failed,
+        }
+      : null,
+    {
+      salesOpen,
+      cardplatformCode: verdict.issue?.code ?? null,
+      jobsFailed: jobs.failed,
+    },
+    verdict.issue,
+    verdict.issue
+      ? null
+      : cardplatformRecoveredNotify({
+          spendableCents: verdict.spendableCents,
+          currency: verdict.currency,
+          shopWasClosed: previous?.salesOpen === false,
+        }),
+    jobs.failed > 0 ? jobsFailedNotify(jobs.failed) : null,
+  );
+  for (const body of outgoing) {
+    await notifyOpsAlert(body);
+  }
   return health;
 }
 
@@ -266,8 +296,10 @@ function emptyHealth(): OpsHealth {
       ok: true,
       spendableCents: null,
       minSpendableCents: DEFAULT_MIN_SPENDABLE_CENTS,
+      warnSpendableCents: DEFAULT_WARN_SPENDABLE_CENTS,
       currency: "USD",
       message: "",
+      issueCode: null,
     },
     payment: { ok: true, message: "" },
     jobs: { failed: 0, retrying: 0 },

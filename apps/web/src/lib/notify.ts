@@ -5,6 +5,7 @@ import { getSetting } from "@/lib/config";
 import { decryptSecret } from "@/lib/crypto";
 import { maskRequestId, sanitizeLog } from "@/lib/log";
 import { loadRedeemNotifyContext } from "@/lib/notify-commerce";
+import { formatOpsNotifyText, type OpsNotifyBody } from "@/lib/ops-health-core";
 import {
   formatInvoicePaidText,
   formatNotifyText,
@@ -228,10 +229,14 @@ export async function notifyOrderTerminal(payload: NotifyPayload) {
   await dispatchNotify({ ...extra, ...payload });
 }
 
-export async function notifyOpsAlert(message: string) {
-  await notifyOrderTerminal({
-    orderNo: "OPS",
-    status: "alert",
-    message,
-  });
+export async function notifyOpsAlert(input: string | OpsNotifyBody) {
+  const text =
+    typeof input === "string"
+      ? formatNotifyText({ orderNo: "", status: "alert", message: input })
+      : formatOpsNotifyText(input);
+  await dispatchNotifyText(
+    text,
+    typeof input === "string" ? { message: input } : input,
+    "ops.alert",
+  );
 }
