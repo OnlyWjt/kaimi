@@ -21,6 +21,7 @@ const schema = z.object({
   invoiceTitle: z.string().max(120).optional(),
   invoiceNote: z.string().max(200).optional(),
   invoiceEmail: z.string().max(254).optional(),
+  couponCode: z.string().trim().max(20).optional(),
 });
 
 const lookupSchema = z.object({

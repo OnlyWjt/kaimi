@@ -13,6 +13,8 @@ import { isLocalAccountPlan } from "@/lib/finished-account-core";
 import { retailPriceError, retailPriceRangeHint } from "@/lib/plan-price-core";
 import { publicStatusLabel } from "@/lib/status-labels";
 import { THEME_CHOICES } from "@/lib/themes";
+import { AgentCoupons } from "@/components/agent-coupons";
+import { AgentUsageStats } from "@/components/agent-usage-stats";
 import type { ThemeId } from "@kaimi/themes";
 
 type AgentProfile = {
@@ -524,6 +526,8 @@ export function AgentDashboard({
         </button>
       </section>
 
+      <AgentCoupons plans={plans} />
+
       <section className="km-panel space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -628,6 +632,8 @@ export function AgentDashboard({
           </>
         ) : null}
       </section>
+
+      <AgentUsageStats range={earningRange} planName={planName} />
 
       <section className="km-panel space-y-4">
         <h2 className="text-xl font-semibold">返佣结算记录</h2>

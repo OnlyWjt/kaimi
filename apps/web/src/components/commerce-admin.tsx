@@ -54,6 +54,8 @@ type StoreOrder = {
   invoiceAmountCents?: number;
   invoiceNotifyStatus?: string;
   invoiceNotifyError?: string;
+  couponCodeSnapshot?: string;
+  couponDiscountCents?: number;
 };
 type BackgroundJob = {
   id: number;
@@ -810,6 +812,12 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
                         </div>
                         {order.invoiceNote ? <div>备注 {order.invoiceNote}</div> : null}
                         {order.invoiceEmail ? <div>邮箱 {order.invoiceEmail}</div> : null}
+                      </div>
+                    ) : null}
+                    {(order.couponDiscountCents || 0) > 0 ? (
+                      <div className="mt-1 text-xs text-[var(--km-fg-muted)]">
+                        券 {order.couponCodeSnapshot || ""} −¥
+                        {((order.couponDiscountCents || 0) / 100).toFixed(2)}
                       </div>
                     ) : null}
                   </td>

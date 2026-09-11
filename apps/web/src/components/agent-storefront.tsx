@@ -153,6 +153,11 @@ const I18N = {
       channel: "支付方式",
       channelEmpty: "支付方式暂未开放",
       total: "应付金额",
+      coupon: "优惠券",
+      couponPh: "选填券码",
+      couponChecking: "正在核对优惠券…",
+      couponOff: (amount: string) => `已减 ¥${amount}`,
+      couponWas: (amount: string) => `原价 ¥${amount}`,
       pay: "立即购买",
       payBusy: "正在创建订单…",
       previewNote: "预览模式不会真的下单",
@@ -229,6 +234,11 @@ const I18N = {
       channel: "Payment method",
       channelEmpty: "No payment method available",
       total: "Total",
+      coupon: "Coupon",
+      couponPh: "Optional code",
+      couponChecking: "Checking coupon…",
+      couponOff: (amount: string) => `−¥${amount}`,
+      couponWas: (amount: string) => `Was ¥${amount}`,
       pay: "Buy now",
       payBusy: "Creating order…",
       previewNote: "Preview mode does not place real orders",
@@ -470,6 +480,14 @@ export function AgentStorefront({
   const [invoiceNote, setInvoiceNote] = useState("");
   const [invoiceEmail, setInvoiceEmail] = useState("");
   const [invoiceEmailTouched, setInvoiceEmailTouched] = useState(false);
+  const [couponCode, setCouponCode] = useState("");
+  const [couponQuote, setCouponQuote] = useState<{
+    goodsCents: number;
+    discountCents: number;
+    listGoodsCents: number;
+  } | null>(null);
+  const [couponError, setCouponError] = useState("");
+  const [couponChecking, setCouponChecking] = useState(false);
 
   const t = I18N[lang];
   const products = config.products;
@@ -506,7 +524,9 @@ export function AgentStorefront({
   }, [products, filter, keyword]);
 
   const activeSpec = active?.specs.find((spec) => spec.id === specId) ?? active?.specs[0] ?? null;
-  const goodsCents = activeSpec ? activeSpec.priceCents * qty : 0;
+  const listGoodsCents = activeSpec ? activeSpec.priceCents * qty : 0;
+  const goodsCents =
+    couponQuote && couponQuote.discountCents > 0 ? couponQuote.goodsCents : listGoodsCents;
   const surchargeCents = wantInvoice && goodsCents > 0 ? invoiceSurchargeCents(goodsCents) : 0;
   const totalCents = goodsCents + surchargeCents;
   const specMaxQty = Math.min(maxQty, activeSpec?.stock ?? maxQty);
@@ -533,6 +553,48 @@ export function AgentStorefront({
   useEffect(() => {
     if (!invoiceEmailTouched) setInvoiceEmail(buyerEmail);
   }, [buyerEmail, invoiceEmailTouched]);
+
+  useEffect(() => {
+    const code = couponCode.trim();
+    if (!live || !activeSpec || !code) {
+      setCouponQuote(null);
+      setCouponError("");
+      setCouponChecking(false);
+      return;
+    }
+    const handle = window.setTimeout(() => {
+      void (async () => {
+        setCouponChecking(true);
+        try {
+          const data = await readApiJson<{
+            goodsCents: number;
+            discountCents: number;
+            listGoodsCents: number;
+          }>(
+            await fetch("/api/public/store-orders/quote", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                slug,
+                planKey: activeSpec.id,
+                channel,
+                quantity: qty,
+                couponCode: code,
+              }),
+            }),
+          );
+          setCouponQuote(data);
+          setCouponError("");
+        } catch (reason) {
+          setCouponQuote(null);
+          setCouponError(reason instanceof Error ? reason.message : "优惠券无效");
+        } finally {
+          setCouponChecking(false);
+        }
+      })();
+    }, 350);
+    return () => window.clearTimeout(handle);
+  }, [live, slug, activeSpec, couponCode, channel, qty]);
 
   useEffect(() => {
     if (!active && !invoiceOpen) return;
@@ -565,6 +627,9 @@ export function AgentStorefront({
     setBuyError("");
     setInvoiceOpen(false);
     setWantInvoice(false);
+    setCouponCode("");
+    setCouponQuote(null);
+    setCouponError("");
     setInvoiceTitle("");
     setInvoiceNote("");
     setInvoiceEmailTouched(false);
@@ -655,6 +720,10 @@ export function AgentStorefront({
       setBuyError(t.detail.channelEmpty);
       return;
     }
+    if (couponCode.trim() && (couponChecking || couponError || !couponQuote)) {
+      setBuyError(couponError || t.detail.couponChecking);
+      return;
+    }
     if (!live) {
       setBuyError(t.detail.previewNote);
       return;
@@ -681,6 +750,7 @@ export function AgentStorefront({
             invoiceTitle: wantInvoice ? invoiceTitle.trim() : undefined,
             invoiceNote: wantInvoice ? invoiceNote.trim() : undefined,
             invoiceEmail: wantInvoice ? (invoiceEmail.trim() || email) : undefined,
+            couponCode: couponCode.trim() || undefined,
           }),
         }),
       );
@@ -1203,6 +1273,28 @@ export function AgentStorefront({
                     <p className="km-sf-modal-hint">{t.detail.channelEmpty}</p>
                   )}
 
+                  <p className="km-sf-field-label">{t.detail.coupon}</p>
+                  <input
+                    className="km-input"
+                    value={couponCode}
+                    onChange={(event) => setCouponCode(event.target.value)}
+                    placeholder={t.detail.couponPh}
+                    maxLength={20}
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
+                  />
+                  {couponChecking ? (
+                    <p className="km-sf-modal-hint">{t.detail.couponChecking}</p>
+                  ) : couponError ? (
+                    <p className="km-sf-error">{couponError}</p>
+                  ) : couponQuote && couponQuote.discountCents > 0 ? (
+                    <p className="km-sf-modal-hint">
+                      {t.detail.couponWas(yuanTextFromCents(couponQuote.listGoodsCents))} ·{" "}
+                      {t.detail.couponOff(yuanTextFromCents(couponQuote.discountCents))}
+                    </p>
+                  ) : null}
+
                   {buyError ? <p className="km-sf-error">{buyError}</p> : null}
                   {active && !productAvailable(active) ? (
                     <p className="km-sf-modal-hint">{t.detail.restockingHint}</p>
@@ -1348,6 +1440,9 @@ export function AgentStorefront({
                     yuanTextFromCents(goodsCents),
                     yuanTextFromCents(surchargeCents),
                   )}
+                  {couponQuote && couponQuote.discountCents > 0
+                    ? ` · ${t.detail.couponOff(yuanTextFromCents(couponQuote.discountCents))}`
+                    : ""}
                 </p>
                 <p className="km-sf-field-label">{t.detail.invoiceEmail}</p>
                 <input

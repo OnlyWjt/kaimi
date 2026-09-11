@@ -158,6 +158,32 @@ CREATE TABLE IF NOT EXISTS agent_plan_prices (
 CREATE UNIQUE INDEX IF NOT EXISTS agent_plan_prices_agent_plan_uq ON agent_plan_prices(agent_id, plan_id);
 CREATE INDEX IF NOT EXISTS agent_plan_prices_agent_enabled_idx ON agent_plan_prices(agent_id, enabled);
 
+CREATE TABLE IF NOT EXISTS agent_store_coupons (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_id INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  code TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  percent_zhe INTEGER NOT NULL DEFAULT 0,
+  threshold_cents INTEGER NOT NULL DEFAULT 0,
+  amount_cents INTEGER NOT NULL DEFAULT 0,
+  max_uses INTEGER NOT NULL DEFAULT 0,
+  used_count INTEGER NOT NULL DEFAULT 0,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS agent_store_coupons_agent_code_uq ON agent_store_coupons(agent_id, code);
+CREATE INDEX IF NOT EXISTS agent_store_coupons_agent_enabled_idx ON agent_store_coupons(agent_id, enabled);
+
+CREATE TABLE IF NOT EXISTS agent_store_coupon_plans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  coupon_id INTEGER NOT NULL,
+  plan_key TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS agent_store_coupon_plans_coupon_plan_uq ON agent_store_coupon_plans(coupon_id, plan_key);
+CREATE INDEX IF NOT EXISTS agent_store_coupon_plans_coupon_idx ON agent_store_coupon_plans(coupon_id);
+
 CREATE TABLE IF NOT EXISTS payment_channel_configs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   channel TEXT NOT NULL,
@@ -208,6 +234,14 @@ CREATE TABLE IF NOT EXISTS store_orders (
   invoice_email TEXT NOT NULL DEFAULT '',
   invoice_amount_cents INTEGER NOT NULL DEFAULT 0,
   invoice_surcharge_cents INTEGER NOT NULL DEFAULT 0,
+  coupon_id INTEGER,
+  coupon_code_snapshot TEXT NOT NULL DEFAULT '',
+  coupon_kind_snapshot TEXT NOT NULL DEFAULT '',
+  coupon_percent_snapshot INTEGER NOT NULL DEFAULT 0,
+  coupon_threshold_cents INTEGER NOT NULL DEFAULT 0,
+  coupon_amount_snapshot INTEGER NOT NULL DEFAULT 0,
+  list_goods_cents INTEGER NOT NULL DEFAULT 0,
+  coupon_discount_cents INTEGER NOT NULL DEFAULT 0,
   invoice_notify_status TEXT NOT NULL DEFAULT '',
   invoice_notify_error TEXT NOT NULL DEFAULT '',
   invoice_notified_at TEXT,
@@ -243,6 +277,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS store_orders_payment_trade_no_uq ON store_orde
 CREATE UNIQUE INDEX IF NOT EXISTS store_orders_fulfillment_idempotency_key_uq ON store_orders(fulfillment_idempotency_key);
 CREATE INDEX IF NOT EXISTS store_orders_agent_created_idx ON store_orders(agent_id, created_at);
 CREATE INDEX IF NOT EXISTS store_orders_pay_fulfill_idx ON store_orders(pay_status, fulfill_status);
+CREATE INDEX IF NOT EXISTS store_orders_coupon_idx ON store_orders(coupon_id);
 
 CREATE TABLE IF NOT EXISTS issued_cdks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -816,6 +851,31 @@ export async function ensureSchema() {
   );
   await addColumn(
     "ALTER TABLE platform_plans ADD COLUMN fulfillment_kind TEXT NOT NULL DEFAULT 'cardplatform'",
+  );
+  await addColumn("ALTER TABLE store_orders ADD COLUMN coupon_id INTEGER");
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN coupon_code_snapshot TEXT NOT NULL DEFAULT ''",
+  );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN coupon_kind_snapshot TEXT NOT NULL DEFAULT ''",
+  );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN coupon_percent_snapshot INTEGER NOT NULL DEFAULT 0",
+  );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN coupon_threshold_cents INTEGER NOT NULL DEFAULT 0",
+  );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN coupon_amount_snapshot INTEGER NOT NULL DEFAULT 0",
+  );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN list_goods_cents INTEGER NOT NULL DEFAULT 0",
+  );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN coupon_discount_cents INTEGER NOT NULL DEFAULT 0",
+  );
+  await client.execute(
+    "CREATE INDEX IF NOT EXISTS store_orders_coupon_idx ON store_orders(coupon_id)",
   );
 
   const finishedGpt = await db.query.platformPlans.findFirst({

@@ -213,6 +213,60 @@ export const agentPlanPrices = sqliteTable(
   }),
 );
 
+export const agentStoreCoupons = sqliteTable(
+  "agent_store_coupons",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    agentId: integer("agent_id").notNull(),
+    name: text("name").notNull(),
+    code: text("code").notNull(),
+    /** percent = 折扣（几折）；threshold = 满减 */
+    kind: text("kind").notNull(),
+    /** 折扣券：1–99 表示几折。满减券为 0。 */
+    percentZhe: integer("percent_zhe").notNull().default(0),
+    /** 满减门槛（分）。折扣券为 0。 */
+    thresholdCents: integer("threshold_cents").notNull().default(0),
+    /** 满减减免额（分）。折扣券为 0。 */
+    amountCents: integer("amount_cents").notNull().default(0),
+    /** 0 表示不限次数。 */
+    maxUses: integer("max_uses").notNull().default(0),
+    usedCount: integer("used_count").notNull().default(0),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (t) => ({
+    agentCodeIdx: uniqueIndex("agent_store_coupons_agent_code_uq").on(
+      t.agentId,
+      t.code,
+    ),
+    agentEnabledIdx: index("agent_store_coupons_agent_enabled_idx").on(
+      t.agentId,
+      t.enabled,
+    ),
+  }),
+);
+
+export const agentStoreCouponPlans = sqliteTable(
+  "agent_store_coupon_plans",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    couponId: integer("coupon_id").notNull(),
+    planKey: text("plan_key").notNull(),
+  },
+  (t) => ({
+    couponPlanIdx: uniqueIndex("agent_store_coupon_plans_coupon_plan_uq").on(
+      t.couponId,
+      t.planKey,
+    ),
+    couponIdx: index("agent_store_coupon_plans_coupon_idx").on(t.couponId),
+  }),
+);
+
 export const paymentChannelConfigs = sqliteTable(
   "payment_channel_configs",
   {
@@ -298,6 +352,15 @@ export const storeOrders = sqliteTable(
     invoiceAmountCents: integer("invoice_amount_cents").notNull().default(0),
     /** 开票加价，归平台。代理 GMV / 收益底数要扣掉这一段。 */
     invoiceSurchargeCents: integer("invoice_surcharge_cents").notNull().default(0),
+    couponId: integer("coupon_id"),
+    couponCodeSnapshot: text("coupon_code_snapshot").notNull().default(""),
+    couponKindSnapshot: text("coupon_kind_snapshot").notNull().default(""),
+    couponPercentSnapshot: integer("coupon_percent_snapshot").notNull().default(0),
+    couponThresholdCents: integer("coupon_threshold_cents").notNull().default(0),
+    couponAmountSnapshot: integer("coupon_amount_snapshot").notNull().default(0),
+    /** 券前商品额。老订单为 0，展示时回退到券后商品额。 */
+    listGoodsCents: integer("list_goods_cents").notNull().default(0),
+    couponDiscountCents: integer("coupon_discount_cents").notNull().default(0),
     invoiceNotifyStatus: text("invoice_notify_status").notNull().default(""),
     invoiceNotifyError: text("invoice_notify_error").notNull().default(""),
     invoiceNotifiedAt: text("invoice_notified_at"),
@@ -351,6 +414,7 @@ export const storeOrders = sqliteTable(
       t.payStatus,
       t.fulfillStatus,
     ),
+    couponIdx: index("store_orders_coupon_idx").on(t.couponId),
   }),
 );
 
