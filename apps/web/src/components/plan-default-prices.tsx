@@ -25,6 +25,7 @@ export function PlanDefaultPricesPanel() {
   const [capDraft, setCapDraft] = useState<Record<string, string>>({});
   const [categoryDraft, setCategoryDraft] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
 
   // 已经用过的分类做成候选项，避免同一个分类被打成几种写法
   const knownCategories = useMemo(() => {
@@ -108,19 +109,38 @@ export function PlanDefaultPricesPanel() {
     }
   }
 
+  const enabledCount = catalog.filter((item) => item.enabled).length;
+
   return (
     <section className="km-panel space-y-4">
-      <div>
-        <h2 className="text-xl font-semibold">套餐价格与上限</h2>
-        <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-          每个套餐单独设默认成本和零售价上限。上限留空表示不限价；填了之后代理改价不能超过它。
-          已经高于上限的老价格照卖。
-        </p>
-        <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-          「店铺分类」是代理店铺前台的筛选标签，填一样的名字就归到一组。留空表示不分类，
-          只在「全部」里出现；全部套餐都没分类时，前台不显示分类栏。
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold">套餐价格与上限</h2>
+          <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
+            {catalog.length
+              ? `${catalog.length} 个套餐${enabledCount ? ` · ${enabledCount} 个已启用` : ""}。卡台新套餐会自动同步进来。`
+              : "卡台套餐会自动同步进来，也可以到「接入卡台」立刻拉一次。"}
+          </p>
+        </div>
+        <button
+          type="button"
+          className="km-btn km-btn-ghost"
+          aria-expanded={open}
+          onClick={() => setOpen((current) => !current)}
+        >
+          {open ? "收起" : "展开"}
+        </button>
       </div>
+      {open ? (
+        <>
+      <p className="text-sm text-[var(--km-fg-muted)]">
+        每个套餐单独设默认成本和零售价上限。上限留空表示不限价；填了之后代理改价不能超过它。
+        已经高于上限的老价格照卖。
+      </p>
+      <p className="text-sm text-[var(--km-fg-muted)]">
+        「店铺分类」是代理店铺前台的筛选标签，填一样的名字就归到一组。留空表示不分类，
+        只在「全部」里出现；全部套餐都没分类时，前台不显示分类栏。
+      </p>
       <datalist id="km-plan-categories">
         {knownCategories.map((name) => (
           <option key={name} value={name} />
@@ -128,7 +148,7 @@ export function PlanDefaultPricesPanel() {
       </datalist>
       {catalog.length === 0 ? (
         <p className="text-sm text-[var(--km-fg-muted)]">
-          还没有套餐。先到「接入卡台」同步售卖套餐。
+          还没有套餐。等下一轮自动同步，或到「接入卡台」立刻拉一次。
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -233,6 +253,12 @@ export function PlanDefaultPricesPanel() {
       >
         {busy ? "保存中…" : "保存价格和上限"}
       </button>
+        </>
+      ) : (
+        <p className="text-sm text-[var(--km-fg-muted)]">
+          改成本、上限、分类或平台可售时再展开。套餐多了也不占这一页。
+        </p>
+      )}
     </section>
   );
 }

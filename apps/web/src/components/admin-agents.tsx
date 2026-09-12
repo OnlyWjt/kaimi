@@ -481,7 +481,7 @@ export function AdminAgents() {
         </div>
         {catalog.length === 0 ? (
           <p className="text-sm text-[var(--km-fg-muted)]">
-            还没有套餐。先到「接入卡台」同步售卖套餐。
+            还没有套餐。等自动同步，或到「接入卡台」立刻拉一次。
           </p>
         ) : (
           <div className="overflow-x-auto">

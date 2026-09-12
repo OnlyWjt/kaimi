@@ -626,10 +626,17 @@ describe("external adapters", () => {
           sortOrder: 3,
           raw: { registry: { key: "disabled_plan" } },
         },
+        {
+          key: "pro_20x_renew",
+          name: "Pro 20x续费",
+          enabled: true,
+          sortOrder: 4,
+          raw: {},
+        },
       ],
       true,
     );
-    expect(filtered.map((plan) => plan.key)).toEqual(["plus"]);
+    expect(filtered.map((plan) => plan.key)).toEqual(["plus", "pro_20x_renew"]);
     expect(
       filterSellablePlans(
         [

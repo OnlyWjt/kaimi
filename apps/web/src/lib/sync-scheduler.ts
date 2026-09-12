@@ -6,6 +6,7 @@ import { processBackgroundJobs } from "@/lib/background-jobs";
 import { sanitizeLog } from "@/lib/log";
 import { refreshOpsHealth } from "@/lib/ops-health";
 import { pruneUpstreamPayloads } from "@/lib/order-timeline";
+import { syncDefaultCardplatformPlans } from "@/lib/cardplatform/plans";
 import { syncEnabledAccountProducts } from "@/lib/cardplatform/products";
 import { reconcileIssuedCdkStatuses } from "@/lib/cardplatform/reconcile-issued";
 
@@ -147,6 +148,14 @@ async function maybeTick() {
           );
         } catch (err) {
           console.warn("[kaimi-sync] card product sync failed", sanitizeLog(err));
+        }
+        try {
+          const plans = await syncDefaultCardplatformPlans();
+          console.log(
+            `[kaimi-sync] sellable plans: count=${plans.count} created=${plans.created} updated=${plans.updated}`,
+          );
+        } catch (err) {
+          console.warn("[kaimi-sync] sellable plans sync failed", sanitizeLog(err));
         }
       }
     }

@@ -593,12 +593,14 @@ export function filterSellablePlans(
   plans: CardplatformPlan[],
   hasRegistry: boolean,
 ): CardplatformPlan[] {
-  const sellable = hasRegistry
-    ? plans.filter((plan) => {
-        const raw = asObject(plan.raw);
-        return plan.enabled && Boolean(raw.registry);
-      })
-    : plans.filter((plan) => plan.enabled && isCdkSellableKey(plan.key));
+  const sellable = plans.filter((plan) => {
+    if (!plan.enabled) return false;
+    const raw = asObject(plan.raw);
+    // registry 只补名字和排序。新上的续费套餐常常先出现在 plans 里，
+    // 不能因为还没进 registry 就丢掉。
+    if (hasRegistry && raw.registry) return true;
+    return isCdkSellableKey(plan.key);
+  });
   return sellable.sort((a, b) => {
     if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
     return a.key.localeCompare(b.key);

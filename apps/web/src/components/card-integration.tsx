@@ -425,7 +425,11 @@ export function CardIntegration({ publicBaseUrl = "" }: { publicBaseUrl?: string
                         method: "POST",
                       }),
                     );
-                    notice(`已同步 ${data.count ?? 0} 个售卖套餐`);
+                    notice(
+                      `已同步 ${data.count ?? 0} 个售卖套餐${
+                        data.created ? `，新拉到 ${data.created} 个` : ""
+                      }`,
+                    );
                   })
                 }
               >
