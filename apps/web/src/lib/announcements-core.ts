@@ -13,21 +13,6 @@ export type UnreadAnnouncement = {
   publishedAt: string;
 };
 
-export type LiveAnnouncement = UnreadAnnouncement & { unread: boolean };
-
-/** 弹窗和侧栏「有新的」只用未读的那条。顶栏始终用当前生效的。 */
-export function unreadFromLiveAnnouncement(
-  live: LiveAnnouncement | null,
-): UnreadAnnouncement | null {
-  if (!live?.unread) return null;
-  return {
-    id: live.id,
-    title: live.title,
-    body: live.body,
-    publishedAt: live.publishedAt,
-  };
-}
-
 export type AdminAnnouncementRow = {
   id: number;
   title: string;

@@ -8,17 +8,13 @@ import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
 import { AgentAnnouncementModal } from "@/components/agent-announcement-modal";
 import type { AgentConsoleProfile } from "@/lib/agent-console-core";
-import {
-  agentAnnouncementHint,
-  unreadFromLiveAnnouncement,
-} from "@/lib/announcements-core";
-import { formatLocalMonthDayTime } from "@/lib/datetime";
+import { agentAnnouncementHint } from "@/lib/announcements-core";
 import { isExternalRedeemUrl } from "@/lib/agent-redeem-core";
 import "./agent-console.css";
 
 const NAV = [
-  { href: "/agent/notices", label: "公告", hint: "平台", group: "每天看" },
   { href: "/agent", label: "概览", hint: "店况", group: "每天看" },
+  { href: "/agent/notices", label: "公告", hint: "平台", group: "每天看" },
   { href: "/agent/sell", label: "售价与优惠", hint: "定价", group: "怎么卖" },
   { href: "/agent/storefront", label: "店铺", hint: "装修", group: "怎么卖" },
   { href: "/agent/books", label: "账本", hint: "收益", group: "钱和量" },
@@ -44,12 +40,11 @@ export function AgentConsoleShell({
   const [pendingHref, setPendingHref] = useState("");
   const [passwordBusy, setPasswordBusy] = useState(false);
   const [dismissedId, setDismissedId] = useState<number | null>(null);
-  const live = profile.liveAnnouncement;
-  const unread =
-    live && live.unread && live.id !== dismissedId
-      ? unreadFromLiveAnnouncement(live)
-      : null;
-  const showModal = Boolean(unread) && pathname !== "/agent/notices";
+  const unread = profile.unreadAnnouncement;
+  const showModal =
+    Boolean(unread) &&
+    unread?.id !== dismissedId &&
+    pathname !== "/agent/notices";
   const shopPath = `/s/${profile.currentSlug}`;
   const shopUrl = origin ? `${origin}${shopPath}` : shopPath;
 
@@ -141,26 +136,6 @@ export function AgentConsoleShell({
   return (
     <div className="km-acp">
       <ApplyTheme themeId={profile.themeId} />
-      {live ? (
-        <section
-          className={unread ? "km-acp-live is-new" : "km-acp-live"}
-          aria-label="平台公告"
-        >
-          <div className="km-acp-live-inner">
-            <div className="km-acp-live-meta">
-              <strong>平台公告</strong>
-              <time dateTime={live.publishedAt}>
-                {formatLocalMonthDayTime(live.publishedAt)}
-              </time>
-              {pathname !== "/agent/notices" ? (
-                <Link href="/agent/notices">以往公告</Link>
-              ) : null}
-            </div>
-            <h2>{live.title}</h2>
-            {live.body ? <p className="km-acp-live-body">{live.body}</p> : null}
-          </div>
-        </section>
-      ) : null}
       <div className="km-acp-frame">
         <aside className="km-acp-side">
           <div className="km-acp-brand">
@@ -184,7 +159,9 @@ export function AgentConsoleShell({
                   {item.label}
                   <em>
                     {item.href === "/agent/notices"
-                      ? agentAnnouncementHint(Boolean(unread))
+                      ? agentAnnouncementHint(
+                          Boolean(unread) && unread?.id !== dismissedId,
+                        )
                       : item.hint}
                   </em>
                 </Link>

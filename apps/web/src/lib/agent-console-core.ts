@@ -1,5 +1,5 @@
 import type { ThemeId } from "@kaimi/themes";
-import type { LiveAnnouncement } from "./announcements-core";
+import type { UnreadAnnouncement } from "./announcements-core";
 import { yuanTextFromCents } from "./money";
 
 export type AgentConsoleProfile = {
@@ -8,7 +8,7 @@ export type AgentConsoleProfile = {
   currentSlug: string;
   themeId: ThemeId;
   redeemUrl: string;
-  liveAnnouncement: LiveAnnouncement | null;
+  unreadAnnouncement: UnreadAnnouncement | null;
 };
 
 export type AgentRangeKey = "today" | "7d" | "month" | "all";
