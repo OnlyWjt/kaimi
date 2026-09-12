@@ -10,6 +10,7 @@ import {
   normalizeAnnouncementBody,
   normalizeAnnouncementTitle,
   parseAnnouncementId,
+  unreadFromLiveAnnouncement,
   visibleToAgent,
 } from "./announcements-core";
 
@@ -84,6 +85,24 @@ describe("unread and publish fields", () => {
   it("侧栏 hint", () => {
     expect(agentAnnouncementHint(true)).toBe("有新的");
     expect(agentAnnouncementHint(false)).toBe("平台");
+  });
+
+  it("顶栏用当前公告，弹窗只用未读", () => {
+    const live = {
+      id: 3,
+      title: "续费上线",
+      body: "临期才能用",
+      publishedAt: "2026-09-12T14:07:00.000Z",
+      unread: true,
+    };
+    expect(unreadFromLiveAnnouncement(live)).toEqual({
+      id: 3,
+      title: "续费上线",
+      body: "临期才能用",
+      publishedAt: "2026-09-12T14:07:00.000Z",
+    });
+    expect(unreadFromLiveAnnouncement({ ...live, unread: false })).toBeNull();
+    expect(unreadFromLiveAnnouncement(null)).toBeNull();
   });
 
   it("发布和顶替字段", () => {

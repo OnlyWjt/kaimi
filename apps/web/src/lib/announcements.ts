@@ -14,9 +14,11 @@ import {
   type AgentAnnouncementRow,
   type AnnouncementAction,
   type AnnouncementStatus,
+  type LiveAnnouncement,
   type UnreadAnnouncement,
   announcementActionError,
   announcementWriteError,
+  unreadFromLiveAnnouncement,
   isAnnouncementStatus,
   isAnnouncementUnread,
   nextArchivedFields,
@@ -26,7 +28,12 @@ import {
   visibleToAgent,
 } from "@/lib/announcements-core";
 
-export type { AdminAnnouncementRow, AgentAnnouncementRow, UnreadAnnouncement };
+export type {
+  AdminAnnouncementRow,
+  AgentAnnouncementRow,
+  LiveAnnouncement,
+  UnreadAnnouncement,
+};
 
 export type AgentNoticesSnapshot = {
   current: AgentAnnouncementRow | null;
@@ -281,9 +288,9 @@ export async function discardAnnouncement(input: {
   });
 }
 
-export async function loadUnreadAnnouncement(
+export async function loadLiveAnnouncement(
   agentId: number,
-): Promise<UnreadAnnouncement | null> {
+): Promise<LiveAnnouncement | null> {
   const [row] = await db
     .select({
       id: platformAnnouncements.id,
@@ -303,13 +310,20 @@ export async function loadUnreadAnnouncement(
     )
     .where(eq(platformAnnouncements.liveKey, ANNOUNCEMENT_LIVE_KEY))
     .limit(1);
-  if (!row || row.readAt) return null;
+  if (!row) return null;
   return {
     id: row.id,
     title: row.title,
     body: row.body,
     publishedAt: row.publishedAt || row.createdAt,
+    unread: isAnnouncementUnread("published", Boolean(row.readAt)),
   };
+}
+
+export async function loadUnreadAnnouncement(
+  agentId: number,
+): Promise<UnreadAnnouncement | null> {
+  return unreadFromLiveAnnouncement(await loadLiveAnnouncement(agentId));
 }
 
 export async function loadAgentNotices(agentId: number): Promise<AgentNoticesSnapshot> {
