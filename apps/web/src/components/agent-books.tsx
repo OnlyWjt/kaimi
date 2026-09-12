@@ -175,7 +175,7 @@ export function AgentBooks() {
         <div className="km-acp-section-title">
           <div>
             <h2>成交明细</h2>
-            <p>已按代理成本和支付通道费算过收益。</p>
+            <p>已按代理成本和支付通道费算过收益。开票加价归平台、不计入佣金。</p>
           </div>
         </div>
         {earnings?.list.length ? (

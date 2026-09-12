@@ -433,7 +433,9 @@ export function AgentCouponComposer({ couponId }: { couponId?: number }) {
               <dd>{ticket ? moneyYuan(ticket.earningCents) : "—"}</dd>
             </div>
           </dl>
-          <p className="mt-3 text-xs text-[var(--km-fg-muted)]">按当前售价买 1 张、支付宝通道费估算。</p>
+          <p className="mt-3 text-xs text-[var(--km-fg-muted)]">
+            按当前售价买 1 张、支付宝通道费估算。开票加价归平台、不计入收益。
+          </p>
         </aside>
       </form>
     </>

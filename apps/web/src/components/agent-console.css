@@ -591,6 +591,107 @@ button.km-acp-row {
   font-size: 0.95rem;
 }
 
+.km-acp-notice-stack {
+  display: grid;
+  gap: 0.75rem;
+  align-content: start;
+  align-self: start;
+}
+
+.km-acp-notice,
+.km-acp-notice-empty,
+.km-acp-notice-past {
+  border: 1px solid var(--km-border);
+  border-radius: 18px;
+  background: var(--km-bg-elevated);
+}
+
+.km-acp-notice,
+.km-acp-notice-empty {
+  align-self: start;
+}
+
+.km-acp-notice {
+  padding: 1rem 1.05rem 1.1rem;
+}
+
+.km-acp-notice time {
+  display: block;
+  color: var(--km-fg-muted);
+  font-size: 0.78rem;
+}
+
+.km-acp-notice h2 {
+  margin: 0.35rem 0 0;
+  font-size: 1.15rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+
+.km-acp-notice-body {
+  margin: 0.65rem 0 0;
+  color: var(--km-fg);
+  font-size: 0.95rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.km-acp-notice-empty {
+  padding: 1rem 1.05rem;
+}
+
+.km-acp-notice-empty p {
+  margin: 0;
+  color: var(--km-fg-muted);
+  font-size: 0.92rem;
+}
+
+.km-acp-notice-history h3 {
+  margin: 0 0 0.55rem;
+  color: var(--km-fg-muted);
+  font-size: 0.8rem;
+  font-weight: 550;
+}
+
+.km-acp-notice-history ul {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.km-acp-notice-past {
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--km-bg-muted) 45%, var(--km-bg-elevated));
+  padding: 0.75rem 0.9rem;
+}
+
+.km-acp-notice-past-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.8rem;
+}
+
+.km-acp-notice-past strong {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.km-acp-notice-past time {
+  color: var(--km-fg-muted);
+  font-size: 0.75rem;
+}
+
+.km-acp-notice-past .km-acp-notice-body {
+  margin-top: 0.4rem;
+  font-size: 0.88rem;
+  line-height: 1.65;
+}
+
 @media (max-width: 960px) {
   .km-acp-frame {
     grid-template-columns: 1fr;

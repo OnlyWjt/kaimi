@@ -136,6 +136,9 @@ export function AgentGuide({ slug }: { slug: string }) {
           <p className="text-sm text-[var(--km-fg-muted)]">
             一笔订单的收益 = 零售价 × 张数 − 成本 × 张数 − 这一笔支付的手续费。手续费是支付宝/微信收的，一单收一次，不随张数翻倍。
           </p>
+          <p className="text-sm text-[var(--km-fg-muted)]">
+            客户勾选开票后，实付会再上浮 10%（开票服务费）。这笔加价归平台、不计入你的佣金；发票金额和收益都按折后货款算，加价上多出来的通道费也归平台。
+          </p>
           <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm">
             <p className="font-medium">举个例子</p>
             <p className="mt-1 text-[var(--km-fg-muted)]">

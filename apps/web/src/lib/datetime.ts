@@ -55,6 +55,21 @@ export function formatDateTime(value: unknown, empty = "—") {
   return formatStamp(value, "local", empty);
 }
 
+/**
+ * 公告这类短时间：本地时区的「9月12日 22:07」。不用 toLocaleString，避免 Windows 中文
+ * 环境变成 `09/12 22:07:07`。不带秒。
+ */
+export function formatLocalMonthDayTime(value: unknown, empty = "—") {
+  const raw = String(value ?? "").trim();
+  if (!raw) return empty;
+  if (DATE_ONLY.test(raw)) return raw;
+  const date = parseDbDate(raw);
+  if (!date) return raw;
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  return `${month}月${day}日 ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 /** 排障用的流水要看到秒。 */
 export function formatDateTimeSeconds(value: unknown, empty = "—") {
   return formatStamp(value, "localSeconds", empty);

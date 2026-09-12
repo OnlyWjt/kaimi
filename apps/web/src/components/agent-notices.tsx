@@ -3,49 +3,13 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import type { AgentAnnouncementRow } from "@/lib/announcements-core";
-import { parseDbDate } from "@/lib/datetime";
+import { formatLocalMonthDayTime } from "@/lib/datetime";
 
 export type AgentNoticesSnapshot = {
   current: AgentAnnouncementRow | null;
   unread: boolean;
   history: AgentAnnouncementRow[];
 };
-
-function formatWhen(value: string | null) {
-  if (!value) return "—";
-  const date = parseDbDate(value);
-  if (!date) return value;
-  return date.toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-}
-
-function NoticeCard({
-  item,
-  live,
-}: {
-  item: AgentAnnouncementRow;
-  live?: boolean;
-}) {
-  return (
-    <article className="km-panel space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className={`km-badge ${live ? "km-badge-ok" : ""}`}>
-          {live ? "正在生效" : "已下线"}
-        </span>
-        <span className="text-sm text-[var(--km-fg-muted)]">
-          {formatWhen(item.publishedAt)}
-        </span>
-      </div>
-      <h2 className="text-lg font-semibold">{item.title}</h2>
-      <p className="whitespace-pre-wrap text-sm leading-relaxed">{item.body}</p>
-    </article>
-  );
-}
 
 export function AgentNotices({ snapshot }: { snapshot: AgentNoticesSnapshot }) {
   const router = useRouter();
@@ -70,15 +34,38 @@ export function AgentNotices({ snapshot }: { snapshot: AgentNoticesSnapshot }) {
         </div>
       </header>
       {empty ? (
-        <section className="km-panel">
-          <p className="text-sm text-[var(--km-fg-muted)]">暂时没有平台公告。</p>
+        <section className="km-acp-notice km-acp-notice-empty">
+          <p>暂时没有平台公告。</p>
         </section>
       ) : (
-        <div className="space-y-3">
-          {snapshot.current ? <NoticeCard item={snapshot.current} live /> : null}
-          {snapshot.history.map((item) => (
-            <NoticeCard key={item.id} item={item} />
-          ))}
+        <div className="km-acp-notice-stack">
+          {snapshot.current ? (
+            <article className="km-acp-notice">
+              <time dateTime={snapshot.current.publishedAt}>
+                {formatLocalMonthDayTime(snapshot.current.publishedAt)}
+              </time>
+              <h2>{snapshot.current.title}</h2>
+              <p className="km-acp-notice-body">{snapshot.current.body}</p>
+            </article>
+          ) : null}
+          {snapshot.history.length > 0 ? (
+            <section className="km-acp-notice-history">
+              <h3>以往公告</h3>
+              <ul>
+                {snapshot.history.map((item) => (
+                  <li key={item.id} className="km-acp-notice-past">
+                    <div className="km-acp-notice-past-head">
+                      <strong>{item.title}</strong>
+                      <time dateTime={item.publishedAt}>
+                        {formatLocalMonthDayTime(item.publishedAt)}
+                      </time>
+                    </div>
+                    <p className="km-acp-notice-body">{item.body}</p>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
         </div>
       )}
     </>

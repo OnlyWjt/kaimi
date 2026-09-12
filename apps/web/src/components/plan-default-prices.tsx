@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
 import { isLocalAccountPlan } from "@/lib/finished-account-core";
 import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
+import { messageFromApiBody } from "@/lib/http-error";
 import { MAX_CATEGORY_LENGTH, normalizeCategory } from "@/lib/plan-category";
+import { GRANT_PLANS_SAVE_FIRST } from "@/lib/plan-grant-core";
 import { maxRetailPriceError } from "@/lib/plan-price-core";
 
 type CatalogPlan = {
@@ -18,13 +21,18 @@ type CatalogPlan = {
   maxRetailPriceCents: number | null;
 };
 
+const GRANT_CONFIRM =
+  "会给全部活跃代理加上这个套餐。已经在卖的零售价不动，新开的用默认成本当售价。某个代理不卖仍去「代理管理」取消勾选。";
+
 /** 即时发卡和代理管理共用：每个套餐的默认成本和零售价上限就在这张表里改。 */
 export function PlanDefaultPricesPanel() {
+  const { ask, dialog } = useAskDialog();
   const [catalog, setCatalog] = useState<CatalogPlan[]>([]);
+  const [savedCatalog, setSavedCatalog] = useState<CatalogPlan[]>([]);
   const [costDraft, setCostDraft] = useState<Record<string, string>>({});
   const [capDraft, setCapDraft] = useState<Record<string, string>>({});
   const [categoryDraft, setCategoryDraft] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState("");
   const [open, setOpen] = useState(false);
 
   // 已经用过的分类做成候选项，避免同一个分类被打成几种写法
@@ -43,6 +51,7 @@ export function PlanDefaultPricesPanel() {
     if (!response.ok) throw new Error(data.error || "套餐加载失败");
     const next = (data.list || []) as CatalogPlan[];
     setCatalog(next);
+    setSavedCatalog(next);
     setCostDraft(
       Object.fromEntries(
         next.map((item) => [item.planKey, yuanTextFromCents(item.globalCostPriceCents)]),
@@ -69,8 +78,51 @@ export function PlanDefaultPricesPanel() {
     );
   }, []);
 
+  function needsSaveBeforeGrant(plans: CatalogPlan[]) {
+    return plans.some((plan) => {
+      if (!plan.enabled) return false;
+      const saved = savedCatalog.find((item) => item.planKey === plan.planKey);
+      return !saved?.enabled;
+    });
+  }
+
+  async function grantPlans(body: { planKey: string } | { allEnabled: true }) {
+    const targets =
+      "planKey" in body
+        ? catalog.filter((item) => item.planKey === body.planKey)
+        : catalog.filter((item) => item.enabled);
+    if (needsSaveBeforeGrant(targets)) {
+      toast(GRANT_PLANS_SAVE_FIRST, "err");
+      return;
+    }
+    const answer = await ask({
+      title: "planKey" in body ? "开放给全部代理" : "把已启用套餐开放给全部代理",
+      message: GRANT_CONFIRM,
+      confirmLabel: "开放",
+      cancelLabel: "取消",
+    });
+    if (!answer) return;
+    setBusy("planKey" in body ? `grant-${body.planKey}` : "grant-all");
+    try {
+      const response = await fetch("/api/admin/plans/grant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(messageFromApiBody(data, GRANT_PLANS_SAVE_FIRST));
+      }
+      toast(typeof data.message === "string" ? data.message : "已开放给代理");
+    } catch (reason) {
+      toast(reason instanceof Error ? reason.message : "开放失败", "err");
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function save() {
-    setBusy(true);
+    setBusy("save");
     try {
       const plans = catalog.map((item) => {
         const cents = centsFromYuanText(costDraft[item.planKey] ?? "");
@@ -105,7 +157,7 @@ export function PlanDefaultPricesPanel() {
     } catch (reason) {
       toast(reason instanceof Error ? reason.message : "默认价格保存失败", "err");
     } finally {
-      setBusy(false);
+      setBusy("");
     }
   }
 
@@ -152,7 +204,7 @@ export function PlanDefaultPricesPanel() {
         </p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-left text-sm">
+          <table className="w-full min-w-[760px] text-left text-sm">
             <thead>
               <tr className="border-b border-[var(--km-border)]">
                 <th className="py-2 pr-3">套餐</th>
@@ -160,7 +212,8 @@ export function PlanDefaultPricesPanel() {
                 <th className="py-2 pr-3">店铺分类</th>
                 <th className="py-2 pr-3">默认成本（元）</th>
                 <th className="py-2 pr-3">零售价上限（元）</th>
-                <th className="py-2">平台可售</th>
+                <th className="py-2 pr-3">平台可售</th>
+                <th className="py-2">开放</th>
               </tr>
             </thead>
             <tbody>
@@ -221,7 +274,7 @@ export function PlanDefaultPricesPanel() {
                       }
                     />
                   </td>
-                  <td className="py-2">
+                  <td className="py-2 pr-3">
                     <label className="flex items-center gap-2">
                       <input
                         type="checkbox"
@@ -239,26 +292,51 @@ export function PlanDefaultPricesPanel() {
                       启用
                     </label>
                   </td>
+                  <td className="py-2">
+                    {plan.enabled ? (
+                      <button
+                        type="button"
+                        className="km-btn km-btn-ghost km-btn-sm"
+                        disabled={Boolean(busy)}
+                        onClick={() => void grantPlans({ planKey: plan.planKey })}
+                      >
+                        {busy === `grant-${plan.planKey}` ? "开放中…" : "开放给全部代理"}
+                      </button>
+                    ) : null}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-      <button
-        type="button"
-        className="km-btn"
-        disabled={busy || catalog.length === 0}
-        onClick={() => void save()}
-      >
-        {busy ? "保存中…" : "保存价格和上限"}
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="km-btn"
+          disabled={Boolean(busy) || catalog.length === 0}
+          onClick={() => void save()}
+        >
+          {busy === "save" ? "保存中…" : "保存价格和上限"}
+        </button>
+        {enabledCount > 0 ? (
+          <button
+            type="button"
+            className="km-btn km-btn-ghost"
+            disabled={Boolean(busy)}
+            onClick={() => void grantPlans({ allEnabled: true })}
+          >
+            {busy === "grant-all" ? "开放中…" : "把已启用套餐开放给全部代理"}
+          </button>
+        ) : null}
+      </div>
         </>
       ) : (
         <p className="text-sm text-[var(--km-fg-muted)]">
           改成本、上限、分类或平台可售时再展开。套餐多了也不占这一页。
         </p>
       )}
+      {dialog}
     </section>
   );
 }

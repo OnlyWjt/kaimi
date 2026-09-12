@@ -12,7 +12,7 @@ import {
   type AdminAnnouncementRow,
   type AnnouncementStatus,
 } from "@/lib/announcements-core";
-import { parseDbDate } from "@/lib/datetime";
+import { formatLocalMonthDayTime } from "@/lib/datetime";
 import { messageFromApiBody, readApiJson } from "@/lib/http-error";
 
 type EditorMode = "new" | "draft" | "live";
@@ -25,16 +25,7 @@ type ListPayload = {
 };
 
 function formatWhen(value: string | null) {
-  if (!value) return "—";
-  const date = parseDbDate(value);
-  if (!date) return value;
-  return date.toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  return formatLocalMonthDayTime(value);
 }
 
 function statusBadge(status: AnnouncementStatus) {

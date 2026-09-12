@@ -38,6 +38,7 @@ type AgentPlanRow = {
   globalCostPriceCents: number;
   maxRetailPriceCents: number | null;
   cardplatformSellable: boolean;
+  platformEnabled: boolean;
   enabled: boolean;
   costOverrideCents: number | null;
   retailPriceCents: number;
@@ -441,7 +442,15 @@ export function AdminAgents() {
             <button
               type="button"
               className="km-btn"
-              onClick={() => setCreateOpen(true)}
+              onClick={() => {
+                setForm((current) => ({
+                  ...current,
+                  planKeys: catalog
+                    .filter((item) => item.enabled)
+                    .map((item) => item.planKey),
+                }));
+                setCreateOpen(true);
+              }}
             >
               新建代理
             </button>
@@ -688,9 +697,25 @@ export function AdminAgents() {
                   登录后改。
                 </p>
               </div>
-              <button type="button" className="km-btn km-btn-ghost" onClick={closePlans}>
-                关闭
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="km-btn km-btn-ghost"
+                  disabled={plansLoading || agentPlans.length === 0}
+                  onClick={() =>
+                    setAgentPlans((current) =>
+                      current.map((item) =>
+                        item.platformEnabled ? { ...item, enabled: true } : item,
+                      ),
+                    )
+                  }
+                >
+                  全选平台已启用
+                </button>
+                <button type="button" className="km-btn km-btn-ghost" onClick={closePlans}>
+                  关闭
+                </button>
+              </div>
             </div>
             {plansLoading ? (
               <p className="mt-6 text-sm text-[var(--km-fg-muted)]">加载套餐…</p>

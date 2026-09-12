@@ -3,6 +3,7 @@ import {
   formatBeijingDateTime,
   formatDateTime,
   formatDateTimeSeconds,
+  formatLocalMonthDayTime,
   formatUtcDate,
   parseDbDate,
 } from "./datetime";
@@ -37,6 +38,20 @@ describe("datetime formatting", () => {
     expect(formatDateTime("待确认")).toBe("待确认");
     expect(formatBeijingDateTime("2026-09-02")).toBe("2026-09-02");
     expect(formatBeijingDateTime("")).toBe("");
+  });
+
+  it("renders a local month-day clock without seconds or locale slashes", () => {
+    const iso = "2026-09-12T14:07:09.000Z";
+    const date = parseDbDate(iso);
+    expect(date).not.toBeNull();
+    const expected = `${date!.getMonth() + 1}月${date!.getDate()}日 ${String(date!.getHours()).padStart(2, "0")}:${String(date!.getMinutes()).padStart(2, "0")}`;
+    expect(formatLocalMonthDayTime(iso)).toBe(expected);
+    expect(formatLocalMonthDayTime(iso)).toMatch(/^\d{1,2}月\d{1,2}日 \d{2}:\d{2}$/);
+    expect(formatLocalMonthDayTime("2026-09-07 11:40:37")).toBe(
+      formatLocalMonthDayTime("2026-09-07T11:40:37.000Z"),
+    );
+    expect(formatLocalMonthDayTime("")).toBe("—");
+    expect(formatLocalMonthDayTime("待确认")).toBe("待确认");
   });
 });
 
