@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AdminAgents } from "@/components/admin-agents";
+import { AdminAnnouncements } from "@/components/admin-announcements";
 import { useAskDialog } from "@/components/ask-dialog";
 import { AdminGuide } from "@/components/admin-guide";
 import { AdminOrderTimeline } from "@/components/admin-order-timeline";
@@ -26,6 +27,7 @@ type Tab =
   | "commerce"
   | "finished"
   | "agents"
+  | "announcements"
   | "earnings"
   | "usage"
   | "appearance"
@@ -95,6 +97,7 @@ const HASH_TABS: Tab[] = [
   "commerce",
   "finished",
   "agents",
+  "announcements",
   "earnings",
   "usage",
   "appearance",
@@ -250,6 +253,7 @@ export default function AdminPage() {
         ["commerce", "即时发卡"],
         ["finished", "成品号"],
         ["agents", "代理管理"],
+        ["announcements", "公告"],
         ["earnings", "收益统计"],
         ["usage", "用量统计"],
         ["appearance", "外观"],
@@ -1012,6 +1016,8 @@ export default function AdminPage() {
         {tab === "finished" ? <FinishedAccountsAdmin /> : null}
 
         {tab === "agents" ? <AdminAgents /> : null}
+
+        {tab === "announcements" ? <AdminAnnouncements /> : null}
 
         {tab === "earnings" ? <AdminEarningsStats /> : null}
 

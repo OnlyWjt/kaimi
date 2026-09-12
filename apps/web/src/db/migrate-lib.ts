@@ -711,6 +711,37 @@ export async function ensureCardOpsTables() {
   await client.executeMultiple(CARD_OPS_DDL);
 }
 
+const ANNOUNCEMENT_DDL = `
+CREATE TABLE IF NOT EXISTS platform_announcements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'draft',
+  live_key TEXT,
+  published_at TEXT,
+  archived_at TEXT,
+  created_by_user_id INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS platform_announcements_live_key_uq
+  ON platform_announcements(live_key);
+CREATE INDEX IF NOT EXISTS platform_announcements_status_idx
+  ON platform_announcements(status);
+CREATE INDEX IF NOT EXISTS platform_announcements_published_idx
+  ON platform_announcements(published_at);
+CREATE TABLE IF NOT EXISTS platform_announcement_reads (
+  announcement_id INTEGER NOT NULL,
+  agent_id INTEGER NOT NULL,
+  read_at TEXT NOT NULL,
+  PRIMARY KEY (announcement_id, agent_id)
+);
+`;
+
+export async function ensureAnnouncementTables() {
+  await client.executeMultiple(ANNOUNCEMENT_DDL);
+}
+
 export async function ensureSchema() {
   await client.executeMultiple(DDL);
   await client.executeMultiple(`
@@ -909,6 +940,7 @@ export async function ensureSchema() {
   // 一单多张之后 order_id 不能再唯一。DDL 已经建好非唯一索引，这里只负责拆掉老的。
   await client.execute("DROP INDEX IF EXISTS issued_cdks_order_id_uq");
   await ensureCardOpsTables();
+  await ensureAnnouncementTables();
 
   const shop = await db.query.storefronts.findFirst({
     where: (t, { eq }) => eq(t.kind, "shop"),

@@ -1,4 +1,5 @@
 import type { ThemeId } from "@kaimi/themes";
+import type { UnreadAnnouncement } from "./announcements-core";
 import { yuanTextFromCents } from "./money";
 
 export type AgentConsoleProfile = {
@@ -7,6 +8,7 @@ export type AgentConsoleProfile = {
   currentSlug: string;
   themeId: ThemeId;
   redeemUrl: string;
+  unreadAnnouncement: UnreadAnnouncement | null;
 };
 
 export type AgentRangeKey = "today" | "7d" | "month" | "all";

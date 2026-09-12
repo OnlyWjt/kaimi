@@ -978,3 +978,46 @@ export const accountCardBlocklist = sqliteTable(
     activeIdx: index("account_card_blocklist_active_idx").on(t.accountId),
   }),
 );
+
+/** 平台写给代理看的公告。published 同时最多一行，靠 live_key 唯一保证。 */
+export const platformAnnouncements = sqliteTable(
+  "platform_announcements",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    /** draft | published | archived */
+    status: text("status").notNull().default("draft"),
+    liveKey: text("live_key"),
+    publishedAt: text("published_at"),
+    archivedAt: text("archived_at"),
+    createdByUserId: integer("created_by_user_id"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (t) => ({
+    liveKeyIdx: uniqueIndex("platform_announcements_live_key_uq").on(t.liveKey),
+    statusIdx: index("platform_announcements_status_idx").on(t.status),
+    publishedIdx: index("platform_announcements_published_idx").on(t.publishedAt),
+  }),
+);
+
+/** 已读按店记。同一家店对同一条公告只留第一行。 */
+export const platformAnnouncementReads = sqliteTable(
+  "platform_announcement_reads",
+  {
+    announcementId: integer("announcement_id").notNull(),
+    agentId: integer("agent_id").notNull(),
+    readAt: text("read_at").notNull(),
+  },
+  (t) => ({
+    pk: uniqueIndex("platform_announcement_reads_uq").on(
+      t.announcementId,
+      t.agentId,
+    ),
+  }),
+);
