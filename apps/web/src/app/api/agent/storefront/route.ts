@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { and, asc, eq } from "drizzle-orm";
+import { z } from "zod";
 import { db } from "@/db";
 import { agentPlanPrices, agentStorefronts, agents, platformPlans } from "@/db/schema";
 import { requireAgent } from "@/lib/auth";
@@ -10,6 +11,7 @@ import {
   shopNameSchema,
   storefrontSettingsSchema,
 } from "@/lib/agent-storefront-config";
+import { storedCoverError } from "@/lib/plan-cover-core";
 
 async function authorize() {
   try {
@@ -25,6 +27,7 @@ async function listAssignedPlans(agentId: number) {
     .select({
       planKey: platformPlans.planKey,
       name: platformPlans.name,
+      coverUrl: agentPlanPrices.coverUrl,
     })
     .from(agentPlanPrices)
     .innerJoin(platformPlans, eq(platformPlans.id, agentPlanPrices.planId))
@@ -86,6 +89,20 @@ export async function PATCH(req: Request) {
       { status: 400 },
     );
   }
+  const coversParsed = z
+    .record(z.string().trim().min(1), z.string().trim().max(1000))
+    .optional()
+    .safeParse(body.productCovers ?? {});
+  if (!coversParsed.success) {
+    return NextResponse.json({ error: "套餐图片无效" }, { status: 400 });
+  }
+  const productCovers = coversParsed.data ?? {};
+  for (const [planKey, coverUrl] of Object.entries(productCovers)) {
+    const coverError = storedCoverError(coverUrl);
+    if (coverError) {
+      return NextResponse.json({ error: `${planKey}：${coverError}` }, { status: 400 });
+    }
+  }
 
   const columns = settingsToRow(parsed.data);
   const now = new Date().toISOString();
@@ -102,6 +119,31 @@ export async function PATCH(req: Request) {
         .update(agents)
         .set({ displayName: shopNameParsed.data, updatedAt: now })
         .where(eq(agents.id, session.agentId));
+    }
+    if (Object.keys(productCovers).length) {
+      const assigned = await tx
+        .select({
+          assignmentId: agentPlanPrices.id,
+          planKey: platformPlans.planKey,
+        })
+        .from(agentPlanPrices)
+        .innerJoin(platformPlans, eq(platformPlans.id, agentPlanPrices.planId))
+        .where(
+          and(
+            eq(agentPlanPrices.agentId, session.agentId),
+            eq(agentPlanPrices.enabled, true),
+            eq(platformPlans.enabled, true),
+          ),
+        );
+      const byKey = new Map(assigned.map((row) => [row.planKey, row.assignmentId]));
+      for (const [planKey, coverUrl] of Object.entries(productCovers)) {
+        const assignmentId = byKey.get(planKey);
+        if (!assignmentId) continue;
+        await tx
+          .update(agentPlanPrices)
+          .set({ coverUrl: coverUrl.trim(), updatedAt: now })
+          .where(eq(agentPlanPrices.id, assignmentId));
+      }
     }
   });
 

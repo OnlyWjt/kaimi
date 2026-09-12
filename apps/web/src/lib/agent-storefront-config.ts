@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { isLocalAccountPlan } from "./finished-account-core";
 import { normalizeCategory } from "./plan-category";
+import { normalizeStoredCoverUrl } from "./plan-cover-core";
 
 /** 代理店铺装修配置：服务端与客户端共用的类型、默认值与校验 */
 
@@ -416,6 +417,15 @@ export function coverFromPlan(name: string, planKey: string): string {
   return "";
 }
 
+/** 代理自定义图优先；没设或链接不合法就回内置封面，不接平台 coverUrl。 */
+export function resolvePlanCover(
+  custom: string | null | undefined,
+  name: string,
+  planKey: string,
+) {
+  return normalizeStoredCoverUrl(custom) || coverFromPlan(name, planKey);
+}
+
 /** 用套餐键算一个稳定色相，同一套餐每次刷新颜色不变 */
 function hueFromKey(key: string): number {
   let hash = 0;
@@ -440,6 +450,7 @@ export type SellablePlan = {
 export function planToProduct(
   plan: SellablePlan,
   names: Record<string, LocalText> = {},
+  coverUrl?: string | null,
 ): StorefrontProduct {
   const name = resolveProductName(plan.planKey, plan.name, names);
   // 分类标签本身就当 id 用：后台改标签等于换分类，不用再维护一张分类表。
@@ -477,7 +488,7 @@ export function planToProduct(
     kind: account ? "account" : "cdk",
     hue: hueFromKey(plan.planKey),
     mark: markFromName(plan.name),
-    cover: coverFromPlan(plan.name, plan.planKey),
+    cover: resolvePlanCover(coverUrl, plan.name, plan.planKey),
     specs: [
       {
         id: plan.planKey,

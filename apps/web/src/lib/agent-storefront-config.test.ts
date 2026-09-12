@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   coverFromPlan,
   planToProduct,
+  resolvePlanCover,
   resolveProductName,
   rowToSettings,
   settingsToRow,
@@ -98,6 +99,32 @@ describe("shopNameSchema", () => {
     expect(shopNameSchema.parse(" onlyWjt ")).toBe("onlyWjt");
     expect(shopNameSchema.safeParse("").success).toBe(false);
     expect(shopNameSchema.safeParse("x".repeat(65)).success).toBe(false);
+  });
+});
+
+describe("resolvePlanCover", () => {
+  it("uses the agent image when the stored url is legal", () => {
+    expect(
+      resolvePlanCover("/uploads/agent/1/plan/plus.webp?v=3", "Plus", "plus"),
+    ).toBe("/uploads/agent/1/plan/plus.webp?v=3");
+  });
+
+  it("falls back to the built-in cover, not platform coverUrl", () => {
+    expect(resolvePlanCover("", "Plus", "plus")).toBe(coverFromPlan("Plus", "plus"));
+    expect(resolvePlanCover("http://evil.example/x.png", "Plus", "plus")).toBe(
+      coverFromPlan("Plus", "plus"),
+    );
+  });
+});
+
+describe("planToProduct cover", () => {
+  it("puts a custom cover on the product card", () => {
+    const product = planToProduct(
+      basePlan,
+      {},
+      "https://cdn.example.com/shop-plus.png",
+    );
+    expect(product.cover).toBe("https://cdn.example.com/shop-plus.png");
   });
 });
 

@@ -570,6 +570,27 @@ button.km-acp-row {
   font-size: 0.85rem;
 }
 
+.km-acp-cover-preview {
+  width: 10.5rem;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--km-bg-muted);
+  display: grid;
+  place-items: center;
+}
+
+.km-acp-cover-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.km-acp-cover-preview span {
+  color: var(--km-fg-muted);
+  font-size: 0.95rem;
+}
+
 @media (max-width: 960px) {
   .km-acp-frame {
     grid-template-columns: 1fr;

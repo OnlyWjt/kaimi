@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ApplyTheme } from "@/components/apply-theme";
 import { readApiJson } from "@/lib/http-error";
 import { invoiceSurchargeCents } from "@/lib/invoice-core";
@@ -403,14 +403,40 @@ function ProductIcon({ product }: { product: StorefrontProduct }) {
   );
 }
 
-/** 详情页左侧商品主图：有封面用图，没有就退回短标识 */
+function CoverPhoto({
+  src,
+  fallback,
+}: {
+  src?: string;
+  fallback: ReactNode;
+}) {
+  const [broken, setBroken] = useState(false);
+  if (!src || broken) return fallback;
+  return <img src={src} alt="" onError={() => setBroken(true)} />;
+}
+
+/** 详情页左侧商品主图：有封面用图，裂了或没图就退回短标识 */
 function ProductBanner({ product, lang }: { product: StorefrontProduct; lang: Lang }) {
+  const photo = (
+    <CoverPhoto
+      src={product.cover}
+      fallback={
+        <span
+          className="km-sf-banner-icon"
+          style={{
+            color: `hsl(${product.hue} 28% 34%)`,
+            borderColor: `hsl(${product.hue} 18% 78%)`,
+            background: `hsl(${product.hue} 22% 96%)`,
+          }}
+          aria-hidden
+        >
+          {product.mark}
+        </span>
+      }
+    />
+  );
   if (product.cover) {
-    return (
-      <div className="km-sf-banner km-sf-banner-photo">
-        <img src={product.cover} alt="" />
-      </div>
-    );
+    return <div className="km-sf-banner km-sf-banner-photo">{photo}</div>;
   }
   return (
     <div
@@ -1046,11 +1072,10 @@ export function AgentStorefront({
                               : { background: `hsl(${product.hue} 18% 96%)` }
                           }
                         >
-                          {product.cover ? (
-                            <img src={product.cover} alt="" />
-                          ) : (
-                            <ProductIcon product={product} />
-                          )}
+                          <CoverPhoto
+                            src={product.cover}
+                            fallback={<ProductIcon product={product} />}
+                          />
                         </div>
                         <div className="km-sf-card2-body">
                           <div className="km-sf-card2-top">

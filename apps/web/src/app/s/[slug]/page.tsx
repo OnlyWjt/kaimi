@@ -34,6 +34,7 @@ export default async function AgentStorePage({
           category: platformPlans.category,
           fulfillmentKind: platformPlans.fulfillmentKind,
           retailPriceCents: agentPlanPrices.retailPriceCents,
+          coverUrl: agentPlanPrices.coverUrl,
           globalCostPriceCents: platformPlans.globalCostPriceCents,
           costOverrideCents: agentPlanPrices.costOverrideCents,
         })
@@ -111,6 +112,7 @@ export default async function AgentStorePage({
               : true,
         },
         settings.productNames,
+        plan.coverUrl,
       ),
     ),
   };

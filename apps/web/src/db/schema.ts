@@ -193,6 +193,8 @@ export const agentPlanPrices = sqliteTable(
     planId: integer("plan_id").notNull(),
     costOverrideCents: integer("cost_override_cents"),
     retailPriceCents: integer("retail_price_cents").notNull().default(0),
+    /** 这家店自己的套餐图。空串表示继续用内置封面。 */
+    coverUrl: text("cover_url").notNull().default(""),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
     createdAt: text("created_at")
       .notNull()

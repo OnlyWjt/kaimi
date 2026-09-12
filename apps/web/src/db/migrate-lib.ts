@@ -907,6 +907,9 @@ export async function ensureSchema() {
   await client.execute(
     "CREATE INDEX IF NOT EXISTS store_orders_coupon_idx ON store_orders(coupon_id)",
   );
+  await addColumn(
+    "ALTER TABLE agent_plan_prices ADD COLUMN cover_url TEXT NOT NULL DEFAULT ''",
+  );
 
   const finishedGpt = await db.query.platformPlans.findFirst({
     where: eq(platformPlans.planKey, FINISHED_GPT_PLAN_KEY),

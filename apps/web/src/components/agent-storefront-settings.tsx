@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
 import { readApiJson } from "@/lib/http-error";
 import {
@@ -9,11 +10,14 @@ import {
   MAX_CONTACTS,
   MAX_STATS,
   PLATFORM_HERO,
+  coverFromPlan,
+  resolvePlanCover,
   type ContactItem,
   type Lang,
   type LocalText,
   type StorefrontSettings,
 } from "@/lib/agent-storefront-config";
+import { storedCoverError } from "@/lib/plan-cover-core";
 
 const CONTACT_TYPE_LABEL: Record<ContactItem["type"], string> = {
   telegram: "Telegram",
@@ -103,14 +107,17 @@ function Toggle({
   );
 }
 
-type AssignedPlan = { planKey: string; name: string };
+type AssignedPlan = { planKey: string; name: string; coverUrl?: string };
 
 export function AgentStorefrontSettings() {
+  const { ask, dialog } = useAskDialog();
+  const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
   const [settings, setSettings] = useState<StorefrontSettings>(DEFAULT_SETTINGS);
   const [shopName, setShopName] = useState("");
   const [plans, setPlans] = useState<AssignedPlan[]>([]);
+  const [coverDraft, setCoverDraft] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -121,9 +128,15 @@ export function AgentStorefrontSettings() {
           shopName?: string;
           plans?: AssignedPlan[];
         }>(await fetch("/api/agent/storefront", { cache: "no-store" }));
+        const nextPlans = data.plans ?? [];
         setSettings(data.settings);
         setShopName(data.shopName || "");
-        setPlans(data.plans ?? []);
+        setPlans(nextPlans);
+        setCoverDraft(
+          Object.fromEntries(
+            nextPlans.map((plan) => [plan.planKey, plan.coverUrl || ""]),
+          ),
+        );
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : "装修配置加载失败");
       } finally {
@@ -134,6 +147,50 @@ export function AgentStorefrontSettings() {
 
   function patch(next: Partial<StorefrontSettings>) {
     setSettings((current) => ({ ...current, ...next }));
+  }
+
+  async function uploadCover(planKey: string, file: File) {
+    setBusy(`cover-${planKey}`);
+    setError("");
+    try {
+      const body = new FormData();
+      body.set("planKey", planKey);
+      body.set("file", file);
+      const data = await readApiJson<{ url: string }>(
+        await fetch("/api/agent/storefront/covers", { method: "POST", body }),
+      );
+      setCoverDraft((current) => ({ ...current, [planKey]: data.url }));
+      toast("图已选上，保存装修后进店");
+    } catch (reason) {
+      const text = reason instanceof Error ? reason.message : "上传失败";
+      setError(text);
+      toast(text, "err");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function pasteCover(plan: AssignedPlan) {
+    const answer = await ask({
+      title: `贴 ${plan.name} 的图片链接`,
+      message: "只要 https。保存装修配置后才会进店。",
+      fields: [
+        {
+          name: "url",
+          label: "图片链接",
+          placeholder: "https://",
+          required: true,
+        },
+      ],
+      confirmLabel: "用这个链接",
+    });
+    if (!answer) return;
+    const coverError = storedCoverError(answer.url);
+    if (coverError) {
+      toast(coverError, "err");
+      return;
+    }
+    setCoverDraft((current) => ({ ...current, [plan.planKey]: answer.url.trim() }));
   }
 
   function toggleLanguage(lang: Lang, on: boolean) {
@@ -148,14 +205,14 @@ export function AgentStorefrontSettings() {
   }
 
   async function save() {
-    setBusy(true);
+    setBusy("save");
     setError("");
     try {
       await readApiJson(
         await fetch("/api/agent/storefront", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...settings, shopName }),
+          body: JSON.stringify({ ...settings, shopName, productCovers: coverDraft }),
         }),
       );
       toast("店铺装修已保存");
@@ -164,7 +221,7 @@ export function AgentStorefrontSettings() {
       setError(text);
       toast(text, "err");
     } finally {
-      setBusy(false);
+      setBusy("");
     }
   }
 
@@ -216,27 +273,92 @@ export function AgentStorefrontSettings() {
       </div>
 
       <div className="space-y-4 border-t border-[var(--km-border)] pt-5">
-        <h3 className="text-sm font-semibold">商品名称</h3>
+        <h3 className="text-sm font-semibold">商品怎么显示</h3>
         <p className="text-xs text-[var(--km-fg-muted)]">
-          改的是店铺卡片上的商品名。留空则继续用平台套餐名。
+          改的是这家店卡片上的名字和图。留空继续用平台套餐名和内置封面。图要 16:9，建议
+          1280×720，短边至少 450，PNG / JPG / WEBP，不超过 1MB。跟下面「保存装修配置」一起进店。
         </p>
         {plans.length ? (
-          plans.map((plan) => (
-            <BilingualField
-              key={plan.planKey}
-              label={plan.name}
-              hint={`平台名称：${plan.name}`}
-              value={settings.productNames[plan.planKey] ?? { zh: "", en: "" }}
-              onChange={(name) =>
-                patch({
-                  productNames: { ...settings.productNames, [plan.planKey]: name },
-                })
-              }
-            />
-          ))
+          plans.map((plan) => {
+            const custom = coverDraft[plan.planKey] ?? "";
+            const preview = resolvePlanCover(custom, plan.name, plan.planKey);
+            const fallback = coverFromPlan(plan.name, plan.planKey);
+            return (
+              <div
+                key={plan.planKey}
+                className="space-y-3 rounded-xl border border-[var(--km-border)] p-3"
+              >
+                <BilingualField
+                  label={plan.name}
+                  hint={`平台名称：${plan.name}`}
+                  value={settings.productNames[plan.planKey] ?? { zh: "", en: "" }}
+                  onChange={(name) =>
+                    patch({
+                      productNames: { ...settings.productNames, [plan.planKey]: name },
+                    })
+                  }
+                />
+                <div className="flex flex-wrap items-start gap-3">
+                  <div className="km-acp-cover-preview">
+                    {preview ? (
+                      <img src={preview} alt="" />
+                    ) : (
+                      <span>{plan.name.slice(0, 2)}</span>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <p className="text-xs text-[var(--km-fg-muted)]">
+                      {custom ? "现在：自定义" : fallback ? "现在：平台默认" : "现在：字母标"}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <input
+                        ref={(node) => {
+                          fileInputs.current[plan.planKey] = node;
+                        }}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        hidden
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          event.target.value = "";
+                          if (file) void uploadCover(plan.planKey, file);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="km-btn km-btn-ghost"
+        disabled={Boolean(busy)}
+        onClick={() => fileInputs.current[plan.planKey]?.click()}
+                      >
+                        {busy === `cover-${plan.planKey}` ? "上传中…" : "上传"}
+                      </button>
+                      <button
+                        type="button"
+                        className="km-btn km-btn-ghost"
+                        disabled={Boolean(busy)}
+                        onClick={() => void pasteCover(plan)}
+                      >
+                        贴链接
+                      </button>
+                      <button
+                        type="button"
+                        className="km-btn km-btn-ghost"
+                        disabled={Boolean(busy) || !custom}
+                        onClick={() =>
+                          setCoverDraft((current) => ({ ...current, [plan.planKey]: "" }))
+                        }
+                      >
+                        恢复默认
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })
         ) : (
           <p className="text-sm text-[var(--km-fg-muted)]">
-            还没有可售套餐。先在「售价与优惠」里定价，再回来改名字。
+            还没有可售套餐。先在「售价与优惠」里定价，再回来改名字和图。
           </p>
         )}
       </div>
@@ -485,9 +607,10 @@ export function AgentStorefrontSettings() {
       </div>
 
       {error ? <p className="text-sm text-[var(--km-danger)]">{error}</p> : null}
-      <button type="button" className="km-btn km-btn-primary" disabled={busy} onClick={() => void save()}>
-        {busy ? "保存中…" : "保存装修配置"}
+      <button type="button" className="km-btn km-btn-primary" disabled={Boolean(busy)} onClick={() => void save()}>
+        {busy === "save" ? "保存中…" : "保存装修配置"}
       </button>
+      {dialog}
     </section>
   );
 }
