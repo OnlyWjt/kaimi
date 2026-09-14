@@ -54,25 +54,71 @@ export function formatNotifyText(payload: NotifyPayload) {
     .join("\n");
 }
 
-export type InvoicePaidPayload = {
-  orderNo: string;
+export type StorePaidInvoice = {
   title: string;
   note: string;
   amountCents: number;
   email: string;
-  agentName?: string;
 };
 
-export function formatInvoicePaidText(payload: InvoicePaidPayload) {
+export type StorePaidNotifyPayload = {
+  orderNo: string;
+  agentName?: string;
+  buyerEmail?: string;
+  amountCents: number;
+  paymentChannel?: string;
+  productName?: string;
+  quantity?: number;
+  invoice: StorePaidInvoice | null;
+};
+
+export function notifyPaymentChannelLabel(channel?: string) {
+  const raw = String(channel || "").trim();
+  if (raw === "alipay") return "支付宝";
+  if (raw === "wxpay" || raw === "wechat") return "微信";
+  return raw;
+}
+
+/** Telegram HTML 只认 & < >，用户填的抬头备注先转义再塞进去。 */
+export function escapeTelegramHtml(value: string) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function storePaidLines(payload: StorePaidNotifyPayload) {
+  const quantity = payload.quantity && payload.quantity > 1 ? ` ×${payload.quantity}` : "";
+  const channel = notifyPaymentChannelLabel(payload.paymentChannel);
+  const invoice = payload.invoice;
   return [
-    `[Kaimi] 待开发票  ${payload.orderNo}`,
+    `[Kaimi] 订单已支付  ${payload.orderNo}`,
+    invoice ? "这单需要开发票" : "",
     payload.agentName ? `代理：${payload.agentName}` : "",
-    `抬头：${payload.title}`,
-    payload.note ? `备注：${payload.note}` : "",
-    yuanLine("开票金额", payload.amountCents),
-    `邮箱：${payload.email}`,
-  ]
-    .filter(Boolean)
+    payload.buyerEmail ? `购买人：${payload.buyerEmail}` : "",
+    yuanLine("订单金额", payload.amountCents),
+    channel ? `支付渠道：${channel}` : "",
+    payload.productName ? `商品：${payload.productName}${quantity}` : "",
+    invoice ? `抬头：${invoice.title}` : "",
+    invoice?.note ? `备注：${invoice.note}` : "",
+    invoice ? yuanLine("开票金额", invoice.amountCents) : "",
+    invoice?.email ? `收票邮箱：${invoice.email}` : "",
+  ].filter(Boolean);
+}
+
+export function formatStorePaidText(payload: StorePaidNotifyPayload) {
+  return storePaidLines(payload).join("\n");
+}
+
+/** Bot API 不能标红，用加粗把开票提醒钉在支付通知里。 */
+export function formatStorePaidTelegramHtml(payload: StorePaidNotifyPayload) {
+  return storePaidLines(payload)
+    .map((line, index) => {
+      const escaped = escapeTelegramHtml(line);
+      if (index === 0) return `<b>${escaped}</b>`;
+      if (line === "这单需要开发票") return `<b>⚠️ ${escaped}</b>`;
+      return escaped;
+    })
     .join("\n");
 }
 

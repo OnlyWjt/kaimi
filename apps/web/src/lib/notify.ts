@@ -6,11 +6,12 @@ import { decryptSecret } from "@/lib/crypto";
 import { maskRequestId, sanitizeLog } from "@/lib/log";
 import { loadRedeemNotifyContext } from "@/lib/notify-commerce";
 import {
-  formatInvoicePaidText,
   formatNotifyText,
+  formatStorePaidTelegramHtml,
+  formatStorePaidText,
   notifyYuanFields,
-  type InvoicePaidPayload,
   type NotifyPayload,
+  type StorePaidNotifyPayload,
 } from "@/lib/notify-core";
 
 export type { NotifyPayload } from "@/lib/notify-core";
@@ -82,6 +83,7 @@ async function sendNotifyChannels(
   text: string,
   webhookBody: Record<string, unknown>,
   overrides: NotifyChannelOverrides = {},
+  telegramHtml?: string,
 ): Promise<NotifyDispatchResult> {
   const channels = await resolveNotifyChannels(overrides);
   const result: NotifyDispatchResult = {
@@ -106,7 +108,8 @@ async function sendNotifyChannels(
     try {
       await postJson(`https://api.telegram.org/bot${channels.telegramToken}/sendMessage`, {
         chat_id: channels.telegramChatId,
-        text,
+        text: telegramHtml || text,
+        ...(telegramHtml ? { parse_mode: "HTML" } : {}),
       });
       result.telegram.ok = true;
     } catch (err) {
@@ -143,6 +146,7 @@ export async function dispatchNotifyText(
   extra: Record<string, unknown> = {},
   event = "invoice.paid",
   overrides: NotifyChannelOverrides = {},
+  telegramHtml?: string,
 ): Promise<NotifyDispatchResult> {
   return sendNotifyChannels(
     text,
@@ -152,6 +156,7 @@ export async function dispatchNotifyText(
       ...extra,
     },
     overrides,
+    telegramHtml,
   );
 }
 
@@ -159,6 +164,10 @@ export async function notifyStoreInvoicePaid(order: {
   id?: number;
   orderNo: string;
   agentId: number;
+  customerEmail?: string;
+  paymentChannel?: string;
+  productNameSnapshot?: string;
+  quantity?: number;
   invoiceTitle: string;
   invoiceNote: string;
   invoiceEmail: string;
@@ -177,18 +186,28 @@ export async function notifyStoreInvoicePaid(order: {
     where: eq(agents.id, order.agentId),
     columns: { displayName: true, currentSlug: true },
   });
-  const payload: InvoicePaidPayload = {
+  const payload: StorePaidNotifyPayload = {
     orderNo: order.orderNo,
-    title: order.invoiceTitle,
-    note: order.invoiceNote,
-    amountCents: order.invoiceAmountCents || order.grossCents,
-    email: order.invoiceEmail,
     agentName: agent?.displayName || agent?.currentSlug || "",
+    buyerEmail: order.customerEmail || order.invoiceEmail,
+    amountCents: order.grossCents,
+    paymentChannel: order.paymentChannel,
+    productName: order.productNameSnapshot,
+    quantity: order.quantity,
+    invoice: {
+      title: order.invoiceTitle,
+      note: order.invoiceNote,
+      amountCents: order.invoiceAmountCents || order.grossCents,
+      email: order.invoiceEmail || order.customerEmail || "",
+    },
   };
+  const text = formatStorePaidText(payload);
   const result = await dispatchNotifyText(
-    formatInvoicePaidText(payload),
-    payload,
+    text,
+    { ...payload, invoiceRequested: true },
     "invoice.paid",
+    {},
+    formatStorePaidTelegramHtml(payload),
   );
   const status =
     result.telegram.ok || result.webhook.ok
