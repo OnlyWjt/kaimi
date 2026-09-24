@@ -944,6 +944,7 @@ export async function ensureSchema() {
   await client.execute("DROP INDEX IF EXISTS issued_cdks_order_id_uq");
   await ensureCardOpsTables();
   await ensureAnnouncementTables();
+  await ensureRedeemGuardSchema();
 
   const shop = await db.query.storefronts.findFirst({
     where: (t, { eq }) => eq(t.kind, "shop"),
@@ -1082,4 +1083,146 @@ export async function ensureSchema() {
       .set({ value: "Kaimi", updatedAt: new Date().toISOString() })
       .where(eq(settings.key, "site_name"));
   }
+}
+
+async function ensureRedeemGuardSchema() {
+  const addColumn = async (sqlText: string) => {
+    try {
+      await client.execute(sqlText);
+    } catch (error) {
+      if (!/duplicate column/i.test(String(error))) throw error;
+    }
+  };
+  await addColumn("ALTER TABLE orders ADD COLUMN issued_cdk_id INTEGER");
+  await addColumn("ALTER TABLE orders ADD COLUMN store_order_id INTEGER");
+  await addColumn("ALTER TABLE orders ADD COLUMN agent_id INTEGER");
+  await addColumn("ALTER TABLE orders ADD COLUMN code_prefix TEXT NOT NULL DEFAULT ''");
+  await addColumn("ALTER TABLE orders ADD COLUMN code_last4 TEXT NOT NULL DEFAULT ''");
+  await addColumn("ALTER TABLE orders ADD COLUMN client_ip TEXT NOT NULL DEFAULT ''");
+  await addColumn("ALTER TABLE orders ADD COLUMN source TEXT NOT NULL DEFAULT ''");
+  await addColumn("ALTER TABLE orders ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0");
+  await addColumn("ALTER TABLE agents ADD COLUMN shop_name TEXT NOT NULL DEFAULT ''");
+  await addColumn("ALTER TABLE agents ADD COLUMN real_name TEXT NOT NULL DEFAULT ''");
+  await client.execute("CREATE INDEX IF NOT EXISTS orders_issued_cdk_idx ON orders(issued_cdk_id)");
+  await client.execute("CREATE INDEX IF NOT EXISTS orders_store_order_idx ON orders(store_order_id)");
+  await client.execute(`
+    UPDATE orders
+    SET issued_cdk_id = (SELECT id FROM issued_cdks WHERE issued_cdks.redemption_order_id = orders.id),
+        store_order_id = (SELECT order_id FROM issued_cdks WHERE issued_cdks.redemption_order_id = orders.id),
+        agent_id = (SELECT agent_id FROM issued_cdks WHERE issued_cdks.redemption_order_id = orders.id),
+        code_prefix = COALESCE((SELECT code_prefix FROM issued_cdks WHERE issued_cdks.redemption_order_id = orders.id), '')
+    WHERE issued_cdk_id IS NULL
+      AND EXISTS (SELECT 1 FROM issued_cdks WHERE issued_cdks.redemption_order_id = orders.id)
+  `);
+  await client.execute(
+    "UPDATE agents SET shop_name = display_name WHERE shop_name = ''",
+  );
+  const hideFlag = await db.query.settings.findFirst({
+    where: eq(settings.key, "migration_hide_probe_orders_v1"),
+  });
+  if (hideFlag?.value !== "done") {
+    await client.execute(`
+      UPDATE orders SET hidden = 0
+      WHERE hidden = 1
+        AND (
+          issued_cdk_id IS NOT NULL
+          OR COALESCE(upstream_plan, '') != ''
+          OR COALESCE(upstream_request_id, '') != ''
+        )
+    `);
+    await client.execute(`
+      UPDATE orders SET hidden = 1
+      WHERE kind = 'recharge'
+        AND fulfill_status = 'failed'
+        AND issued_cdk_id IS NULL
+        AND COALESCE(upstream_plan, '') = ''
+        AND COALESCE(upstream_request_id, '') = ''
+        AND hidden = 0
+    `);
+    await db
+      .insert(settings)
+      .values({ key: "migration_hide_probe_orders_v1", value: "done" })
+      .onConflictDoUpdate({
+        target: settings.key,
+        set: { value: "done" },
+      });
+  }
+  await client.executeMultiple(`
+    CREATE TABLE IF NOT EXISTS redeem_guard_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      subject_type TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      outcome TEXT NOT NULL,
+      route TEXT NOT NULL,
+      client_ip TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE INDEX IF NOT EXISTS redeem_guard_events_subject_idx
+      ON redeem_guard_events(subject_type, subject, created_at);
+    CREATE TABLE IF NOT EXISTS redeem_guard_blocks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      subject_type TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      blocked_until TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      released_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS redeem_guard_blocks_subject_idx
+      ON redeem_guard_blocks(subject_type, subject);
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      owner_type TEXT NOT NULL,
+      agent_id INTEGER,
+      name TEXT NOT NULL,
+      key_prefix TEXT NOT NULL,
+      key_hash TEXT NOT NULL,
+      scopes TEXT NOT NULL DEFAULT '[]',
+      ip_allowlist TEXT NOT NULL DEFAULT '[]',
+      rate_limit_per_min INTEGER NOT NULL DEFAULT 60,
+      status TEXT NOT NULL DEFAULT 'active',
+      last_used_at TEXT,
+      last_used_ip TEXT NOT NULL DEFAULT '',
+      expires_at TEXT,
+      created_by INTEGER,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      revoked_at TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS api_keys_hash_uq ON api_keys(key_hash);
+    CREATE INDEX IF NOT EXISTS api_keys_agent_idx ON api_keys(agent_id);
+    CREATE TABLE IF NOT EXISTS api_idempotency (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      key_id INTEGER NOT NULL,
+      idem_key TEXT NOT NULL,
+      request_hash TEXT NOT NULL,
+      status INTEGER NOT NULL,
+      response_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS api_idempotency_key_uq ON api_idempotency(key_id, idem_key);
+    CREATE TABLE IF NOT EXISTS api_webhook_endpoints (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      owner_type TEXT NOT NULL,
+      agent_id INTEGER,
+      url TEXT NOT NULL,
+      secret_encrypted TEXT NOT NULL,
+      events TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE INDEX IF NOT EXISTS api_webhook_endpoints_agent_idx ON api_webhook_endpoints(agent_id);
+    CREATE TABLE IF NOT EXISTS api_webhook_deliveries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      endpoint_id INTEGER NOT NULL,
+      event TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      attempt INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at TEXT,
+      last_status INTEGER,
+      last_error TEXT NOT NULL DEFAULT '',
+      delivered_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE INDEX IF NOT EXISTS api_webhook_deliveries_endpoint_idx ON api_webhook_deliveries(endpoint_id);
+  `);
 }

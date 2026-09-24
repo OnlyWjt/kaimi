@@ -5,6 +5,7 @@ import { yuanTextFromCents } from "./money";
 export type AgentConsoleProfile = {
   username: string;
   displayName: string;
+  shopName: string;
   currentSlug: string;
   themeId: ThemeId;
   redeemUrl: string;

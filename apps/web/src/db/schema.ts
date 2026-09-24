@@ -48,6 +48,10 @@ export const agents = sqliteTable(
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
     displayName: text("display_name").notNull(),
+    /** 店铺前台名称，代理自己改。不再覆盖 display_name。 */
+    shopName: text("shop_name").notNull().default(""),
+    /** 超管备注的真实姓名，只在后台和打款导出里出现。 */
+    realName: text("real_name").notNull().default(""),
     status: text("status").notNull().default("active"), // active | disabled
     currentSlug: text("current_slug").notNull(),
     themeId: text("theme_id").notNull().default("snow"),
@@ -711,6 +715,135 @@ export const auditLogs = sqliteTable(
   }),
 );
 
+export const redeemGuardEvents = sqliteTable(
+  "redeem_guard_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    subjectType: text("subject_type").notNull(),
+    subject: text("subject").notNull(),
+    outcome: text("outcome").notNull(),
+    route: text("route").notNull(),
+    clientIp: text("client_ip").notNull().default(""),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+  },
+  (t) => ({
+    subjectIdx: index("redeem_guard_events_subject_idx").on(
+      t.subjectType,
+      t.subject,
+      t.createdAt,
+    ),
+  }),
+);
+
+export const redeemGuardBlocks = sqliteTable(
+  "redeem_guard_blocks",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    subjectType: text("subject_type").notNull(),
+    subject: text("subject").notNull(),
+    reason: text("reason").notNull(),
+    blockedUntil: text("blocked_until").notNull(),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+    releasedAt: text("released_at"),
+  },
+  (t) => ({
+    subjectIdx: index("redeem_guard_blocks_subject_idx").on(
+      t.subjectType,
+      t.subject,
+    ),
+  }),
+);
+
+export const apiKeys = sqliteTable(
+  "api_keys",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    ownerType: text("owner_type").notNull(),
+    agentId: integer("agent_id"),
+    name: text("name").notNull(),
+    keyPrefix: text("key_prefix").notNull(),
+    keyHash: text("key_hash").notNull(),
+    scopes: text("scopes").notNull().default("[]"),
+    ipAllowlist: text("ip_allowlist").notNull().default("[]"),
+    rateLimitPerMin: integer("rate_limit_per_min").notNull().default(60),
+    status: text("status").notNull().default("active"),
+    lastUsedAt: text("last_used_at"),
+    lastUsedIp: text("last_used_ip").notNull().default(""),
+    expiresAt: text("expires_at"),
+    createdBy: integer("created_by"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+    revokedAt: text("revoked_at"),
+  },
+  (t) => ({
+    hashIdx: uniqueIndex("api_keys_hash_uq").on(t.keyHash),
+    agentIdx: index("api_keys_agent_idx").on(t.agentId),
+  }),
+);
+
+export const apiIdempotency = sqliteTable(
+  "api_idempotency",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    keyId: integer("key_id").notNull(),
+    idemKey: text("idem_key").notNull(),
+    requestHash: text("request_hash").notNull(),
+    status: integer("status").notNull(),
+    responseJson: text("response_json").notNull(),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+  },
+  (t) => ({
+    keyIdemIdx: uniqueIndex("api_idempotency_key_uq").on(t.keyId, t.idemKey),
+  }),
+);
+
+export const apiWebhookEndpoints = sqliteTable(
+  "api_webhook_endpoints",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    ownerType: text("owner_type").notNull(),
+    agentId: integer("agent_id"),
+    url: text("url").notNull(),
+    secretEncrypted: text("secret_encrypted").notNull(),
+    events: text("events").notNull().default("[]"),
+    status: text("status").notNull().default("active"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+  },
+  (t) => ({
+    agentIdx: index("api_webhook_endpoints_agent_idx").on(t.agentId),
+  }),
+);
+
+export const apiWebhookDeliveries = sqliteTable(
+  "api_webhook_deliveries",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    endpointId: integer("endpoint_id").notNull(),
+    event: text("event").notNull(),
+    payloadJson: text("payload_json").notNull(),
+    attempt: integer("attempt").notNull().default(0),
+    nextAttemptAt: text("next_attempt_at"),
+    lastStatus: integer("last_status"),
+    lastError: text("last_error").notNull().default(""),
+    deliveredAt: text("delivered_at"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+  },
+  (t) => ({
+    endpointIdx: index("api_webhook_deliveries_endpoint_idx").on(t.endpointId),
+  }),
+);
+
 export const plansCache = sqliteTable("plans_cache", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   planKey: text("plan_key").notNull().unique(),
@@ -769,6 +902,14 @@ export const orders = sqliteTable(
     accountEmail: text("account_email"),
     message: text("message").notNull().default(""),
     deliveredCodesJson: text("delivered_codes_json").notNull().default("[]"),
+    issuedCdkId: integer("issued_cdk_id"),
+    storeOrderId: integer("store_order_id"),
+    agentId: integer("agent_id"),
+    codePrefix: text("code_prefix").notNull().default(""),
+    codeLast4: text("code_last4").notNull().default(""),
+    clientIp: text("client_ip").notNull().default(""),
+    source: text("source").notNull().default(""),
+    hidden: integer("hidden", { mode: "boolean" }).notNull().default(false),
     createdAt: text("created_at")
       .notNull()
       .default(sql`(datetime('now'))`),
@@ -781,6 +922,8 @@ export const orders = sqliteTable(
     orderNoIdx: uniqueIndex("orders_order_no_uq").on(t.orderNo),
     emailIdx: index("orders_email_idx").on(t.email),
     requestIdx: index("orders_request_idx").on(t.upstreamRequestId),
+    issuedCdkIdx: index("orders_issued_cdk_idx").on(t.issuedCdkId),
+    storeOrderIdx: index("orders_store_order_idx").on(t.storeOrderId),
   }),
 );
 

@@ -17,6 +17,8 @@ import {
   type OpenedRechargeOrder,
 } from "@/lib/orders";
 import { REDEEM_BATCH_CONCURRENCY, mapPool } from "@/lib/recharge-batch-core";
+import { assertRedeemCodeKnown, recordRedeemFailure } from "@/lib/redeem-guard";
+import { RedeemRejectedError, UNKNOWN_CODE_STOP_AFTER } from "@/lib/redeem-guard-core";
 import type { AgentCredential } from "@/lib/recharge-types";
 
 export type BatchPreviewRow = {
@@ -46,9 +48,38 @@ async function inFlightOrderNo(code: string) {
 /** 批量校验：逐张打卡台 preview，有界并发，一张失败不影响其余。 */
 export async function previewRedeemCodes(
   codes: string[],
+  guard?: { ip: string; email?: string },
 ): Promise<BatchPreviewRow[]> {
   await bootDb();
-  return mapPool(codes, REDEEM_BATCH_CONCURRENCY, async (code) => {
+  const allowed: string[] = [];
+  const rejected = new Map<string, string>();
+  let unknown = 0;
+  for (const code of codes) {
+    if (unknown >= UNKNOWN_CODE_STOP_AFTER) {
+      rejected.set(code, "连续多张卡密无效，已停止本批");
+      continue;
+    }
+    try {
+      await assertRedeemCodeKnown(code);
+      allowed.push(code);
+    } catch (error) {
+      if (error instanceof RedeemRejectedError) {
+        unknown += 1;
+        if (guard) {
+          await recordRedeemFailure({
+            ip: guard.ip,
+            email: guard.email,
+            outcome: error.outcome,
+            route: "recharge-batch-validate",
+          });
+        }
+        rejected.set(code, error.message);
+      } else {
+        rejected.set(code, error instanceof Error ? error.message : "卡密校验失败");
+      }
+    }
+  }
+  const previewed = await mapPool(allowed, REDEEM_BATCH_CONCURRENCY, async (code) => {
     const base = {
       code,
       codeMasked: maskCode(code),
@@ -75,6 +106,20 @@ export async function previewRedeemCodes(
         error: error instanceof Error ? error.message : "卡密校验失败",
       };
     }
+  });
+  const byCode = new Map(previewed.map((row) => [row.code, row]));
+  return codes.map((code) => {
+    const hit = byCode.get(code);
+    if (hit) return hit;
+    return {
+      code,
+      codeMasked: maskCode(code),
+      ok: false,
+      planKey: "",
+      planName: "",
+      orderNo: "",
+      error: rejected.get(code) || "卡密校验失败",
+    };
   });
 }
 

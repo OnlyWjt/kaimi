@@ -3,6 +3,8 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AdminAgents } from "@/components/admin-agents";
+import { AdminApiKeys } from "@/components/admin-api-keys";
+import { AdminRedeemGuard } from "@/components/admin-redeem-guard";
 import { AdminAnnouncements } from "@/components/admin-announcements";
 import { useAskDialog } from "@/components/ask-dialog";
 import { AdminGuide } from "@/components/admin-guide";
@@ -27,6 +29,8 @@ type Tab =
   | "commerce"
   | "finished"
   | "agents"
+  | "guard"
+  | "apikeys"
   | "announcements"
   | "earnings"
   | "usage"
@@ -77,7 +81,7 @@ const STATUS_LABEL: Record<string, string> = {
   issuing: "发货中",
   expired: "已过期",
   cancelled: "已取消",
-  manual: "已持码",
+  manual: "免支付",
   skipped: "已跳过",
 };
 
@@ -97,6 +101,8 @@ const HASH_TABS: Tab[] = [
   "commerce",
   "finished",
   "agents",
+  "guard",
+  "apikeys",
   "announcements",
   "earnings",
   "usage",
@@ -144,6 +150,8 @@ export default function AdminPage() {
   const [loginForm, setLoginForm] = useState({ username: "admin", password: "" });
   const [orderQ, setOrderQ] = useState("");
   const [orderStatus, setOrderStatus] = useState("");
+  const [includeHidden, setIncludeHidden] = useState(false);
+  const [orderNextCursor, setOrderNextCursor] = useState("");
   const [cdkQ, setCdkQ] = useState("");
   const [cdkStatus, setCdkStatus] = useState("");
   const [cdkPage, setCdkPage] = useState(1);
@@ -174,7 +182,8 @@ export default function AdminPage() {
   }
 
   async function loadSection(section: string, extra = "") {
-    const res = await fetch(`/api/admin?section=${section}${extra}`);
+    const path = section === "orders" ? "/api/admin/orders" : `/api/admin?section=${section}`;
+    const res = await fetch(`${path}${section === "orders" ? `?${extra.replace(/^&/, "")}` : extra}`);
     if (res.status === 401) {
       setBoot((b) => (b ? { ...b, admin: null } : b));
       return null;
@@ -205,8 +214,10 @@ export default function AdminPage() {
         const qs = new URLSearchParams();
         if (orderQ) qs.set("q", orderQ);
         if (orderStatus) qs.set("status", orderStatus);
+        if (includeHidden) qs.set("include_hidden", "1");
         const data = await loadSection("orders", `&${qs}`);
         setOrders(data?.list || []);
+        setOrderNextCursor(data?.page?.next_cursor || "");
       }
       if (tab === "cdks") {
         const qs = new URLSearchParams();
@@ -253,6 +264,8 @@ export default function AdminPage() {
         ["commerce", "即时发卡"],
         ["finished", "成品号"],
         ["agents", "代理管理"],
+        ["guard", "兑换拦截"],
+        ["apikeys", "开放 API"],
         ["announcements", "公告"],
         ["earnings", "收益统计"],
         ["usage", "用量统计"],
@@ -597,14 +610,24 @@ export default function AdminPage() {
                   </option>
                 ))}
               </select>
+              <label className="flex items-center gap-2 text-sm text-[var(--km-fg-muted)]">
+                <input
+                  type="checkbox"
+                  checked={includeHidden}
+                  onChange={(event) => setIncludeHidden(event.target.checked)}
+                />
+                显示已隐藏
+              </label>
               <button
                 className="km-btn"
                 onClick={async () => {
                   const qs = new URLSearchParams();
                   if (orderQ) qs.set("q", orderQ);
                   if (orderStatus) qs.set("status", orderStatus);
+                  if (includeHidden) qs.set("include_hidden", "1");
                   const data = await loadSection("orders", `&${qs}`);
                   setOrders(data?.list || []);
+                  setOrderNextCursor(data?.page?.next_cursor || "");
                 }}
               >
                 筛选
@@ -617,8 +640,10 @@ export default function AdminPage() {
                   const qs = new URLSearchParams();
                   if (orderQ) qs.set("q", orderQ);
                   if (orderStatus) qs.set("status", orderStatus);
+                  if (includeHidden) qs.set("include_hidden", "1");
                   const data = await loadSection("orders", `&${qs}`);
                   setOrders(data?.list || []);
+                  setOrderNextCursor(data?.page?.next_cursor || "");
                 }}
               >
                 轮询进行中
@@ -637,7 +662,7 @@ export default function AdminPage() {
               </button>
               <a
                 className="km-btn km-btn-ghost"
-                href={`/api/admin?section=orders&export=csv${orderQ ? `&q=${encodeURIComponent(orderQ)}` : ""}${orderStatus ? `&status=${encodeURIComponent(orderStatus)}` : ""}`}
+                href={`/api/admin/orders?export=csv${orderQ ? `&q=${encodeURIComponent(orderQ)}` : ""}${orderStatus ? `&status=${encodeURIComponent(orderStatus)}` : ""}${includeHidden ? "&include_hidden=1" : ""}`}
               >
                 导出 CSV
               </a>
@@ -679,7 +704,13 @@ export default function AdminPage() {
                     <Fragment key={String(o.id)}>
                     <tr>
                       <td className="km-clip font-mono" title={orderNo}>
-                        {orderNo}
+                        <div>{orderNo}</div>
+                        {o.storeOrderNo ? (
+                          <div className="text-xs text-[var(--km-fg-muted)]" title={String(o.agentLabel || "")}>
+                            {String(o.storeOrderNo)}
+                            {o.agentLabel ? ` · ${String(o.agentLabel)}` : ""}
+                          </div>
+                        ) : null}
                       </td>
                       <td>{kindLabel(o.kind)}</td>
                       <td className="km-clip" title={email}>
@@ -717,8 +748,10 @@ export default function AdminPage() {
                                 const qs = new URLSearchParams();
                                 if (orderQ) qs.set("q", orderQ);
                                 if (orderStatus) qs.set("status", orderStatus);
+                                if (includeHidden) qs.set("include_hidden", "1");
                                 const data = await loadSection("orders", `&${qs}`);
                                 setOrders(data?.list || []);
+                                setOrderNextCursor(data?.page?.next_cursor || "");
                               }}
                             >
                               重拉
@@ -748,6 +781,23 @@ export default function AdminPage() {
               </tbody>
             </table>
             {!orders.length ? <p className="py-4 text-[var(--km-fg-muted)]">无匹配订单</p> : null}
+            {orderNextCursor ? (
+              <button
+                className="km-btn km-btn-ghost mt-3"
+                onClick={async () => {
+                  const qs = new URLSearchParams();
+                  if (orderQ) qs.set("q", orderQ);
+                  if (orderStatus) qs.set("status", orderStatus);
+                  if (includeHidden) qs.set("include_hidden", "1");
+                  qs.set("cursor", orderNextCursor);
+                  const data = await loadSection("orders", `&${qs}`);
+                  setOrders((current) => [...current, ...(data?.list || [])]);
+                  setOrderNextCursor(data?.page?.next_cursor || "");
+                }}
+              >
+                加载更多
+              </button>
+            ) : null}
           </div>
         ) : null}
 
@@ -1016,6 +1066,8 @@ export default function AdminPage() {
         {tab === "finished" ? <FinishedAccountsAdmin /> : null}
 
         {tab === "agents" ? <AdminAgents /> : null}
+        {tab === "guard" ? <AdminRedeemGuard /> : null}
+        {tab === "apikeys" ? <AdminApiKeys /> : null}
 
         {tab === "announcements" ? <AdminAnnouncements /> : null}
 

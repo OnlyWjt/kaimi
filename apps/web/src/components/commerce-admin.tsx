@@ -28,6 +28,9 @@ type Settlement = {
   id: number;
   settlementNo: string;
   agentName: string;
+  settlementPayee?: string;
+  settlementMethod?: string;
+  settlementAccount?: string;
   periodStart: string;
   periodEnd: string;
   amountCents: number;
@@ -404,7 +407,14 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
   async function markSettlementPaid(settlement: Settlement) {
     const answer = await ask({
       title: `标记 ${settlement.settlementNo} 已返佣`,
-      message: `金额 ¥${(settlement.amountCents / 100).toFixed(2)}，标记后不能再撤销。`,
+      message: [
+        `金额 ¥${(settlement.amountCents / 100).toFixed(2)}，标记后不能再撤销。`,
+        settlement.settlementPayee ? `收款人 ${settlement.settlementPayee}` : "",
+        settlement.settlementMethod ? `收款方式 ${settlement.settlementMethod}` : "",
+        settlement.settlementAccount ? `收款账号 ${settlement.settlementAccount}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
       fields: [
         {
           name: "paymentMethod",
@@ -1220,7 +1230,16 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
               {settlements.map((settlement) => (
                 <tr key={settlement.id} className="border-b border-[var(--km-border)]">
                   <td className="py-2 pr-3">{settlement.settlementNo}</td>
-                  <td className="py-2 pr-3">{settlement.agentName}</td>
+                  <td className="py-2 pr-3">
+                    <div>{settlement.agentName}</div>
+                    {settlement.settlementAccount ? (
+                      <div className="text-xs text-[var(--km-fg-muted)]">
+                        {settlement.settlementPayee || "收款"}{" "}
+                        {settlement.settlementMethod ? `${settlement.settlementMethod} ` : ""}
+                        {settlement.settlementAccount}
+                      </div>
+                    ) : null}
+                  </td>
                   <td className="py-2 pr-3">
                     {settlement.periodStart.slice(0, 10)} 至{" "}
                     {settlement.periodEnd.slice(0, 10)}

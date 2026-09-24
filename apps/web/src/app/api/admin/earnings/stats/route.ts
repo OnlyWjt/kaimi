@@ -6,7 +6,9 @@ import {
   agentEarnings,
   agents,
   storeOrders,
+  users,
 } from "@/db/schema";
+import { agentIdentityLabel } from "@/lib/agent-identity-core";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import {
@@ -59,6 +61,10 @@ export async function GET(req: Request) {
     .select({
       agentId: agentEarnings.agentId,
       agentName: agents.displayName,
+      realName: agents.realName,
+      shopName: agents.shopName,
+      settlementName: agents.settlementName,
+      username: users.username,
       confirmedAt: agentEarnings.confirmedAt,
       grossCents: agentEarnings.grossCents,
       costCents: agentEarnings.costCents,
@@ -71,6 +77,7 @@ export async function GET(req: Request) {
     })
     .from(agentEarnings)
     .innerJoin(agents, eq(agents.id, agentEarnings.agentId))
+    .leftJoin(users, eq(users.agentId, agents.id))
     .innerJoin(storeOrders, eq(storeOrders.id, agentEarnings.orderId))
     .where(and(...earningWhere));
 
@@ -78,23 +85,45 @@ export async function GET(req: Request) {
     .select({
       agentId: agentEarningAdjustments.agentId,
       agentName: agents.displayName,
+      realName: agents.realName,
+      shopName: agents.shopName,
+      settlementName: agents.settlementName,
+      username: users.username,
       createdAt: agentEarningAdjustments.createdAt,
       amountCents: agentEarningAdjustments.amountCents,
       status: agentEarningAdjustments.status,
     })
     .from(agentEarningAdjustments)
     .innerJoin(agents, eq(agents.id, agentEarningAdjustments.agentId))
+    .leftJoin(users, eq(users.agentId, agents.id))
     .where(and(...adjustmentWhere));
+
+  const identity = (row: {
+    agentId: number;
+    agentName: string;
+    realName: string;
+    shopName: string;
+    settlementName: string;
+    username: string | null;
+  }) =>
+    agentIdentityLabel({
+      agentId: row.agentId,
+      displayName: row.agentName,
+      realName: row.realName,
+      shopName: row.shopName,
+      settlementName: row.settlementName,
+      username: row.username,
+    });
 
   const stats = buildEarningsStats({
     grain,
     earnings: earnings.map((row) => ({
       ...row,
-      agentName: row.agentName || `代理 ${row.agentId}`,
+      agentName: identity(row),
     })),
     adjustments: adjustments.map((row) => ({
       ...row,
-      agentName: row.agentName || `代理 ${row.agentId}`,
+      agentName: identity(row),
     })),
   });
 

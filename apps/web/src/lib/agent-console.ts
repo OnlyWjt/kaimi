@@ -63,6 +63,7 @@ export const requireAgentConsoleProfile = cache(async (): Promise<AgentConsolePr
     .select({
       username: users.username,
       displayName: agents.displayName,
+      shopName: agents.shopName,
       currentSlug: agents.currentSlug,
       themeId: agents.themeId,
     })

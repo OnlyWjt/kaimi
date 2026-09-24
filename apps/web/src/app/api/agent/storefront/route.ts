@@ -52,12 +52,12 @@ export async function GET() {
     }),
     db.query.agents.findFirst({
       where: eq(agents.id, session.agentId),
-      columns: { displayName: true },
+      columns: { displayName: true, shopName: true },
     }),
   ]);
   return NextResponse.json({
     settings: rowToSettings(row),
-    shopName: agent?.displayName || "",
+    shopName: agent?.shopName || agent?.displayName || "",
     plans: await listAssignedPlans(session.agentId),
   });
 }
@@ -82,7 +82,7 @@ export async function PATCH(req: Request) {
       { status: 400 },
     );
   }
-  const shopNameParsed = shopNameSchema.safeParse(body.shopName ?? agent.displayName);
+  const shopNameParsed = shopNameSchema.safeParse(body.shopName ?? (agent.shopName || agent.displayName));
   if (!shopNameParsed.success) {
     return NextResponse.json(
       { error: shopNameParsed.error.issues[0]?.message || "店名无效" },
@@ -114,10 +114,10 @@ export async function PATCH(req: Request) {
         target: agentStorefronts.agentId,
         set: { ...columns, updatedAt: now },
       });
-    if (shopNameParsed.data !== agent.displayName) {
+    if (shopNameParsed.data !== (agent.shopName || agent.displayName)) {
       await tx
         .update(agents)
-        .set({ displayName: shopNameParsed.data, updatedAt: now })
+        .set({ shopName: shopNameParsed.data, updatedAt: now })
         .where(eq(agents.id, session.agentId));
     }
     if (Object.keys(productCovers).length) {

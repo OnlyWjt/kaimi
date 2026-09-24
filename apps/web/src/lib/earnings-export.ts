@@ -25,6 +25,13 @@ export type EarningsExportDetail = {
   confirmedAt: string;
   orderNo: string;
   agentName: string;
+  agentId?: number;
+  username?: string;
+  realName?: string;
+  shopName?: string;
+  settlementName?: string;
+  settlementMethod?: string;
+  settlementAccount?: string;
   planName: string;
   paymentChannel: string;
   grossCents: number;
@@ -102,6 +109,7 @@ export async function buildEarningsWorkbook(input: {
   details: EarningsExportDetail[];
   settlements: EarningsExportSettlement[];
   adjustments?: EarningsExportAdjustment[];
+  includeAdminIdentity?: boolean;
 }) {
   if (input.details.length > 50_000) {
     throw new Error("单次最多导出 50,000 条收益明细，请缩小时间范围");
@@ -161,6 +169,17 @@ export async function buildEarningsWorkbook(input: {
     { header: "收益确认时间(北京时间)", key: "confirmedAt", width: 24 },
     { header: "订单号", key: "orderNo", width: 25 },
     { header: "代理", key: "agentName", width: 20 },
+    ...(input.includeAdminIdentity
+      ? [
+          { header: "代理ID", key: "agentId", width: 12 },
+          { header: "登录名", key: "username", width: 16 },
+          { header: "真实姓名", key: "realName", width: 16 },
+          { header: "店名", key: "shopName", width: 16 },
+          { header: "收款人", key: "settlementName", width: 16 },
+          { header: "收款方式", key: "settlementMethod", width: 16 },
+          { header: "收款账号", key: "settlementAccount", width: 24 },
+        ]
+      : []),
     { header: "套餐", key: "planName", width: 18 },
     { header: "支付渠道", key: "paymentChannel", width: 14 },
     { header: "客户实付", key: "gross", width: 16 },
@@ -179,6 +198,13 @@ export async function buildEarningsWorkbook(input: {
       confirmedAt: stamp(item.confirmedAt),
       orderNo: safeText(item.orderNo),
       agentName: safeText(item.agentName),
+      agentId: item.agentId ?? "",
+      username: safeText(item.username || ""),
+      realName: safeText(item.realName || ""),
+      shopName: safeText(item.shopName || ""),
+      settlementName: safeText(item.settlementName || ""),
+      settlementMethod: safeText(item.settlementMethod || ""),
+      settlementAccount: safeText(item.settlementAccount || ""),
       planName: safeText(item.planName),
       paymentChannel: safeText(item.paymentChannel),
       gross: yuan(item.grossCents),

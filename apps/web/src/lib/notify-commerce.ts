@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { agents, issuedCdks, orders, storeOrders } from "@/db/schema";
+import { publicShopName } from "@/lib/agent-names";
 import type { NotifyPayload } from "@/lib/notify-core";
 
 /** 用兑换单号找回代理店、开通账号、售价和这一张的收益。 */
@@ -22,14 +23,14 @@ export async function loadRedeemNotifyContext(orderNo: string): Promise<Partial<
   const agent = agentId
     ? await db.query.agents.findFirst({
         where: eq(agents.id, agentId),
-        columns: { displayName: true },
+        columns: { displayName: true, shopName: true },
       })
     : null;
 
   const quantity = Math.max(1, store?.quantity ?? 1);
   const plan = store?.productNameSnapshot || order.upstreamPlan || "";
   return {
-    agentName: agent?.displayName || "",
+    agentName: agent ? publicShopName(agent) : "",
     account: (order.accountEmail || "").trim(),
     plan: plan || undefined,
     retailCents: store?.retailPriceCents,

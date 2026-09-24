@@ -4,11 +4,21 @@ import { db } from "@/db";
 import { backgroundJobs, storeOrders } from "@/db/schema";
 import { fulfillStoreOrder } from "@/lib/fulfillment/fulfill-store-order";
 import { refreshOpsHealth } from "@/lib/ops-health";
+import { deliverApiWebhook } from "@/lib/open-api/webhooks";
 import { reconcilePaymentFee } from "@/lib/payments/reconcile";
 
 const JOB_LEASE_MS = 5 * 60_000;
 
 async function executeJob(type: string, payloadJson: string) {
+  if (type === "deliver_api_webhook") {
+    const payload = JSON.parse(payloadJson) as { deliveryId?: unknown };
+    const deliveryId = Number(payload.deliveryId);
+    if (!Number.isSafeInteger(deliveryId) || deliveryId <= 0) {
+      throw new Error("回调任务缺少 deliveryId");
+    }
+    await deliverApiWebhook(deliveryId);
+    return;
+  }
   if (type === "refresh_ops_health") {
     await refreshOpsHealth();
     return;

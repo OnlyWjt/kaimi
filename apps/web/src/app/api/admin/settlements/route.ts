@@ -7,10 +7,13 @@ import {
   agentEarnings,
   agents,
   agentSettlements,
+  users,
   storeOrders,
 } from "@/db/schema";
 import { writeAuditLog } from "@/lib/audit";
+import { agentIdentityLabel } from "@/lib/agent-identity-core";
 import { requireAdmin } from "@/lib/auth";
+import { decryptSecret } from "@/lib/crypto";
 import { bootDb } from "@/lib/config";
 import { newOrderNo } from "@/lib/ids";
 import { periodBoundary } from "@/lib/period";
@@ -36,6 +39,12 @@ export async function GET() {
       settlementNo: agentSettlements.settlementNo,
       agentId: agentSettlements.agentId,
       agentName: agents.displayName,
+      realName: agents.realName,
+      shopName: agents.shopName,
+      settlementName: agents.settlementName,
+      settlementMethod: agents.settlementMethod,
+      settlementAccountEncrypted: agents.settlementAccountEncrypted,
+      username: users.username,
       periodStart: agentSettlements.periodStart,
       periodEnd: agentSettlements.periodEnd,
       amountCents: agentSettlements.amountCents,
@@ -47,9 +56,45 @@ export async function GET() {
     })
     .from(agentSettlements)
     .innerJoin(agents, eq(agents.id, agentSettlements.agentId))
+    .leftJoin(users, eq(users.agentId, agents.id))
     .orderBy(desc(agentSettlements.id))
     .limit(200);
-  return NextResponse.json({ list });
+  return NextResponse.json({
+    list: list.map((row) => {
+      let settlementAccount = "";
+      if (row.settlementAccountEncrypted) {
+        try {
+          settlementAccount = decryptSecret(row.settlementAccountEncrypted);
+        } catch {
+          settlementAccount = "";
+        }
+      }
+      return {
+        id: row.id,
+        settlementNo: row.settlementNo,
+        agentId: row.agentId,
+        agentName: agentIdentityLabel({
+          agentId: row.agentId,
+          displayName: row.agentName,
+          realName: row.realName,
+          shopName: row.shopName,
+          settlementName: row.settlementName,
+          username: row.username,
+        }),
+        settlementPayee: row.settlementName,
+        settlementMethod: row.settlementMethod,
+        settlementAccount,
+        periodStart: row.periodStart,
+        periodEnd: row.periodEnd,
+        amountCents: row.amountCents,
+        status: row.status,
+        paymentMethod: row.paymentMethod,
+        paymentReference: row.paymentReference,
+        createdAt: row.createdAt,
+        paidAt: row.paidAt,
+      };
+    }),
+  });
 }
 
 export async function POST(req: Request) {

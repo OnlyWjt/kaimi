@@ -6,7 +6,9 @@ import {
   RedeemInFlightError,
 } from "@/lib/orders";
 import type { AgentCredential } from "@/lib/recharge-types";
-import { enforceRateLimit } from "@/lib/rate-limit";
+import { clientIp, enforceRateLimit } from "@/lib/rate-limit";
+import { recordRedeemFailure, redeemBlockResponse } from "@/lib/redeem-guard";
+import { RedeemRejectedError } from "@/lib/redeem-guard-core";
 import { checkChatGPTSessionLocal } from "@/lib/session-check";
 
 const schema = z
@@ -32,6 +34,9 @@ const schema = z
 export async function POST(req: Request) {
   const limited = enforceRateLimit(req, "recharge-submit", 8);
   if (limited) return limited;
+  const ip = clientIp(req);
+  const blocked = await redeemBlockResponse({ ip });
+  if (blocked) return blocked;
 
   try {
     const body = schema.parse(await req.json());
@@ -84,6 +89,7 @@ export async function POST(req: Request) {
         email: contactEmail,
         account,
         planKey: body.planKey,
+        clientIp: ip,
       });
       after(() =>
         driveOpenedRecharge({ opened, code, account }),
@@ -108,6 +114,13 @@ export async function POST(req: Request) {
       throw error;
     }
   } catch (err) {
+    if (err instanceof RedeemRejectedError) {
+      await recordRedeemFailure({
+        ip,
+        outcome: err.outcome,
+        route: "recharge-submit",
+      });
+    }
     const message = err instanceof Error ? err.message : "提交失败";
     return NextResponse.json({ error: message }, { status: 400 });
   }

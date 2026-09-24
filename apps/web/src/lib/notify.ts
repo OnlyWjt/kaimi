@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { agents, storeOrders } from "@/db/schema";
+import { publicShopName } from "@/lib/agent-names";
 import { getSetting } from "@/lib/config";
 import { decryptSecret } from "@/lib/crypto";
 import { maskRequestId, sanitizeLog } from "@/lib/log";
@@ -184,11 +185,11 @@ export async function notifyStoreInvoicePaid(order: {
   }
   const agent = await db.query.agents.findFirst({
     where: eq(agents.id, order.agentId),
-    columns: { displayName: true, currentSlug: true },
+    columns: { displayName: true, shopName: true, currentSlug: true },
   });
   const payload: StorePaidNotifyPayload = {
     orderNo: order.orderNo,
-    agentName: agent?.displayName || agent?.currentSlug || "",
+    agentName: agent ? publicShopName(agent) || agent.currentSlug : "",
     buyerEmail: order.customerEmail || order.invoiceEmail,
     amountCents: order.grossCents,
     paymentChannel: order.paymentChannel,

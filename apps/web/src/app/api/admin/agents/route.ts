@@ -46,6 +46,8 @@ export async function GET() {
     .select({
       id: agents.id,
       displayName: agents.displayName,
+      shopName: agents.shopName,
+      realName: agents.realName,
       status: agents.status,
       currentSlug: agents.currentSlug,
       notes: agents.notes,
@@ -110,6 +112,7 @@ export async function POST(req: Request) {
         .insert(agents)
         .values({
           displayName: data.displayName,
+          shopName: data.displayName,
           currentSlug: checked.slug,
           notes: data.notes,
         })

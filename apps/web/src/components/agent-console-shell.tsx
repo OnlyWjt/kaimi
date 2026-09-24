@@ -8,6 +8,7 @@ import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
 import { AgentAnnouncementModal } from "@/components/agent-announcement-modal";
 import type { AgentConsoleProfile } from "@/lib/agent-console-core";
+import { publicShopName } from "@/lib/agent-names";
 import { agentAnnouncementHint } from "@/lib/announcements-core";
 import { isExternalRedeemUrl } from "@/lib/agent-redeem-core";
 import "./agent-console.css";
@@ -19,6 +20,7 @@ const NAV = [
   { href: "/agent/storefront", label: "店铺", hint: "装修", group: "怎么卖" },
   { href: "/agent/books", label: "账本", hint: "收益", group: "钱和量" },
   { href: "/agent/codes", label: "已售卡密", hint: "售后", group: "钱和量" },
+  { href: "/agent/api", label: "开放 API", hint: "对接", group: "钱和量" },
 ] as const;
 
 function navActive(href: string, pathname: string) {
@@ -139,7 +141,7 @@ export function AgentConsoleShell({
       <div className="km-acp-frame">
         <aside className="km-acp-side">
           <div className="km-acp-brand">
-            <strong>{profile.displayName} 的店</strong>
+            <strong>{publicShopName(profile)} 的店</strong>
             <small>登录账号 {profile.username}</small>
           </div>
           <nav className="km-acp-nav" aria-label="代理后台">

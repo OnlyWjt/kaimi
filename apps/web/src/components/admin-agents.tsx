@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
+import { agentIdentityLabel } from "@/lib/agent-identity-core";
 import { buildAgentWelcomeText } from "@/lib/agent-welcome-core";
 import { copyText } from "@/lib/copy-text";
 import { isLocalAccountPlan } from "@/lib/finished-account-core";
@@ -16,6 +17,8 @@ type AgentRow = {
   id: number;
   username: string;
   displayName: string;
+  shopName?: string;
+  realName?: string;
   status: "active" | "disabled";
   currentSlug: string;
   lastLoginAt: string | null;
@@ -205,6 +208,34 @@ export function AdminAgents() {
     } finally {
       setBusy("");
     }
+  }
+
+  async function editRealName(agent: AgentRow) {
+    const answer = await ask({
+      title: `填写 ${agent.displayName} 的真实姓名`,
+      message: "只在超管后台显示，用来对账。代理自己和客户看不到。",
+      fields: [
+        {
+          name: "realName",
+          label: "真实姓名",
+          defaultValue: agent.realName || "",
+        },
+      ],
+      confirmLabel: "保存",
+    });
+    if (!answer) return;
+    const response = await fetch(`/api/admin/agents/${agent.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ realName: answer.realName.trim() }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      toast(data.error || "保存失败", "err");
+      return;
+    }
+    toast("真实姓名已保存");
+    await load();
   }
 
   async function toggleStatus(agent: AgentRow) {
@@ -607,7 +638,9 @@ export function AdminAgents() {
               ) : null}
               {list.map((agent) => (
                 <tr key={agent.id} className="border-b border-[var(--km-border)]">
-                  <td className="py-3 pr-4">{agent.displayName}</td>
+                  <td className="py-3 pr-4">
+                    <div>{agentIdentityLabel(agent)}</div>
+                  </td>
                   <td className="py-3 pr-4 font-mono">{agent.username}</td>
                   <td className="py-3 pr-4">
                     <a className="underline" href={`/s/${agent.currentSlug}`} target="_blank" rel="noreferrer">
@@ -659,6 +692,13 @@ export function AdminAgents() {
                         onClick={() => void resetPassword(agent)}
                       >
                         {busy === `password-${agent.id}` ? "重置中…" : "重置密码"}
+                      </button>
+                      <button
+                        type="button"
+                        className="km-btn km-btn-ghost"
+                        onClick={() => void editRealName(agent)}
+                      >
+                        真实姓名
                       </button>
                       <button
                         type="button"

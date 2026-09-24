@@ -9,6 +9,7 @@ import { AgentStorefront } from "@/components/agent-storefront";
 import { ApplyTheme } from "@/components/apply-theme";
 import { planToProduct, type StorefrontConfig } from "@/lib/agent-storefront-config";
 import { getAgentRedeemUrl } from "@/lib/agent-redeem";
+import { publicShopName } from "@/lib/agent-names";
 import { loadAgentShop } from "@/lib/agent-shop";
 import { LOCAL_ACCOUNT_FULFILLMENT } from "@/lib/finished-account-core";
 import { unusedFinishedAccountCounts } from "@/lib/finished-accounts";
@@ -67,7 +68,7 @@ export default async function AgentStorePage({
         <ApplyTheme themeId={themeId} />
         <section className="km-shell space-y-8 py-12 md:py-16">
           <header className="mx-auto max-w-xl space-y-3 text-center">
-            <h1 className="km-page-title">{agent.displayName}</h1>
+            <h1 className="km-page-title">{publicShopName(agent)}</h1>
             <p className="km-lead mx-auto">
               {agent.status !== "active" ? "店铺暂时关闭。" : salesGate.publicReason}
             </p>
@@ -95,7 +96,7 @@ export default async function AgentStorePage({
   );
   const config: StorefrontConfig = {
     ...settings,
-    shopName: agent.displayName,
+    shopName: publicShopName(agent),
     themeId,
     products: sellablePlans.map((plan) =>
       planToProduct(

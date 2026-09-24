@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { and, desc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
 import { isThemeId } from "@kaimi/themes";
 import { db } from "@/db";
-import { agents, cdkPool, issuedCdks, orders, storefronts, storeOrders } from "@/db/schema";
+import { agents, cdkPool, issuedCdks, orders, storefronts, storeOrders, users } from "@/db/schema";
+import { agentIdentityLabel } from "@/lib/agent-identity-core";
 import { getAgentRedeemUrl, normalizeAgentRedeemUrl } from "@/lib/agent-redeem";
 import {
   BATCH_REDEEM_LIMIT_SETTING,
@@ -125,84 +126,17 @@ export async function GET(req: Request) {
   }
 
   if (section === "orders") {
-    const status = searchParams.get("status") || "";
-    const q = searchParams.get("q")?.trim() || "";
-    const list = await db.query.orders.findMany({
-      orderBy: [desc(orders.id)],
-      limit: 200,
-    });
-    const allCdk = list.length
-      ? await db
-          .select({ orderId: cdkPool.orderId, code: cdkPool.code })
-          .from(cdkPool)
-          .where(
-            inArray(
-              cdkPool.orderId,
-              list.map((o) => o.id),
-            ),
-          )
-      : [];
-    const codeByOrder = new Map<number, string>();
-    for (const row of allCdk) {
-      if (row.orderId) codeByOrder.set(row.orderId, row.code);
-    }
-    const filtered = list.filter((o) => {
-      if (status && o.fulfillStatus !== status && o.payStatus !== status) return false;
-      if (!q) return true;
-      const raw = codeByOrder.get(o.id) || "";
-      const hay = `${o.orderNo} ${o.email} ${o.accountEmail || ""} ${o.upstreamRequestId || ""} ${raw} ${raw.slice(-4)}`.toLowerCase();
-      return hay.includes(q.toLowerCase());
-    });
-
+    const { queryAdminOrders, adminOrdersCsv } = await import("@/lib/admin-orders");
+    const result = await queryAdminOrders(searchParams);
     if (searchParams.get("export") === "csv") {
-      const header = [
-        "order_no",
-        "kind",
-        "email",
-        "plan",
-        "pay_status",
-        "fulfill_status",
-        "request_id",
-        "message",
-        "created_at",
-      ];
-      const lines = [
-        header.join(","),
-        ...filtered.map((o) =>
-          [
-            o.orderNo,
-            o.kind,
-            o.email,
-            o.upstreamPlan,
-            o.payStatus,
-            o.fulfillStatus,
-            o.upstreamRequestId || "",
-            (o.message || "").replace(/"/g, '""'),
-            o.createdAt,
-          ]
-            .map((v) => `"${String(v ?? "")}"`)
-            .join(","),
-        ),
-      ];
-      return new NextResponse(lines.join("\n"), {
+      return new NextResponse(adminOrdersCsv(result.list), {
         headers: {
           "Content-Type": "text/csv; charset=utf-8",
           "Content-Disposition": 'attachment; filename="kaimi-orders.csv"',
         },
       });
     }
-
-    return NextResponse.json({
-      list: filtered.map((o) => {
-        const raw = codeByOrder.get(o.id) || "";
-        return {
-          ...o,
-          codeMasked: raw ? maskCode(raw) : "",
-          codeLast4: raw ? raw.slice(-4) : "",
-        };
-      }),
-      total: filtered.length,
-    });
+    return NextResponse.json(result);
   }
 
   if (section === "stock" || section === "cdks") {

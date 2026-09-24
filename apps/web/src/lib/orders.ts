@@ -10,11 +10,15 @@ import {
 import { bootDb, getAppConfig, getSetting, setSetting } from "@/lib/config";
 import { newOrderNo } from "@/lib/ids";
 import {
+  findCdkByCode,
   markCodeUsed,
   markCodesSold,
   releaseLockedCode,
   reserveCodes,
 } from "@/lib/inventory";
+import { RedeemRejectedError } from "@/lib/redeem-guard-core";
+
+export { RedeemRejectedError };
 import { sanitizeLog } from "@/lib/log";
 import { notifyOrderTerminal } from "@/lib/notify";
 import { recordOpsAlert } from "@/lib/ops-health";
@@ -37,6 +41,7 @@ import {
 } from "@/lib/cardplatform/issued-redemption";
 import { injectRedeemCardPolicy } from "@/lib/cardplatform/policy";
 import { recordUpstreamResult } from "@/lib/order-timeline";
+import { recordRedeemFailure } from "@/lib/redeem-guard";
 
 export async function appendStatusHistory(
   orderId: number,
@@ -99,6 +104,10 @@ async function notifyIfTerminal(order: {
     message: order.message,
     requestId: order.upstreamRequestId,
   }).catch((err) => console.warn("[kaimi] notify skipped", err));
+  const { enqueueRedemptionWebhook } = await import("@/lib/open-api/webhooks");
+  await enqueueRedemptionWebhook(order.orderNo).catch((err) =>
+    console.warn("[kaimi] webhook enqueue skipped", err),
+  );
 }
 
 export async function createCodeOrder(input: {
@@ -196,6 +205,14 @@ export class RedeemInFlightError extends Error {
   }
 }
 
+/** 预检之后抢锁失败。卡还在别人手里，这张失败单不能把别人的锁放掉。 */
+class RedeemLockLostError extends Error {
+  constructor() {
+    super("该卡密已在兑换中");
+    this.name = "RedeemLockLostError";
+  }
+}
+
 /** 这张卡挂着的那笔兑换单号；查不到就返回空串。 */
 async function redemptionOrderNo(redemptionOrderId: number | null | undefined) {
   if (!redemptionOrderId) return "";
@@ -217,89 +234,62 @@ export async function openRechargeOrder(input: {
   email: string;
   account: AgentCredential;
   planKey?: string;
+  clientIp?: string;
+  source?: string;
 }): Promise<OpenedRechargeOrder> {
   await bootDb();
   const issued = await findIssuedCdkByCode(input.code);
   if (issued) {
-    if (issued.status === "used") throw new Error("该卡密已使用");
+    if (issued.status === "used") throw new RedeemRejectedError("used_code");
     if (issued.status === "locked" || issued.status === "redeeming") {
       throw new RedeemInFlightError(
         await redemptionOrderNo(issued.redemptionOrderId),
       );
     }
-    if (issued.status === "disabled") throw new Error("该卡密已禁用");
+    if (issued.status === "disabled") throw new RedeemRejectedError("disabled_code");
+  } else {
+    const pooled = await findCdkByCode(input.code).catch(() => null);
+    const allowUnknown = (await getSetting("redeem_allow_unknown_code", "false")) === "true";
+    if (!pooled && !allowUnknown) throw new RedeemRejectedError("unknown_code");
   }
 
   const now = new Date().toISOString();
-  if (issued) {
-    const [claimed] = await db
-      .update(issuedCdks)
-      .set({ status: "locked", updatedAt: now })
-      .where(
-        and(eq(issuedCdks.id, issued.id), eq(issuedCdks.status, "unused")),
-      )
-      .returning();
-    // 抢锁输了：这一瞬间别人已经把它拿走了，同样是「兑换处理中」而不是失败。
-    if (!claimed) {
-      const current = await db.query.issuedCdks.findFirst({
-        where: eq(issuedCdks.id, issued.id),
-      });
-      if (current?.status === "used") throw new Error("该卡密已使用");
-      throw new RedeemInFlightError(
-        await redemptionOrderNo(current?.redemptionOrderId),
-      );
-    }
-  }
-
+  const plain = (issued?.code || input.code).trim();
   const planKey = input.planKey || issued?.planKey || "";
   const orderNo = newOrderNo("RC");
-  try {
-    const [created] = await db
-      .insert(orders)
-      .values({
-        orderNo,
-        kind: "recharge",
-        email: input.email.trim().toLowerCase(),
-        quantity: 1,
-        amountCents: 0,
-        currency: "CNY",
-        payStatus: "manual",
-        fulfillStatus: "pending",
-        paymentChannel: issued ? "issued_cdk" : "cardplatform",
-        upstreamPlan: planKey,
-        clientReference: orderNo,
-        credMode: input.account.mode,
-        accountEmail: input.account.email || input.email,
-      })
-      .returning();
-    if (!created) throw new Error("兑换订单创建失败");
-    if (issued) {
-      await db
-        .update(issuedCdks)
-        .set({ redemptionOrderId: created.id, updatedAt: now })
-        .where(eq(issuedCdks.id, issued.id));
-    }
-    await appendStatusHistory(
-      created.id,
-      "pending",
-      "订单已创建，正在直连卡台兑换",
-      "cardplatform",
-    );
-    return { order: created, issuedId: issued?.id ?? null, planKey };
-  } catch (error) {
-    // 卡已经抢成 locked 了，建单没成就得放回去，否则这张既卖不出也兑不了。
-    if (issued) {
-      await db
-        .update(issuedCdks)
-        .set({
-          status: "unused",
-          redemptionOrderId: null,
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(issuedCdks.id, issued.id));
-    }
-    throw error;
-  }
+  const [created] = await db
+    .insert(orders)
+    .values({
+      orderNo,
+      kind: "recharge",
+      email: input.email.trim().toLowerCase(),
+      quantity: 1,
+      amountCents: 0,
+      currency: "CNY",
+      payStatus: "manual",
+      fulfillStatus: "pending",
+      paymentChannel: issued ? "issued_cdk" : "cardplatform",
+      upstreamPlan: planKey,
+      clientReference: orderNo,
+      credMode: input.account.mode,
+      accountEmail: input.account.email || input.email,
+      issuedCdkId: issued?.id ?? null,
+      storeOrderId: issued?.orderId ?? null,
+      agentId: issued?.agentId ?? null,
+      codePrefix: issued?.codePrefix || (plain.length >= 14 ? plain.slice(0, 14) : ""),
+      codeLast4: plain.length >= 4 ? plain.slice(-4) : "",
+      clientIp: input.clientIp || "",
+      source: input.source || "web",
+    })
+    .returning();
+  if (!created) throw new Error("兑换订单创建失败");
+  await appendStatusHistory(
+    created.id,
+    "pending",
+    "订单已创建，正在直连卡台兑换",
+    "cardplatform",
+  );
+  return { order: created, issuedId: issued?.id ?? null, planKey };
 }
 
 /**
@@ -316,18 +306,32 @@ export async function driveRechargeOrder(input: {
 }): Promise<{ order: typeof orders.$inferSelect; error?: Error }> {
   const { opened } = input;
   let redeemStarted = false;
+  let lockHeld = false;
   let accountId = 0;
   let redemptionToken = "";
   try {
     const prepared = await preflightRedeemableCdk({
       code: input.code,
       account: input.account,
-      // 这张卡的 locked 是 openRechargeOrder 自己抢下来的，预检不能把它当成
-      // 「别人在兑换」，否则本站发出去的卡一张也兑不掉。
-      allowInFlight: true,
+      // 建单阶段不再抢锁。预检通过后才 CAS，避免垃圾账号把真卡占住。
+      allowInFlight: false,
     });
     accountId = prepared.redeemable.accountId;
     redemptionToken = prepared.redemptionToken;
+    if (opened.issuedId) {
+      const claimedAt = new Date().toISOString();
+      const [claimed] = await db
+        .update(issuedCdks)
+        .set({
+          status: "locked",
+          redemptionOrderId: opened.order.id,
+          updatedAt: claimedAt,
+        })
+        .where(and(eq(issuedCdks.id, opened.issuedId), eq(issuedCdks.status, "unused")))
+        .returning();
+      if (!claimed) throw new RedeemLockLostError();
+      lockHeld = true;
+    }
     const { client } = await resolveRedeemClient(prepared.redeemable.code);
     redeemStarted = true;
     // 后台配的选卡策略和拉黑名单只有注进 redeem body 才生效。这里以前是直接调
@@ -398,7 +402,8 @@ export async function driveRechargeOrder(input: {
   } catch (error) {
     const unknown = redeemStarted;
     const now = new Date().toISOString();
-    if (opened.issuedId) {
+    const lostLock = error instanceof RedeemLockLostError;
+    if (opened.issuedId && lockHeld && !lostLock) {
       await db
         .update(issuedCdks)
         .set({ status: unknown ? "redeeming" : "unused", updatedAt: now })
@@ -426,6 +431,14 @@ export async function driveRechargeOrder(input: {
       message,
       "cardplatform",
     );
+    if (!unknown && !lostLock) {
+      await recordRedeemFailure({
+        ip: opened.order.clientIp || "",
+        email: opened.order.accountEmail || opened.order.email,
+        outcome: "preflight_failed",
+        route: "drive",
+      }).catch(() => undefined);
+    }
     await notifyIfTerminal({
       orderNo: opened.order.orderNo,
       fulfillStatus: unknown ? "unknown" : "failed",
@@ -477,6 +490,8 @@ export async function beginRechargeOrder(input: {
   email: string;
   account: AgentCredential;
   planKey?: string;
+  clientIp?: string;
+  source?: string;
 }): Promise<OpenedRechargeOrder> {
   await bootDb();
   const code = input.cdkCode.trim();
@@ -486,6 +501,8 @@ export async function beginRechargeOrder(input: {
     email: input.email,
     account: input.account,
     planKey: input.planKey,
+    clientIp: input.clientIp,
+    source: input.source,
   });
 }
 

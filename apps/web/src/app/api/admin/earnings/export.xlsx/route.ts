@@ -7,10 +7,12 @@ import {
   agents,
   agentSettlements,
   storeOrders,
+  users,
 } from "@/db/schema";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
+import { decryptSecret } from "@/lib/crypto";
 import { buildEarningsWorkbook } from "@/lib/earnings-export";
 import { buildEarningsTotals, issuedCdkSummaryLabel } from "@/lib/earnings-rows";
 import { issuedCdkCountsFor } from "@/lib/earnings-sql";
@@ -56,7 +58,14 @@ export async function GET(req: Request) {
     .select({
       confirmedAt: agentEarnings.confirmedAt,
       orderNo: storeOrders.orderNo,
+      agentId: agents.id,
       agentName: agents.displayName,
+      username: users.username,
+      realName: agents.realName,
+      shopName: agents.shopName,
+      settlementName: agents.settlementName,
+      settlementMethod: agents.settlementMethod,
+      settlementAccountEncrypted: agents.settlementAccountEncrypted,
       planName: storeOrders.productNameSnapshot,
       paymentChannel: storeOrders.paymentChannel,
       grossCents: agentEarnings.grossCents,
@@ -72,6 +81,7 @@ export async function GET(req: Request) {
     .from(agentEarnings)
     .innerJoin(storeOrders, eq(storeOrders.id, agentEarnings.orderId))
     .innerJoin(agents, eq(agents.id, agentEarnings.agentId))
+    .leftJoin(users, eq(users.agentId, agents.id))
     .where(and(...earningConditions))
     .orderBy(asc(agentEarnings.confirmedAt))
     .limit(50_001);
@@ -146,11 +156,24 @@ export async function GET(req: Request) {
       agentName: scopeName,
       ...buildEarningsTotals(rows, adjustments),
     },
-    details: rows.map((row) => ({
-      ...row,
-      settlementNo: "",
-      cdkStatus: issuedCdkSummaryLabel(row.cdkTotal, row.cdkUsed),
-    })),
+    details: rows.map((row) => {
+      let settlementAccount = "";
+      if (row.settlementAccountEncrypted) {
+        try {
+          settlementAccount = decryptSecret(row.settlementAccountEncrypted);
+        } catch {
+          settlementAccount = "";
+        }
+      }
+      return {
+        ...row,
+        username: row.username || "",
+        settlementAccount,
+        settlementNo: "",
+        cdkStatus: issuedCdkSummaryLabel(row.cdkTotal, row.cdkUsed),
+      };
+    }),
+    includeAdminIdentity: true,
     settlements: settlements.map((row) => ({
       ...row,
       settledAt: row.paidAt || "",

@@ -9,6 +9,7 @@ import { pruneUpstreamPayloads } from "@/lib/order-timeline";
 import { syncDefaultCardplatformPlans } from "@/lib/cardplatform/plans";
 import { syncEnabledAccountProducts } from "@/lib/cardplatform/products";
 import { reconcileIssuedCdkStatuses } from "@/lib/cardplatform/reconcile-issued";
+import { pruneRedeemGuard } from "@/lib/redeem-guard";
 
 const DEFAULT_MINUTES = 15;
 const TICK_INTERVAL_MS = 30_000;
@@ -20,6 +21,7 @@ type SchedulerState = {
   lastProductSyncMs: number;
   lastIssuedReconcileMs?: number;
   lastPayloadPruneMs?: number;
+  lastGuardPruneMs?: number;
 };
 
 const ISSUED_RECONCILE_INTERVAL_MS = 120_000;
@@ -136,6 +138,11 @@ async function maybeTick() {
           }
         } catch (err) {
           console.warn("[kaimi-sync] payload prune failed", sanitizeLog(err));
+        }
+        try {
+          await pruneRedeemGuard();
+        } catch (err) {
+          console.warn("[kaimi-sync] redeem guard prune failed", sanitizeLog(err));
         }
       }
       if (now - state.lastProductSyncMs >= 180_000 || state.lastProductSyncMs === 0) {

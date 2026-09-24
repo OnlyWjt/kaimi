@@ -5,7 +5,9 @@ import {
   driveOpenedRecharge,
   RedeemInFlightError,
 } from "@/lib/orders";
-import { enforceRateLimit } from "@/lib/rate-limit";
+import { clientIp, enforceRateLimit } from "@/lib/rate-limit";
+import { RedeemRejectedError } from "@/lib/redeem-guard-core";
+import { recordRedeemFailure, redeemBlockResponse } from "@/lib/redeem-guard";
 import { checkChatGPTSessionLocal } from "@/lib/session-check";
 
 const schema = z.object({
@@ -19,6 +21,10 @@ const schema = z.object({
 export async function POST(req: Request) {
   const limited = enforceRateLimit(req, "public-cdk-redeem", 8);
   if (limited) return limited;
+  const ip = clientIp(req);
+  const blocked = await redeemBlockResponse({ ip });
+  if (blocked) return blocked;
+  let contactEmail = "";
   try {
     const body = schema.parse(await req.json());
     const mailbox = body.mode === "mailbox";
@@ -37,6 +43,7 @@ export async function POST(req: Request) {
       }
       email = (local.email || email).trim();
     }
+    contactEmail = email;
     const account = mailbox
       ? {
           mode: "mailbox" as const,
@@ -55,6 +62,7 @@ export async function POST(req: Request) {
         cdkCode: code,
         email,
         account,
+        clientIp: ip,
       });
       after(() => driveOpenedRecharge({ opened, code, account }));
       return NextResponse.json({
@@ -75,6 +83,15 @@ export async function POST(req: Request) {
       throw error;
     }
   } catch (error) {
+    if (error instanceof RedeemRejectedError) {
+      await recordRedeemFailure({
+        ip,
+        email: contactEmail,
+        outcome: error.outcome,
+        route: "public-cdk-redeem",
+      });
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "兑换失败" },
       { status: 400 },

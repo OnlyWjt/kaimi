@@ -11,6 +11,7 @@ import {
 } from "@/lib/agent-storefront-config";
 import { keepSearchPath } from "@/lib/agent-redeem-core";
 import { bootDb } from "@/lib/config";
+import { publicShopName } from "@/lib/agent-names";
 import { resolveThemeId } from "@/lib/storefront";
 import type { ThemeId } from "@kaimi/themes";
 
@@ -74,7 +75,7 @@ export function shopChromeFromLoad(shop: AgentShopRecord): AgentShopChromeData {
     : "";
   return {
     slug: shop.agent.currentSlug,
-    shopName: shop.agent.displayName,
+    shopName: publicShopName(shop.agent),
     themeId: shop.themeId,
     logoLetter: shop.settings.logoLetter,
     announcement,

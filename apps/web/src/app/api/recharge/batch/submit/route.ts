@@ -10,6 +10,11 @@ import {
 } from "@/lib/orders";
 import { driveRechargeBatch } from "@/lib/recharge-batch";
 import { clampRedeemCodes } from "@/lib/recharge-batch-core";
+import { ANON_BATCH_CODES_PER_REQUEST, UNKNOWN_CODE_STOP_AFTER } from "@/lib/redeem-guard-core";
+import { assertBatchCodeBudget, recordRedeemFailure } from "@/lib/redeem-guard";
+import { RedeemRejectedError } from "@/lib/redeem-guard-core";
+import { getSession } from "@/lib/auth";
+import { clientIp } from "@/lib/rate-limit";
 import type { AgentCredential } from "@/lib/recharge-types";
 import { checkChatGPTSessionLocal } from "@/lib/session-check";
 
@@ -40,7 +45,20 @@ export async function POST(req: Request) {
 
   try {
     const body = schema.parse(await req.json());
-    const { codes } = clampRedeemCodes(body.codes, await getBatchRedeemLimit());
+    const session = await getSession().catch(() => null);
+    const anonymous = !(session?.role === "agent" && session.agentId);
+    const ip = clientIp(req);
+    const cap = anonymous
+      ? Math.min(await getBatchRedeemLimit(), ANON_BATCH_CODES_PER_REQUEST)
+      : await getBatchRedeemLimit();
+    const { codes } = clampRedeemCodes(body.codes, cap);
+    const budget = await assertBatchCodeBudget({
+      ip,
+      agentId: session?.agentId ?? undefined,
+      incoming: codes.length,
+      anonymous,
+    });
+    if (budget) return budget;
     if (!codes.length) {
       return NextResponse.json({ error: "请填写要兑换的卡密" }, { status: 400 });
     }
@@ -83,6 +101,7 @@ export async function POST(req: Request) {
     }
 
     // 建单是纯本地写库，逐张串行做完就把单号还给前端；上游那串慢调用交给 after()。
+    let unknownStreak = 0;
     const pending: Array<{ opened: OpenedRechargeOrder; code: string }> = [];
     const list: Array<{
       code: string;
@@ -92,15 +111,28 @@ export async function POST(req: Request) {
     }> = [];
     for (const code of codes) {
       try {
+        if (unknownStreak >= UNKNOWN_CODE_STOP_AFTER) {
+          list.push({ code, ok: false, orderNo: "", error: "连续多张卡密无效，已停止本批" });
+          continue;
+        }
         const opened = await openRechargeOrder({
           code,
           email: contactEmail,
           account,
+          clientIp: ip,
         });
         pending.push({ opened, code });
         list.push({ code, ok: true, orderNo: opened.order.orderNo, error: "" });
       } catch (error) {
-        // 已经在兑换的卡带上原来那笔单号：界面据此接着轮询，不给重试入口。
+        if (error instanceof RedeemRejectedError) {
+          unknownStreak += 1;
+          await recordRedeemFailure({
+            ip,
+            email: contactEmail,
+            outcome: error.outcome,
+            route: "recharge-batch-submit",
+          });
+        }
         list.push({
           code,
           ok: false,

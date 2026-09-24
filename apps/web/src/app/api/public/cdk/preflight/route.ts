@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { preflightRedeemableCdk } from "@/lib/cardplatform/redeem";
-import { enforceRateLimit } from "@/lib/rate-limit";
+import { clientIp, enforceRateLimit } from "@/lib/rate-limit";
+import { assertRedeemCodeKnown, recordRedeemFailure, redeemBlockResponse } from "@/lib/redeem-guard";
+import { RedeemRejectedError } from "@/lib/redeem-guard-core";
 
 const schema = z.object({
   code: z.string().min(6),
@@ -22,8 +24,12 @@ const schema = z.object({
 export async function POST(req: Request) {
   const limited = enforceRateLimit(req, "public-cdk-preflight", 15);
   if (limited) return limited;
+  const ip = clientIp(req);
+  const blocked = await redeemBlockResponse({ ip });
+  if (blocked) return blocked;
   try {
     const body = schema.parse(await req.json());
+    await assertRedeemCodeKnown(body.code);
     const mode = body.credential?.mode || body.mode;
     const preflight = await preflightRedeemableCdk({
       code: body.code,
@@ -42,6 +48,9 @@ export async function POST(req: Request) {
       preflight_token: preflight.preflightToken,
     });
   } catch (error) {
+    if (error instanceof RedeemRejectedError) {
+      await recordRedeemFailure({ ip, outcome: error.outcome, route: "public-cdk-preflight" });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "预检失败" },
       { status: 400 },
