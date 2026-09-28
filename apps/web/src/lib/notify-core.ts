@@ -118,6 +118,15 @@ export type StorePaidNotifyPayload = {
   paymentChannel?: string;
   productName?: string;
   quantity?: number;
+  listGoodsCents?: number;
+  couponCode?: string;
+  couponDiscountCents?: number;
+  goodsCents?: number;
+  agentCostTotalCents?: number;
+  agentFeeCents?: number;
+  agentEarningCents?: number;
+  upstreamCostTotalCents?: number | null;
+  platformProfitCents?: number | null;
   invoice: StorePaidInvoice | null;
 };
 
@@ -141,13 +150,29 @@ function storePaidLines(payload: StorePaidNotifyPayload) {
   const channel = notifyPaymentChannelLabel(payload.paymentChannel);
   const invoice = payload.invoice;
   return [
-    `[Kaimi] 订单已支付  ${payload.orderNo}`,
+    `[Kaimi] 客户下单  ${payload.orderNo}`,
     invoice ? "这单需要开发票" : "",
     payload.agentName ? `代理：${payload.agentName}` : "",
     payload.buyerEmail ? `购买人：${payload.buyerEmail}` : "",
     yuanLine("订单金额", payload.amountCents),
     channel ? `支付渠道：${channel}` : "",
-    payload.productName ? `商品：${payload.productName}${quantity}` : "",
+    payload.productName ? `套餐：${payload.productName}${quantity}` : "",
+    yuanLine("挂牌价", payload.listGoodsCents),
+    payload.couponDiscountCents
+      ? `优惠券：${payload.couponCode || "已使用"}  -¥${yuanTextFromCents(payload.couponDiscountCents)}`
+      : "",
+    yuanLineAlways("实付商品额", payload.goodsCents),
+    yuanLineAlways("代理成本", payload.agentCostTotalCents),
+    payload.agentEarningCents == null
+      ? ""
+      : `代理收益：¥${yuanTextFromCents(payload.agentEarningCents)}（已扣手续费 ¥${yuanTextFromCents(payload.agentFeeCents || 0)}）`,
+    payload.platformProfitCents == null
+      ? ""
+      : `平台毛利：¥${yuanTextFromCents(payload.platformProfitCents)}${
+          payload.upstreamCostTotalCents == null
+            ? ""
+            : `（上游 ¥${yuanTextFromCents(payload.upstreamCostTotalCents)}）`
+        }`,
     invoice ? `抬头：${invoice.title}` : "",
     invoice?.note ? `备注：${invoice.note}` : "",
     invoice ? yuanLine("开票金额", invoice.amountCents) : "",

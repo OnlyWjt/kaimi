@@ -43,7 +43,7 @@ describe("formatStorePaidText", () => {
     buyerEmail: "buyer@example.com",
     amountCents: 16500,
     paymentChannel: "wxpay",
-    productName: "gptpt pro 5X",
+    productName: "Pro",
     quantity: 1,
     invoice: {
       title: "某某科技有限公司",
@@ -56,13 +56,13 @@ describe("formatStorePaidText", () => {
   it("支付和开票合成一条，不另发待开发票", () => {
     expect(formatStorePaidText(paid)).toBe(
       [
-        "[Kaimi] 订单已支付  KS20260909001",
+        "[Kaimi] 客户下单  KS20260909001",
         "这单需要开发票",
         "代理：onlyWjt",
         "购买人：buyer@example.com",
         "订单金额：¥165.00",
         "支付渠道：微信",
-        "商品：gptpt pro 5X",
+        "套餐：Pro",
         "抬头：某某科技有限公司",
         "备注：项目 A",
         "开票金额：¥165.00",
@@ -71,9 +71,35 @@ describe("formatStorePaidText", () => {
     );
   });
 
+  it("带上代理、套餐和这笔收益", () => {
+    const text = formatStorePaidText({
+      ...paid,
+      invoice: null,
+      listGoodsCents: 103800,
+      goodsCents: 103173,
+      couponCode: "MAN19",
+      couponDiscountCents: 627,
+      agentCostTotalCents: 103000,
+      agentFeeCents: 100,
+      agentEarningCents: 73,
+      upstreamCostTotalCents: 100000,
+      platformProfitCents: 2900,
+    });
+    expect(text).toContain("代理：onlyWjt");
+    expect(text).toContain("购买人：buyer@example.com");
+    expect(text).toContain("套餐：Pro");
+    expect(text).toContain("挂牌价：¥1038.00");
+    expect(text).toContain("优惠券：MAN19  -¥6.27");
+    expect(text).toContain("实付商品额：¥1031.73");
+    expect(text).toContain("代理成本：¥1030.00");
+    expect(text).toContain("代理收益：¥0.73（已扣手续费 ¥1.00）");
+    expect(text).toContain("平台毛利：¥29.00（上游 ¥1000.00）");
+    expect(text).not.toContain("这单需要开发票");
+  });
+
   it("没开票就只发支付信息", () => {
     const text = formatStorePaidText({ ...paid, invoice: null });
-    expect(text).toContain("[Kaimi] 订单已支付");
+    expect(text).toContain("[Kaimi] 客户下单");
     expect(text).not.toContain("这单需要开发票");
     expect(text).not.toContain("抬头：");
     expect(text).not.toContain("收票邮箱：");
@@ -84,7 +110,7 @@ describe("formatStorePaidText", () => {
       ...paid,
       invoice: { ...paid.invoice, title: "A&B <公司>" },
     });
-    expect(html).toContain("<b>[Kaimi] 订单已支付  KS20260909001</b>");
+    expect(html).toContain("<b>[Kaimi] 客户下单  KS20260909001</b>");
     expect(html).toContain("<b>⚠️ 这单需要开发票</b>");
     expect(html).toContain("抬头：A&amp;B &lt;公司&gt;");
     expect(html).not.toContain("<font");

@@ -169,6 +169,16 @@ export async function notifyStoreInvoicePaid(order: {
   paymentChannel?: string;
   productNameSnapshot?: string;
   quantity?: number;
+  listGoodsCents?: number;
+  couponCodeSnapshot?: string;
+  couponDiscountCents?: number;
+  invoiceSurchargeCents?: number;
+  agentCostTotalCents?: number;
+  agentFeeCents?: number;
+  agentEarningCents?: number;
+  upstreamCostTotalCents?: number | null;
+  platformProfitCents?: number | null;
+  invoiceRequested?: boolean;
   invoiceTitle: string;
   invoiceNote: string;
   invoiceEmail: string;
@@ -187,6 +197,7 @@ export async function notifyStoreInvoicePaid(order: {
     where: eq(agents.id, order.agentId),
     columns: { displayName: true, shopName: true, currentSlug: true },
   });
+  const goodsCents = Math.max(0, order.grossCents - (order.invoiceSurchargeCents || 0));
   const payload: StorePaidNotifyPayload = {
     orderNo: order.orderNo,
     agentName: agent ? publicShopName(agent) || agent.currentSlug : "",
@@ -195,18 +206,29 @@ export async function notifyStoreInvoicePaid(order: {
     paymentChannel: order.paymentChannel,
     productName: order.productNameSnapshot,
     quantity: order.quantity,
-    invoice: {
-      title: order.invoiceTitle,
-      note: order.invoiceNote,
-      amountCents: order.invoiceAmountCents || order.grossCents,
-      email: order.invoiceEmail || order.customerEmail || "",
-    },
+    listGoodsCents: order.listGoodsCents && order.listGoodsCents > 0 ? order.listGoodsCents : goodsCents,
+    couponCode: order.couponCodeSnapshot || undefined,
+    couponDiscountCents: order.couponDiscountCents || undefined,
+    goodsCents,
+    agentCostTotalCents: order.agentCostTotalCents,
+    agentFeeCents: order.agentFeeCents,
+    agentEarningCents: order.agentEarningCents,
+    upstreamCostTotalCents: order.upstreamCostTotalCents,
+    platformProfitCents: order.platformProfitCents,
+    invoice: order.invoiceRequested
+      ? {
+          title: order.invoiceTitle,
+          note: order.invoiceNote,
+          amountCents: order.invoiceAmountCents || order.grossCents,
+          email: order.invoiceEmail || order.customerEmail || "",
+        }
+      : null,
   };
   const text = formatStorePaidText(payload);
   const result = await dispatchNotifyText(
     text,
     { ...payload, invoiceRequested: true },
-    "invoice.paid",
+    order.invoiceRequested ? "invoice.paid" : "store.paid",
     {},
     formatStorePaidTelegramHtml(payload),
   );

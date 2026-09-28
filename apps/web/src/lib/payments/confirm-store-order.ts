@@ -181,7 +181,7 @@ export async function confirmStoreOrderPaid(input: {
   });
   const paid = latest || order;
   const newlyPaid = order.payStatus === "unpaid";
-  if (newlyPaid && paid.invoiceRequested && paid.invoiceNotifyStatus !== "sent") {
+  if (newlyPaid && paid.invoiceNotifyStatus !== "sent") {
     void notifyStoreInvoicePaid(paid).catch((err) => {
       console.warn("[kaimi-notify] invoice paid skipped", sanitizeLog(err));
     });
