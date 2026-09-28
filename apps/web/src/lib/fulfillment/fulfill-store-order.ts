@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   agentEarnings,
+  finishedAccounts,
   fulfillmentAttempts,
   issuedCdks,
   platformPlans,
@@ -25,7 +26,11 @@ import {
   allocateFinishedAccounts,
   decryptFinishedAccount,
 } from "@/lib/finished-accounts";
-import { storeOrderGoodsCents } from "@/lib/invoice-core";
+import {
+  computeOrderLedger,
+  earningSnapshotFromOrder,
+  ledgerInputFromOrder,
+} from "@/lib/order-ledger-core";
 
 const ISSUING_LEASE_MS = 5 * 60_000;
 
@@ -247,16 +252,13 @@ export async function fulfillStoreOrder(orderId: number) {
           .values({
             orderId: order.id,
             agentId: order.agentId,
-            grossCents: storeOrderGoodsCents(freshOrder),
-            costCents: freshOrder.agentCostTotalCents,
-            paymentFeeCents: freshOrder.finalPaymentFeeCents,
+            ...earningSnapshotFromOrder(freshOrder),
             feeSource:
               freshOrder.feeReconcileStatus === "confirmed"
                 ? "gateway_actual"
                 : freshOrder.feeReconcileStatus === "unsupported"
                   ? "configured_fallback"
                   : "estimated",
-            earningCents: freshOrder.agentEarningCents,
             status: "pending",
             confirmedAt: now,
             updatedAt: now,
@@ -430,21 +432,47 @@ async function fulfillLocalAccountOrder(
       const short = remaining > 0 && allocated.length < remaining;
 
       if (complete) {
+        const accounts = await tx.query.finishedAccounts.findMany({
+          where: eq(finishedAccounts.storeOrderId, order.id),
+        });
+        if (
+          accounts.length === quantity &&
+          accounts.every((row) => row.costCents != null)
+        ) {
+          const total = accounts.reduce((sum, row) => sum + (row.costCents ?? 0), 0);
+          const ledger = computeOrderLedger(
+            ledgerInputFromOrder({
+              ...freshOrder,
+              upstreamCostTotalCents: total,
+            }),
+            { gatewayFeeCents: freshOrder.finalPaymentFeeCents },
+          );
+          const sameUnit = accounts.every(
+            (row) => row.costCents === accounts[0]?.costCents,
+          );
+          await tx
+            .update(storeOrders)
+            .set({
+              upstreamCostUnitCents: sameUnit ? (accounts[0]?.costCents ?? null) : null,
+              upstreamCostTotalCents: total,
+              upstreamCostSource: "finished_account",
+              platformProfitCents: ledger.platformProfitCents,
+              updatedAt: now,
+            })
+            .where(eq(storeOrders.id, order.id));
+        }
         await tx
           .insert(agentEarnings)
           .values({
             orderId: order.id,
             agentId: order.agentId,
-            grossCents: storeOrderGoodsCents(freshOrder),
-            costCents: freshOrder.agentCostTotalCents,
-            paymentFeeCents: freshOrder.finalPaymentFeeCents,
+            ...earningSnapshotFromOrder(freshOrder),
             feeSource:
               freshOrder.feeReconcileStatus === "confirmed"
                 ? "gateway_actual"
                 : freshOrder.feeReconcileStatus === "unsupported"
                   ? "configured_fallback"
                   : "estimated",
-            earningCents: freshOrder.agentEarningCents,
             status: "pending",
             confirmedAt: now,
             updatedAt: now,

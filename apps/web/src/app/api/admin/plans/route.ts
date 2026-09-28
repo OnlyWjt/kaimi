@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { platformPlans } from "@/db/schema";
+import { agentPlanPrices, agents, platformPlans } from "@/db/schema";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
@@ -101,6 +101,7 @@ const batchSchema = z.object({
       name: z.string().trim().min(1).max(100).optional(),
       category: categorySchema,
       globalCostPriceCents: z.number().int().min(0),
+      upstreamCostCents: z.number().int().min(0).nullable().optional(),
       maxRetailPriceCents: z.number().int().min(0).nullable().optional(),
       enabled: z.boolean(),
     }),
@@ -146,6 +147,9 @@ export async function PUT(req: Request) {
           name: item.name || existing.name,
           category: item.category,
           globalCostPriceCents: item.globalCostPriceCents,
+          ...(item.upstreamCostCents !== undefined
+            ? { upstreamCostCents: item.upstreamCostCents }
+            : {}),
           maxRetailPriceCents: item.maxRetailPriceCents ?? null,
           enabled: item.enabled,
           updatedAt: now,
@@ -153,11 +157,39 @@ export async function PUT(req: Request) {
         .where(eq(platformPlans.id, existing.id));
     }
   });
+  const warnings: string[] = [];
+  for (const item of parsed.data.plans) {
+    if (
+      item.upstreamCostCents != null &&
+      item.upstreamCostCents > item.globalCostPriceCents
+    ) {
+      warnings.push(`${item.name || item.planKey}：上游进价高于默认成本，按这个价卖平台会亏`);
+    }
+  }
+  const cheap = await db
+    .select({
+      agentName: agents.displayName,
+      planName: platformPlans.name,
+      upstreamCostCents: platformPlans.upstreamCostCents,
+      costOverrideCents: agentPlanPrices.costOverrideCents,
+      globalCostPriceCents: platformPlans.globalCostPriceCents,
+    })
+    .from(agentPlanPrices)
+    .innerJoin(platformPlans, eq(platformPlans.id, agentPlanPrices.planId))
+    .innerJoin(agents, eq(agents.id, agentPlanPrices.agentId))
+    .where(and(eq(agents.status, "active"), isNotNull(platformPlans.upstreamCostCents)))
+    .limit(20);
+  for (const row of cheap) {
+    const cost = row.costOverrideCents ?? row.globalCostPriceCents;
+    if (row.upstreamCostCents != null && cost < row.upstreamCostCents) {
+      warnings.push(`${row.agentName} 的 ${row.planName} 成本低于上游进价`);
+    }
+  }
   await writeAuditLog({
     actor: session,
     action: "admin.plan.batch",
     targetType: "platform_plan",
     metadata: { count: parsed.data.plans.length },
   });
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, warnings: warnings.slice(0, 20) });
 }

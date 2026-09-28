@@ -723,7 +723,22 @@ export default function AdminPage() {
                         {plan}
                       </td>
                       <td>
-                        <StatusBadge status={String(o.payStatus || "")} />
+                        {o.kind === "recharge" && o.payStatus === "manual" ? (
+                          o.storeOrderNo ? (
+                            <span
+                              className="km-badge km-badge-ok"
+                              title={`${String(o.storeOrderNo)} 已在商城支付`}
+                            >
+                              商城已付
+                            </span>
+                          ) : (
+                            <span className="km-badge km-badge-bad" title="这张兑换单没有关联商城订单">
+                              无商城单
+                            </span>
+                          )
+                        ) : (
+                          <StatusBadge status={String(o.payStatus || "")} />
+                        )}
                       </td>
                       <td>
                         <span title={message || undefined}>

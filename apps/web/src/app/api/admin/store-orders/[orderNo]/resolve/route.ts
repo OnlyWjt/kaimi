@@ -22,7 +22,7 @@ import {
   FULFILLMENT_ABANDONED_RESULT,
   FULFILLMENT_FAILED_RESULTS,
 } from "@/lib/fulfillment/retry-policy";
-import { storeOrderGoodsCents } from "@/lib/invoice-core";
+import { earningSnapshotFromOrder } from "@/lib/order-ledger-core";
 
 const schema = z.discriminatedUnion("action", [
   z.object({
@@ -226,16 +226,13 @@ export async function PATCH(
             .values({
               orderId: order.id,
               agentId: freshOrder.agentId,
-              grossCents: storeOrderGoodsCents(freshOrder),
-              costCents: freshOrder.agentCostTotalCents,
-              paymentFeeCents: freshOrder.finalPaymentFeeCents,
+              ...earningSnapshotFromOrder(freshOrder),
               feeSource:
                 freshOrder.feeReconcileStatus === "confirmed"
                   ? "gateway_actual"
                   : freshOrder.feeReconcileStatus === "unsupported"
                     ? "configured_fallback"
                     : "estimated",
-              earningCents: freshOrder.agentEarningCents,
               status: "pending",
               confirmedAt: now,
               updatedAt: now,

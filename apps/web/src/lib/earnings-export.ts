@@ -36,6 +36,9 @@ export type EarningsExportDetail = {
   paymentChannel: string;
   grossCents: number;
   costCents: number;
+  upstreamCostCents?: number | null;
+  platformFeeCents?: number | null;
+  platformProfitCents?: number | null;
   estimatedFeeCents: number;
   actualFeeCents: number | null;
   feeReconcileStatus: string;
@@ -184,6 +187,9 @@ export async function buildEarningsWorkbook(input: {
     { header: "支付渠道", key: "paymentChannel", width: 14 },
     { header: "客户实付", key: "gross", width: 16 },
     { header: "代理成本", key: "cost", width: 16 },
+    { header: "上游进价", key: "upstream", width: 16 },
+    { header: "平台手续费", key: "platformFee", width: 16 },
+    { header: "平台毛利", key: "platformProfit", width: 16 },
     { header: "预计手续费", key: "estimatedFee", width: 16 },
     { header: "实际手续费", key: "actualFee", width: 16 },
     { header: "手续费对账", key: "feeStatus", width: 18 },
@@ -209,6 +215,10 @@ export async function buildEarningsWorkbook(input: {
       paymentChannel: safeText(item.paymentChannel),
       gross: yuan(item.grossCents),
       cost: yuan(item.costCents),
+      upstream: item.upstreamCostCents == null ? null : yuan(item.upstreamCostCents),
+      platformFee: yuan(item.platformFeeCents || 0),
+      platformProfit:
+        item.platformProfitCents == null ? null : yuan(item.platformProfitCents),
       estimatedFee: yuan(item.estimatedFeeCents),
       actualFee:
         item.actualFeeCents === null ? null : yuan(item.actualFeeCents),
@@ -223,6 +233,9 @@ export async function buildEarningsWorkbook(input: {
   formatMoneyColumns(details, [
     "gross",
     "cost",
+    "upstream",
+    "platformFee",
+    "platformProfit",
     "estimatedFee",
     "actualFee",
     "finalFee",

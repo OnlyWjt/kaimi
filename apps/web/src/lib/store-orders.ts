@@ -24,6 +24,7 @@ import {
   normalizeInvoiceRequest,
   quoteStorePayment,
 } from "@/lib/invoice-core";
+import { computeOrderLedger } from "@/lib/order-ledger-core";
 import { isLocalAccountPlan } from "@/lib/finished-account-core";
 import { countUnusedFinishedAccounts } from "@/lib/finished-accounts";
 import {
@@ -65,6 +66,7 @@ async function resolveStoreCheckout(input: {
       planKey: platformPlans.planKey,
       name: platformPlans.name,
       globalCostPriceCents: platformPlans.globalCostPriceCents,
+      upstreamCostCents: platformPlans.upstreamCostCents,
       cardplatformSellable: platformPlans.cardplatformSellable,
       fulfillmentKind: platformPlans.fulfillmentKind,
       assignmentEnabled: agentPlanPrices.enabled,
@@ -127,6 +129,9 @@ async function resolveStoreCheckout(input: {
     channelConfig,
     listGoodsCents: offer.retailPriceCents * quantity,
     agentCostTotalCents: costCents * quantity,
+    upstreamCostUnitCents: offer.upstreamCostCents,
+    upstreamCostTotalCents:
+      offer.upstreamCostCents == null ? null : offer.upstreamCostCents * quantity,
     feeRule: {
       ratePpm: channelConfig.feeRatePpm,
       fixedFeeCents: channelConfig.fixedFeeCents,
@@ -246,6 +251,13 @@ export async function createStoreOrder(input: {
         feeRule: checkout.feeRule,
       })
     : quote;
+  const ledger = computeOrderLedger({
+    grossCents: invoiceQuote.payCents,
+    invoiceSurchargeCents: invoiceQuote.surchargeCents,
+    agentCostTotalCents: checkout.agentCostTotalCents,
+    upstreamCostTotalCents: checkout.upstreamCostTotalCents,
+    feeRule: checkout.feeRule,
+  });
 
   const orderNo = newOrderNo("KS");
   const queryToken = crypto.randomBytes(24).toString("base64url");
@@ -274,9 +286,15 @@ export async function createStoreOrder(input: {
         paymentChannel: input.channel,
         feeRatePpm: channelConfig.feeRatePpm,
         fixedFeeCents: channelConfig.fixedFeeCents,
-        estimatedPaymentFeeCents: invoiceQuote.feeCents,
-        finalPaymentFeeCents: invoiceQuote.feeCents,
-        agentEarningCents: invoiceQuote.earningCents,
+        estimatedPaymentFeeCents: ledger.finalPaymentFeeCents,
+        finalPaymentFeeCents: ledger.finalPaymentFeeCents,
+        agentEarningCents: ledger.agentEarningCents,
+        agentFeeCents: ledger.agentFeeCents,
+        platformFeeCents: ledger.platformFeeCents,
+        upstreamCostUnitCents: checkout.upstreamCostUnitCents,
+        upstreamCostTotalCents: checkout.upstreamCostTotalCents,
+        upstreamCostSource: checkout.upstreamCostTotalCents == null ? "unset" : "plan",
+        platformProfitCents: ledger.platformProfitCents,
         invoiceRequested: invoice.requested,
         invoiceTitle: invoice.title,
         invoiceNote: invoice.note,

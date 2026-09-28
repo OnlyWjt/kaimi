@@ -89,6 +89,47 @@ describe("buildEarningsStats", () => {
     expect(stats.totals.agentCents).toBe(0);
   });
 
+  it("退款单和补录进价不进平台毛利", () => {
+    const stats = buildEarningsStats({
+      grain: "day",
+      earnings: [
+        {
+          ...earning,
+          status: "settled",
+          payStatus: "refunded",
+          platformProfitCents: 800,
+          upstreamCostSource: "plan",
+        },
+        {
+          ...earning,
+          status: "settled",
+          payStatus: "paid",
+          platformProfitCents: 400,
+          upstreamCostSource: "backfill",
+          upstreamCents: 10000,
+        },
+        {
+          ...earning,
+          status: "settled",
+          payStatus: "paid",
+          platformProfitCents: 500,
+          upstreamCostSource: "plan",
+          upstreamCents: 12000,
+          costCents: 12500,
+          invoiceSurchargeCents: 0,
+          platformFeeCents: 0,
+        },
+      ],
+      adjustments: [],
+    });
+    expect(stats.totals.profitCents).toBe(500);
+    expect(stats.totals.refundedOrderCount).toBe(1);
+    expect(stats.totals.backfillCount).toBe(1);
+    expect(stats.totals.backfillProfitCents).toBe(400);
+    expect(stats.totals.basisCostCents).toBe(12500);
+    expect(stats.totals.agentCents).toBe(2850 * 3);
+  });
+
   it("退款调整只动代理收益，不动平台成本", () => {
     const stats = buildEarningsStats({
       grain: "day",

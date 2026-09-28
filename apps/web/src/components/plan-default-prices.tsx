@@ -18,6 +18,7 @@ type CatalogPlan = {
   fulfillmentKind?: string;
   category: string;
   globalCostPriceCents: number;
+  upstreamCostCents: number | null;
   maxRetailPriceCents: number | null;
 };
 
@@ -30,6 +31,7 @@ export function PlanDefaultPricesPanel() {
   const [catalog, setCatalog] = useState<CatalogPlan[]>([]);
   const [savedCatalog, setSavedCatalog] = useState<CatalogPlan[]>([]);
   const [costDraft, setCostDraft] = useState<Record<string, string>>({});
+  const [upstreamDraft, setUpstreamDraft] = useState<Record<string, string>>({});
   const [capDraft, setCapDraft] = useState<Record<string, string>>({});
   const [categoryDraft, setCategoryDraft] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState("");
@@ -55,6 +57,14 @@ export function PlanDefaultPricesPanel() {
     setCostDraft(
       Object.fromEntries(
         next.map((item) => [item.planKey, yuanTextFromCents(item.globalCostPriceCents)]),
+      ),
+    );
+    setUpstreamDraft(
+      Object.fromEntries(
+        next.map((item) => [
+          item.planKey,
+          item.upstreamCostCents != null ? yuanTextFromCents(item.upstreamCostCents) : "",
+        ]),
       ),
     );
     setCapDraft(
@@ -121,6 +131,28 @@ export function PlanDefaultPricesPanel() {
     }
   }
 
+  async function backfillUpstream() {
+    const answer = await ask({
+      title: "把当前进价补到历史订单？",
+      message:
+        "只补还没记录进价的已支付订单，按现在的套餐进价 × 数量写入，并重算平台毛利。代理收益不变。",
+      confirmLabel: "补上",
+      cancelLabel: "取消",
+    });
+    if (!answer) return;
+    setBusy("backfill");
+    try {
+      const response = await fetch("/api/admin/plans/backfill-upstream", { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "补进价失败");
+      toast(`已补 ${data.updated ?? 0} 笔订单的上游进价`);
+    } catch (reason) {
+      toast(reason instanceof Error ? reason.message : "补进价失败", "err");
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function save() {
     setBusy("save");
     try {
@@ -136,11 +168,17 @@ export function PlanDefaultPricesPanel() {
         }
         const capError = maxRetailPriceError(capCents, cents);
         if (capError) throw new Error(`${item.name} ${capError}`);
+        const upstreamRaw = upstreamDraft[item.planKey] ?? "";
+        const upstream = centsFromYuanText(upstreamRaw);
+        if (upstreamRaw.trim() && (upstream == null || Number.isNaN(upstream))) {
+          throw new Error(`${item.name} 的上游进价请填金额`);
+        }
         return {
           planKey: item.planKey,
           name: item.name,
           category: normalizeCategory(categoryDraft[item.planKey] ?? ""),
           globalCostPriceCents: cents,
+          upstreamCostCents: upstreamRaw.trim() ? upstream : null,
           maxRetailPriceCents: capRaw.trim() ? capCents : null,
           enabled: item.enabled,
         };
@@ -153,6 +191,9 @@ export function PlanDefaultPricesPanel() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "默认价格保存失败");
       toast("套餐价格和上限已保存");
+      if (Array.isArray(data.warnings) && data.warnings.length) {
+        toast(data.warnings.join("；"), "err");
+      }
       await load();
     } catch (reason) {
       toast(reason instanceof Error ? reason.message : "默认价格保存失败", "err");
@@ -211,6 +252,7 @@ export function PlanDefaultPricesPanel() {
                 <th className="py-2 pr-3">卡台</th>
                 <th className="py-2 pr-3">店铺分类</th>
                 <th className="py-2 pr-3">默认成本（元）</th>
+                <th className="py-2 pr-3">上游进价（元）</th>
                 <th className="py-2 pr-3">零售价上限（元）</th>
                 <th className="py-2 pr-3">平台可售</th>
                 <th className="py-2">开放</th>
@@ -254,6 +296,20 @@ export function PlanDefaultPricesPanel() {
                       value={costDraft[plan.planKey] ?? ""}
                       onChange={(event) =>
                         setCostDraft((current) => ({
+                          ...current,
+                          [plan.planKey]: event.target.value,
+                        }))
+                      }
+                    />
+                  </td>
+                  <td className="py-2 pr-3">
+                    <input
+                      className="km-input w-28"
+                      inputMode="decimal"
+                      placeholder="未配置"
+                      value={upstreamDraft[plan.planKey] ?? ""}
+                      onChange={(event) =>
+                        setUpstreamDraft((current) => ({
                           ...current,
                           [plan.planKey]: event.target.value,
                         }))
@@ -318,6 +374,14 @@ export function PlanDefaultPricesPanel() {
           onClick={() => void save()}
         >
           {busy === "save" ? "保存中…" : "保存价格和上限"}
+        </button>
+        <button
+          type="button"
+          className="km-btn km-btn-ghost"
+          disabled={Boolean(busy)}
+          onClick={() => void backfillUpstream()}
+        >
+          {busy === "backfill" ? "补进价中…" : "把当前进价补到历史订单"}
         </button>
         {enabledCount > 0 ? (
           <button

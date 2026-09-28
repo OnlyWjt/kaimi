@@ -164,6 +164,8 @@ export const platformPlans = sqliteTable(
     /** 店铺前台的分类标签，空串表示未分类 */
     category: text("category").notNull().default(""),
     globalCostPriceCents: integer("global_cost_price_cents").notNull().default(0),
+    /** 平台向上游拿货的单价。NULL 表示还没配，毛利先空着。 */
+    upstreamCostCents: integer("upstream_cost_cents"),
     /** 代理零售价上限。NULL 或 0 表示不限价。 */
     maxRetailPriceCents: integer("max_retail_price_cents"),
     currency: text("currency").notNull().default("CNY"),
@@ -382,6 +384,17 @@ export const storeOrders = sqliteTable(
     feeReconcileLastError: text("fee_reconcile_last_error").notNull().default(""),
     feeReconciledAt: text("fee_reconciled_at"),
     agentEarningCents: integer("agent_earning_cents").notNull(),
+    /** 代理承担的手续费。开票单只含商品额那一段。 */
+    agentFeeCents: integer("agent_fee_cents").notNull().default(0),
+    /** 平台承担的手续费 = 渠道手续费总额 − 代理承担。开票单上可能为负。 */
+    platformFeeCents: integer("platform_fee_cents").notNull().default(0),
+    /** 上游进价单价快照。NULL 表示下单时还没配。 */
+    upstreamCostUnitCents: integer("upstream_cost_unit_cents"),
+    upstreamCostTotalCents: integer("upstream_cost_total_cents"),
+    /** plan | finished_account | backfill | unset */
+    upstreamCostSource: text("upstream_cost_source").notNull().default("unset"),
+    /** 平台毛利。进价未知时为 NULL，不参与合计。 */
+    platformProfitCents: integer("platform_profit_cents"),
     currency: text("currency").notNull().default("CNY"),
     customerEmail: text("customer_email").notNull().default(""),
     payStatus: text("pay_status").notNull().default("unpaid"),
@@ -476,6 +489,8 @@ export const finishedAccounts = sqliteTable(
     importedAt: text("imported_at")
       .notNull()
       .default(sql`(datetime('now'))`),
+    /** 这一批号的进价。NULL 表示发货时用套餐上的上游进价。 */
+    costCents: integer("cost_cents"),
     soldAt: text("sold_at"),
     updatedAt: text("updated_at")
       .notNull()
@@ -602,6 +617,10 @@ export const agentEarnings = sqliteTable(
     agentId: integer("agent_id").notNull(),
     grossCents: integer("gross_cents").notNull(),
     costCents: integer("cost_cents").notNull(),
+    /** 代理承担的手续费，和 payment_fee_cents 写同一个数。 */
+    agentFeeCents: integer("agent_fee_cents").notNull().default(0),
+    /** 渠道手续费总额，含平台承担的部分。 */
+    totalFeeCents: integer("total_fee_cents").notNull().default(0),
     paymentFeeCents: integer("payment_fee_cents").notNull(),
     feeSource: text("fee_source").notNull().default("estimated"),
     earningCents: integer("earning_cents").notNull(),
@@ -673,6 +692,7 @@ export const agentSettlements = sqliteTable(
     periodStart: text("period_start").notNull(),
     periodEnd: text("period_end").notNull(),
     amountCents: integer("amount_cents").notNull(),
+    itemCount: integer("item_count").notNull().default(0),
     status: text("status").notNull().default("draft"),
     paymentMethod: text("payment_method").notNull().default(""),
     paymentReference: text("payment_reference").notNull().default(""),

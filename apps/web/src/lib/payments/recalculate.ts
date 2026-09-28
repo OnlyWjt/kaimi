@@ -6,7 +6,11 @@ import {
   agentSettlements,
   storeOrders,
 } from "@/db/schema";
-import { agentEarningCents, storeOrderGoodsCents } from "@/lib/invoice-core";
+import {
+  computeOrderLedger,
+  earningSnapshotFromOrder,
+  ledgerInputFromOrder,
+} from "@/lib/order-ledger-core";
 import { calculatePaymentFeeCents } from "./fees";
 
 /**
@@ -46,6 +50,12 @@ type PlannedChange = {
   feeRatePpm: number;
   fixedFeeCents: number;
   feeCents: number;
+  agentFeeCents: number;
+  platformFeeCents: number;
+  platformProfitCents: number | null;
+  grossCents: number;
+  invoiceSurchargeCents: number;
+  agentCostTotalCents: number;
   earningCents: number;
   feeSource: string;
 };
@@ -139,13 +149,10 @@ export async function recalculateEstimatedFees(
       fixedFeeCents: rule.fixedFeeCents,
     };
     const feeCents = calculatePaymentFeeCents(order.grossCents, feeRule);
-    const earningCents = agentEarningCents({
-      goodsCents: storeOrderGoodsCents(order),
-      costTotalCents: order.agentCostTotalCents,
-      feeRule,
+    const ledger = computeOrderLedger(ledgerInputFromOrder(order), {
       gatewayFeeCents: feeCents,
-      invoiceSurchargeCents: order.invoiceSurchargeCents,
     });
+    const earningCents = ledger.agentEarningCents;
     // 费率高到把毛利吃穿了，宁可报出来让人改配置，也不写一个负收益进结算。
     if (earningCents < 0) {
       result.skippedNegative += 1;
@@ -154,7 +161,10 @@ export async function recalculateEstimatedFees(
     if (
       feeCents === order.estimatedPaymentFeeCents &&
       feeCents === order.finalPaymentFeeCents &&
+      ledger.agentFeeCents === order.agentFeeCents &&
+      ledger.platformFeeCents === order.platformFeeCents &&
       earningCents === order.agentEarningCents &&
+      ledger.platformProfitCents === order.platformProfitCents &&
       rule.feeRatePpm === order.feeRatePpm &&
       rule.fixedFeeCents === order.fixedFeeCents
     ) {
@@ -168,6 +178,12 @@ export async function recalculateEstimatedFees(
       feeRatePpm: rule.feeRatePpm,
       fixedFeeCents: rule.fixedFeeCents,
       feeCents,
+      agentFeeCents: ledger.agentFeeCents,
+      platformFeeCents: ledger.platformFeeCents,
+      platformProfitCents: ledger.platformProfitCents,
+      grossCents: order.grossCents,
+      invoiceSurchargeCents: order.invoiceSurchargeCents,
+      agentCostTotalCents: order.agentCostTotalCents,
       earningCents,
       feeSource:
         order.feeReconcileStatus === "unsupported"
@@ -225,7 +241,10 @@ export async function recalculateEstimatedFees(
           fixedFeeCents: change.fixedFeeCents,
           estimatedPaymentFeeCents: change.feeCents,
           finalPaymentFeeCents: change.feeCents,
+          agentFeeCents: change.agentFeeCents,
+          platformFeeCents: change.platformFeeCents,
           agentEarningCents: change.earningCents,
+          platformProfitCents: change.platformProfitCents,
           updatedAt: now,
         })
         .where(eq(storeOrders.id, change.orderId));
@@ -233,9 +252,15 @@ export async function recalculateEstimatedFees(
         await tx
           .update(agentEarnings)
           .set({
-            paymentFeeCents: change.feeCents,
+            ...earningSnapshotFromOrder({
+              grossCents: change.grossCents,
+              invoiceSurchargeCents: change.invoiceSurchargeCents,
+              agentCostTotalCents: change.agentCostTotalCents,
+              agentFeeCents: change.agentFeeCents,
+              finalPaymentFeeCents: change.feeCents,
+              agentEarningCents: change.earningCents,
+            }),
             feeSource: change.feeSource,
-            earningCents: change.earningCents,
             updatedAt: now,
           })
           .where(

@@ -1,7 +1,5 @@
-import {
-  calculatePaymentFeeCents,
-  type FeeRule,
-} from "./payments/fees";
+import { computeOrderLedger } from "./order-ledger-core";
+import type { FeeRule } from "./payments/fees";
 
 /** 开票服务费：实付上浮 10%，归平台，不进代理佣金。 */
 export const INVOICE_SURCHARGE_RATE = 0.1;
@@ -33,16 +31,20 @@ export function quoteStorePayment(input: {
     ? invoiceSurchargeCents(input.goodsCents)
     : 0;
   const payCents = input.goodsCents + surchargeCents;
-  const feeOnPayCents = calculatePaymentFeeCents(payCents, input.feeRule);
-  const feeOnGoodsCents = calculatePaymentFeeCents(input.goodsCents, input.feeRule);
-  const earningCents = input.goodsCents - input.costTotalCents - feeOnGoodsCents;
+  const ledger = computeOrderLedger({
+    grossCents: payCents,
+    invoiceSurchargeCents: surchargeCents,
+    agentCostTotalCents: input.costTotalCents,
+    upstreamCostTotalCents: null,
+    feeRule: input.feeRule,
+  });
   return {
     goodsCents: input.goodsCents,
     surchargeCents,
     payCents,
-    feeCents: feeOnPayCents,
-    feeOnGoodsCents,
-    earningCents,
+    feeCents: ledger.finalPaymentFeeCents,
+    feeOnGoodsCents: ledger.agentFeeCents,
+    earningCents: ledger.agentEarningCents,
   };
 }
 
@@ -54,12 +56,17 @@ export function agentEarningCents(input: {
   gatewayFeeCents?: number;
   invoiceSurchargeCents?: number | null;
 }) {
-  const feeCents =
-    (input.invoiceSurchargeCents || 0) > 0
-      ? calculatePaymentFeeCents(input.goodsCents, input.feeRule)
-      : (input.gatewayFeeCents ??
-        calculatePaymentFeeCents(input.goodsCents, input.feeRule));
-  return input.goodsCents - input.costTotalCents - feeCents;
+  const surchargeCents = input.invoiceSurchargeCents || 0;
+  return computeOrderLedger(
+    {
+      grossCents: input.goodsCents + surchargeCents,
+      invoiceSurchargeCents: surchargeCents,
+      agentCostTotalCents: input.costTotalCents,
+      upstreamCostTotalCents: null,
+      feeRule: input.feeRule,
+    },
+    { gatewayFeeCents: input.gatewayFeeCents },
+  ).agentEarningCents;
 }
 
 /** 代理 GMV / 收益底数用商品额，不含开票加价。 */

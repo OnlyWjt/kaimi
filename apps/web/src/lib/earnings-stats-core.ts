@@ -9,6 +9,13 @@ export type StatsEarningRow = {
   grossCents: number;
   costCents: number;
   paymentFeeCents: number;
+  totalFeeCents?: number | null;
+  upstreamCents?: number | null;
+  platformFeeCents?: number | null;
+  platformProfitCents?: number | null;
+  invoiceSurchargeCents?: number | null;
+  payStatus?: string;
+  upstreamCostSource?: string;
   earningCents: number;
   status: string;
   paymentChannel?: string;
@@ -94,6 +101,18 @@ type Money = {
   platformCents: number;
   agentCents: number;
   feeCents: number;
+  upstreamCents: number;
+  platformFeeCents: number;
+  profitCents: number;
+  profitUnknownCount: number;
+  invoiceCents: number;
+  backfillCount: number;
+  backfillProfitCents: number;
+  refundedOrderCount: number;
+  basisCostCents: number;
+  basisInvoiceCents: number;
+  basisUpstreamCents: number;
+  basisPlatformFeeCents: number;
   pendingCents: number;
   settledCents: number;
   reversedCents: number;
@@ -114,6 +133,18 @@ function emptyMoney(): Money {
     platformCents: 0,
     agentCents: 0,
     feeCents: 0,
+    upstreamCents: 0,
+    platformFeeCents: 0,
+    profitCents: 0,
+    profitUnknownCount: 0,
+    invoiceCents: 0,
+    backfillCount: 0,
+    backfillProfitCents: 0,
+    refundedOrderCount: 0,
+    basisCostCents: 0,
+    basisInvoiceCents: 0,
+    basisUpstreamCents: 0,
+    basisPlatformFeeCents: 0,
     pendingCents: 0,
     settledCents: 0,
     reversedCents: 0,
@@ -155,11 +186,33 @@ function addEarning(target: Money, row: StatsEarningRow) {
   target.grossCents += row.grossCents;
   target.platformCents += row.costCents;
   target.agentCents += row.earningCents;
-  target.feeCents += row.paymentFeeCents;
+  target.feeCents += row.totalFeeCents ?? row.paymentFeeCents;
+  target.upstreamCents += row.upstreamCents ?? 0;
+  target.platformFeeCents += row.platformFeeCents ?? 0;
+  target.invoiceCents += row.invoiceSurchargeCents ?? 0;
   if (row.status === "pending" || row.status === "settling") {
     target.pendingCents += row.earningCents;
   }
   if (row.status === "settled") target.settledCents += row.earningCents;
+  const refunded = row.payStatus === "refunded" || row.payStatus === "chargeback";
+  if (refunded) {
+    target.refundedOrderCount += 1;
+    return;
+  }
+  if (row.upstreamCostSource === "backfill") {
+    target.backfillCount += 1;
+    target.backfillProfitCents += row.platformProfitCents ?? 0;
+    return;
+  }
+  if (row.platformProfitCents == null) {
+    target.profitUnknownCount += 1;
+    return;
+  }
+  target.profitCents += row.platformProfitCents;
+  target.basisCostCents += row.costCents;
+  target.basisInvoiceCents += row.invoiceSurchargeCents ?? 0;
+  target.basisUpstreamCents += row.upstreamCents ?? 0;
+  target.basisPlatformFeeCents += row.platformFeeCents ?? 0;
 }
 
 function addAdjustment(target: Money, row: StatsAdjustmentRow) {

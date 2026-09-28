@@ -2,12 +2,15 @@ import { eq, sql } from "drizzle-orm";
 import { db, client } from "./index";
 import {
   adminUsers,
+  agentEarnings,
   paymentChannelConfigs,
   platformPlans,
   settings,
+  storeOrders,
   storefronts,
   users,
 } from "./schema";
+import { computeOrderLedger } from "../lib/order-ledger-core";
 import bcrypt from "bcryptjs";
 import {
   FINISHED_GPT_COST_CENTS,
@@ -945,6 +948,7 @@ export async function ensureSchema() {
   await ensureCardOpsTables();
   await ensureAnnouncementTables();
   await ensureRedeemGuardSchema();
+  await ensureOrderLedgerSchema();
 
   const shop = await db.query.storefronts.findFirst({
     where: (t, { eq }) => eq(t.kind, "shop"),
@@ -1083,6 +1087,125 @@ export async function ensureSchema() {
       .set({ value: "Kaimi", updatedAt: new Date().toISOString() })
       .where(eq(settings.key, "site_name"));
   }
+}
+
+async function ensureOrderLedgerSchema() {
+  const addColumn = async (sqlText: string) => {
+    try {
+      await client.execute(sqlText);
+    } catch (error) {
+      if (!/duplicate column/i.test(String(error))) throw error;
+    }
+  };
+  await addColumn("ALTER TABLE platform_plans ADD COLUMN upstream_cost_cents INTEGER");
+  await addColumn("ALTER TABLE finished_accounts ADD COLUMN cost_cents INTEGER");
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN agent_fee_cents INTEGER NOT NULL DEFAULT 0",
+  );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN platform_fee_cents INTEGER NOT NULL DEFAULT 0",
+  );
+  await addColumn("ALTER TABLE store_orders ADD COLUMN upstream_cost_unit_cents INTEGER");
+  await addColumn("ALTER TABLE store_orders ADD COLUMN upstream_cost_total_cents INTEGER");
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN upstream_cost_source TEXT NOT NULL DEFAULT 'unset'",
+  );
+  await addColumn("ALTER TABLE store_orders ADD COLUMN platform_profit_cents INTEGER");
+  await addColumn(
+    "ALTER TABLE agent_earnings ADD COLUMN agent_fee_cents INTEGER NOT NULL DEFAULT 0",
+  );
+  await addColumn(
+    "ALTER TABLE agent_earnings ADD COLUMN total_fee_cents INTEGER NOT NULL DEFAULT 0",
+  );
+  await addColumn(
+    "ALTER TABLE agent_settlements ADD COLUMN item_count INTEGER NOT NULL DEFAULT 0",
+  );
+
+  const flag = await db.query.settings.findFirst({
+    where: eq(settings.key, "migration_order_ledger_fees_v1"),
+  });
+  if (flag?.value !== "done") {
+  const orders = await db.query.storeOrders.findMany();
+  const feeByOrder = new Map<number, { agentFeeCents: number; finalFeeCents: number }>();
+  for (const order of orders) {
+    try {
+      const ledger = computeOrderLedger(
+        {
+          grossCents: order.grossCents,
+          invoiceSurchargeCents: order.invoiceSurchargeCents || 0,
+          agentCostTotalCents: order.agentCostTotalCents,
+          upstreamCostTotalCents: null,
+          feeRule: {
+            ratePpm: order.feeRatePpm,
+            fixedFeeCents: order.fixedFeeCents,
+          },
+        },
+        { gatewayFeeCents: order.finalPaymentFeeCents },
+      );
+      feeByOrder.set(order.id, {
+        agentFeeCents: ledger.agentFeeCents,
+        finalFeeCents: order.finalPaymentFeeCents,
+      });
+      await db
+        .update(storeOrders)
+        .set({
+          agentFeeCents: ledger.agentFeeCents,
+          platformFeeCents: ledger.platformFeeCents,
+        })
+        .where(eq(storeOrders.id, order.id));
+    } catch (error) {
+      console.warn(
+        `[order-ledger] 跳过订单 ${order.orderNo} 的手续费回填：${error instanceof Error ? error.message : error}`,
+      );
+    }
+  }
+
+  const earnings = await db.query.agentEarnings.findMany();
+  for (const row of earnings) {
+    const fee = feeByOrder.get(row.orderId);
+    if (!fee) continue;
+    await db
+      .update(agentEarnings)
+      .set({
+        agentFeeCents: fee.agentFeeCents,
+        totalFeeCents: fee.finalFeeCents,
+        // 已进结算单的旧列仍是渠道手续费总额，不能改成代理承担的那一段。
+        ...(row.status === "pending" ? { paymentFeeCents: fee.agentFeeCents } : {}),
+      })
+      .where(eq(agentEarnings.id, row.id));
+  }
+
+  await db
+    .insert(settings)
+    .values({ key: "migration_order_ledger_fees_v1", value: "done" })
+    .onConflictDoUpdate({
+      target: settings.key,
+      set: { value: "done" },
+    });
+  }
+  await restoreSettledFeeColumn();
+}
+
+async function restoreSettledFeeColumn() {
+  const flag = await db.query.settings.findFirst({
+    where: eq(settings.key, "migration_order_ledger_fee_column_v2"),
+  });
+  if (flag?.value === "done") return;
+  // 上一版回填曾把已返佣行的旧手续费改成代理承担额。总额还在 total_fee_cents 里，这里改回去。
+  await client.execute(`
+    UPDATE agent_earnings
+    SET payment_fee_cents = total_fee_cents
+    WHERE status IN ('settled', 'settling')
+      AND total_fee_cents > 0
+      AND payment_fee_cents != total_fee_cents
+  `);
+  await db
+    .insert(settings)
+    .values({ key: "migration_order_ledger_fee_column_v2", value: "done" })
+    .onConflictDoUpdate({
+      target: settings.key,
+      set: { value: "done" },
+    });
 }
 
 async function ensureRedeemGuardSchema() {

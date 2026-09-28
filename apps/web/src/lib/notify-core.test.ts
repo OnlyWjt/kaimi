@@ -16,9 +16,11 @@ describe("formatNotifyText", () => {
     expect(text).toContain("代理：测试代理店");
     expect(text).toContain("开通账号：demo@example.com");
     expect(text).toContain("套餐：Plus");
-    expect(text).toContain("售价：¥150.00");
-    expect(text).toContain("本次收益：¥30.00");
-    expect(text).toContain("代理收益：¥115.00");
+    expect(text).toContain("挂牌价：¥150.00");
+    expect(text).toContain("实付商品额：¥150.00");
+    expect(text).toContain("代理成本：¥30.00");
+    expect(text).toContain("代理收益：¥115.00（已扣手续费 ¥5.00）");
+    expect(text).toContain("平台毛利：¥10.00（上游 ¥20.00）");
     expect(text).toContain("这是一条测试通知，不是真实兑换。");
   });
 
@@ -99,7 +101,7 @@ describe("notifyYuanFields", () => {
   it("分转元给 webhook 用", () => {
     expect(notifyYuanFields(SAMPLE_NOTIFY_PAYLOAD)).toEqual({
       retailYuan: "150.00",
-      platformYuan: "30.00",
+      platformYuan: "10.00",
       agentEarningYuan: "115.00",
     });
   });

@@ -16,6 +16,7 @@ import { requireAdmin } from "@/lib/auth";
 import { decryptSecret } from "@/lib/crypto";
 import { bootDb } from "@/lib/config";
 import { newOrderNo } from "@/lib/ids";
+import { verifyLedger } from "@/lib/order-ledger-core";
 import { periodBoundary } from "@/lib/period";
 
 const createSchema = z.object({
@@ -132,6 +133,22 @@ export async function POST(req: Request) {
       .select({
         id: agentEarnings.id,
         earningCents: agentEarnings.earningCents,
+        rowGrossCents: agentEarnings.grossCents,
+        rowCostCents: agentEarnings.costCents,
+        rowAgentFeeCents: agentEarnings.agentFeeCents,
+        orderNo: storeOrders.orderNo,
+        grossCents: storeOrders.grossCents,
+        invoiceSurchargeCents: storeOrders.invoiceSurchargeCents,
+        agentCostTotalCents: storeOrders.agentCostTotalCents,
+        upstreamCostTotalCents: storeOrders.upstreamCostTotalCents,
+        feeRatePpm: storeOrders.feeRatePpm,
+        fixedFeeCents: storeOrders.fixedFeeCents,
+        finalPaymentFeeCents: storeOrders.finalPaymentFeeCents,
+        agentFeeCents: storeOrders.agentFeeCents,
+        platformFeeCents: storeOrders.platformFeeCents,
+        orderEarningCents: storeOrders.agentEarningCents,
+        platformProfitCents: storeOrders.platformProfitCents,
+        feeReconcileStatus: storeOrders.feeReconcileStatus,
       })
       .from(agentEarnings)
       .innerJoin(storeOrders, eq(storeOrders.id, agentEarnings.orderId))
@@ -160,7 +177,52 @@ export async function POST(req: Request) {
           lte(agentEarningAdjustments.createdAt, periodEnd),
         ),
       );
-    if (!earningRows.length && !adjustmentRows.length) {
+    const skippedManualReview = earningRows
+      .filter((row) => row.feeReconcileStatus === "manual_review")
+      .map((row) => row.orderNo);
+    const settlingRows = earningRows.filter(
+      (row) => row.feeReconcileStatus !== "manual_review",
+    );
+    const mismatches: string[] = [];
+    for (const row of settlingRows) {
+      const issues = verifyLedger(
+        {
+          grossCents: row.grossCents,
+          invoiceSurchargeCents: row.invoiceSurchargeCents,
+          agentCostTotalCents: row.agentCostTotalCents,
+          upstreamCostTotalCents: row.upstreamCostTotalCents,
+          feeRatePpm: row.feeRatePpm,
+          fixedFeeCents: row.fixedFeeCents,
+          finalPaymentFeeCents: row.finalPaymentFeeCents,
+          agentFeeCents: row.agentFeeCents,
+          platformFeeCents: row.platformFeeCents,
+          agentEarningCents: row.orderEarningCents,
+          platformProfitCents: row.platformProfitCents,
+        },
+        {
+          grossCents: row.rowGrossCents,
+          costCents: row.rowCostCents,
+          agentFeeCents: row.rowAgentFeeCents,
+          earningCents: row.earningCents,
+        },
+      );
+      if (issues.length) {
+        mismatches.push(
+          `${row.orderNo}（${issues.map((item) => item.code).join("、")}）`,
+        );
+      }
+    }
+    if (mismatches.length) {
+      throw new Error(
+        `收益和订单快照对不上，已拒绝生成：${mismatches.join("；")}`,
+      );
+    }
+    if (!settlingRows.length && !adjustmentRows.length) {
+      if (skippedManualReview.length) {
+        throw new Error(
+          `有 ${skippedManualReview.length} 笔手续费待人工核对，不能生成结算单：${skippedManualReview.join("、")}`,
+        );
+      }
       const deliveredOrders = await tx
         .select({ id: storeOrders.id })
         .from(storeOrders)
@@ -181,7 +243,7 @@ export async function POST(req: Request) {
       );
     }
     const amountCents =
-      earningRows.reduce((sum, row) => sum + row.earningCents, 0) +
+      settlingRows.reduce((sum, row) => sum + row.earningCents, 0) +
       adjustmentRows.reduce((sum, row) => sum + row.amountCents, 0);
     if (amountCents <= 0) {
       throw new Error(
@@ -197,6 +259,7 @@ export async function POST(req: Request) {
         periodStart,
         periodEnd,
         amountCents,
+        itemCount: settlingRows.length,
         status: "pending_payment",
         notes: data.notes,
         createdBy: session.id,
@@ -204,7 +267,7 @@ export async function POST(req: Request) {
       })
       .returning();
     if (!settlement) throw new Error("结算单创建失败");
-    if (earningRows.length) {
+    if (settlingRows.length) {
       const claimedEarnings = await tx
         .update(agentEarnings)
         .set({
@@ -214,13 +277,13 @@ export async function POST(req: Request) {
         })
         .where(
           and(
-            inArray(agentEarnings.id, earningRows.map((row) => row.id)),
+            inArray(agentEarnings.id, settlingRows.map((row) => row.id)),
             eq(agentEarnings.status, "pending"),
             isNull(agentEarnings.settlementId),
           ),
         )
         .returning({ id: agentEarnings.id });
-      if (claimedEarnings.length !== earningRows.length) {
+      if (claimedEarnings.length !== settlingRows.length) {
         throw new Error("部分收益状态已变化，请刷新后重试");
       }
     }
@@ -247,21 +310,24 @@ export async function POST(req: Request) {
         throw new Error("部分账务调整状态已变化，请刷新后重试");
       }
     }
-    return settlement;
+    return { settlement, skippedManualReview };
   });
   await writeAuditLog({
     actor: session,
     action: "admin.settlement.create",
     targetType: "agent_settlement",
-    targetId: result.id,
+    targetId: result.settlement.id,
     metadata: {
       agentId: data.agentId,
       periodStart,
       periodEnd,
-      amountCents: result.amountCents,
+      amountCents: result.settlement.amountCents,
     },
   });
-  return NextResponse.json({ settlement: result });
+  return NextResponse.json({
+    settlement: result.settlement,
+    skippedManualReview: result.skippedManualReview,
+  });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "结算单创建失败" },

@@ -26,6 +26,9 @@ type EarningsPayload = {
     productName: string;
     quantity?: number;
     couponCode?: string;
+    listGoodsCents?: number;
+    couponDiscountCents?: number;
+    agentCostCents?: number;
     grossCents: number;
     paymentFeeCents: number;
     earningCents: number;
@@ -187,6 +190,7 @@ export function AgentBooks() {
                   <th>订单</th>
                   <th>套餐</th>
                   <th>实付</th>
+                  <th>成本</th>
                   <th>手续费</th>
                   <th>收益</th>
                   <th>手续费口径</th>
@@ -201,8 +205,17 @@ export function AgentBooks() {
                       {item.productName}
                       {item.couponCode ? ` · ${item.couponCode}` : ""}
                     </td>
-                    <td>{moneyYuan(item.grossCents)}</td>
-                    <td>{moneyYuan(item.paymentFeeCents)}</td>
+                    <td
+                      title={
+                        item.couponDiscountCents
+                          ? `挂牌 ${moneyYuan(item.listGoodsCents || item.grossCents)}，优惠 ${moneyYuan(item.couponDiscountCents)}`
+                          : undefined
+                      }
+                    >
+                      {moneyYuan(item.grossCents)}
+                    </td>
+                    <td>{moneyYuan(item.agentCostCents || 0)}</td>
+                    <td title="代理承担的手续费">{moneyYuan(item.paymentFeeCents)}</td>
                     <td>{moneyYuan(item.earningCents)}</td>
                     <td>{publicStatusLabel(item.feeReconcileStatus, "fee")}</td>
                   </tr>

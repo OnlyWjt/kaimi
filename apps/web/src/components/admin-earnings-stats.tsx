@@ -12,6 +12,18 @@ type Money = {
   platformCents: number;
   agentCents: number;
   feeCents: number;
+  upstreamCents: number;
+  platformFeeCents: number;
+  profitCents: number;
+  profitUnknownCount: number;
+  invoiceCents: number;
+  backfillCount: number;
+  backfillProfitCents: number;
+  refundedOrderCount: number;
+  basisCostCents: number;
+  basisInvoiceCents: number;
+  basisUpstreamCents: number;
+  basisPlatformFeeCents: number;
   pendingCents: number;
   settledCents: number;
   reversedCents: number;
@@ -53,6 +65,18 @@ const emptyMoney: Money = {
   platformCents: 0,
   agentCents: 0,
   feeCents: 0,
+  upstreamCents: 0,
+  platformFeeCents: 0,
+  profitCents: 0,
+  profitUnknownCount: 0,
+  invoiceCents: 0,
+  backfillCount: 0,
+  backfillProfitCents: 0,
+  refundedOrderCount: 0,
+  basisCostCents: 0,
+  basisInvoiceCents: 0,
+  basisUpstreamCents: 0,
+  basisPlatformFeeCents: 0,
   pendingCents: 0,
   settledCents: 0,
   reversedCents: 0,
@@ -108,8 +132,8 @@ function GroupedBarChart({
   rows,
   series,
 }: {
-  rows: Array<{ label: string; platformCents: number; agentCents: number; feeCents?: number }>;
-  series: Array<{ key: "platformCents" | "agentCents" | "feeCents"; label: string; color: string }>;
+  rows: Array<{ label: string; platformCents: number; agentCents: number; feeCents?: number; profitCents?: number }>;
+  series: Array<{ key: "platformCents" | "agentCents" | "feeCents" | "profitCents"; label: string; color: string }>;
 }) {
   if (!rows.length) {
     return <p className="py-10 text-center text-sm text-[var(--km-fg-muted)]">这段时间还没有已入账的单</p>;
@@ -286,8 +310,8 @@ export function AdminEarningsStats() {
   const totals = data?.totals || emptyMoney;
   const pipeline = data?.pipeline || emptyPipeline;
   const avgCents = totals.orderCount ? Math.round(totals.grossCents / totals.orderCount) : 0;
-  const platformShare = totals.grossCents
-    ? Math.round((totals.platformCents / totals.grossCents) * 100)
+  const profitShare = totals.grossCents
+    ? Math.round((totals.profitCents / totals.grossCents) * 100)
     : 0;
   const exportHref = `/api/admin/earnings/export.xlsx?start=${encodeURIComponent(range.start)}&end=${encodeURIComponent(range.end)}${agentId > 0 ? `&agentId=${agentId}` : ""}`;
 
@@ -298,7 +322,7 @@ export function AdminEarningsStats() {
           <div>
             <h2 className="text-xl font-semibold">收益统计</h2>
             <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-              平台收益是代理成本合计，代理收益是佣金。只把已支付且已发卡的单算进赚；漏斗按区间内下单/付款看。
+              平台毛利 = 代理成本 + 开票加价 − 上游进价 − 平台手续费。没配进价的单不计入毛利。
             </p>
           </div>
           <a href={exportHref} className="km-btn km-btn-ghost km-btn-sm">
@@ -383,15 +407,13 @@ export function AdminEarningsStats() {
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="km-stat space-y-1">
-          <p className="text-xs text-[var(--km-fg-muted)]">平台收益</p>
-          <p className="text-2xl font-semibold">{yuan(totals.platformCents)}</p>
-          <p className="text-xs text-[var(--km-fg-muted)]">占销售额 {platformShare}%</p>
-        </div>
-        <div className="km-stat space-y-1">
-          <p className="text-xs text-[var(--km-fg-muted)]">代理收益</p>
-          <p className="text-2xl font-semibold">{yuan(totals.agentCents)}</p>
+          <p className="text-xs text-[var(--km-fg-muted)]">平台毛利</p>
+          <p className="text-2xl font-semibold">{yuan(totals.profitCents)}</p>
           <p className="text-xs text-[var(--km-fg-muted)]">
-            待结算 {yuan(totals.pendingCents)} · 已返佣 {yuan(totals.settledCents)}
+            毛利率 {profitShare}%
+            {totals.profitUnknownCount ? ` · ${totals.profitUnknownCount} 单未配进价` : ""}
+            {totals.backfillCount ? ` · 补录 ${totals.backfillCount} 单未计入` : ""}
+            {totals.refundedOrderCount ? ` · 退款 ${totals.refundedOrderCount} 单按 0` : ""}
           </p>
         </div>
         <div className="km-stat space-y-1">
@@ -402,9 +424,18 @@ export function AdminEarningsStats() {
           </p>
         </div>
         <div className="km-stat space-y-1">
-          <p className="text-xs text-[var(--km-fg-muted)]">支付手续费</p>
-          <p className="text-2xl font-semibold">{yuan(totals.feeCents)}</p>
-          <p className="text-xs text-[var(--km-fg-muted)]">给渠道，不进两边收益</p>
+          <p className="text-xs text-[var(--km-fg-muted)]">代理收益</p>
+          <p className="text-2xl font-semibold">{yuan(totals.agentCents)}</p>
+          <p className="text-xs text-[var(--km-fg-muted)]">
+            待结算 {yuan(totals.pendingCents)} · 已返佣 {yuan(totals.settledCents)}
+          </p>
+        </div>
+        <div className="km-stat space-y-1">
+          <p className="text-xs text-[var(--km-fg-muted)]">上游与手续费</p>
+          <p className="text-2xl font-semibold">{yuan(totals.upstreamCents + totals.feeCents)}</p>
+          <p className="text-xs text-[var(--km-fg-muted)]">
+            上游 {yuan(totals.upstreamCents)} · 手续费 {yuan(totals.feeCents)}
+          </p>
         </div>
       </div>
 
@@ -437,18 +468,29 @@ export function AdminEarningsStats() {
 
       <section className="km-panel space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 className="font-semibold">平台 vs 代理</h3>
+          <h3 className="font-semibold">毛利与代理收益</h3>
           <ChartLegend
             items={[
-              { label: "平台收益", color: PLATFORM },
+              { label: "平台毛利", color: PLATFORM },
               { label: "代理收益", color: AGENT },
             ]}
           />
         </div>
+        <p className="text-sm text-[var(--km-fg-muted)]">
+          {totals.profitUnknownCount
+            ? `${totals.profitUnknownCount} 单还没配上游进价，这几单的毛利没有加进合计。`
+            : `平台毛利 ${yuan(totals.profitCents)} = 代理成本 ${yuan(totals.basisCostCents)} + 开票加价 ${yuan(totals.basisInvoiceCents)} − 上游 ${yuan(totals.basisUpstreamCents)} − 平台手续费 ${yuan(totals.basisPlatformFeeCents)}`}
+          {totals.backfillCount
+            ? ` 另有 ${totals.backfillCount} 单按当前进价补录，毛利 ${yuan(totals.backfillProfitCents)}，未计入。`
+            : ""}
+          {totals.refundedOrderCount
+            ? ` 退款 ${totals.refundedOrderCount} 单毛利按 0。`
+            : ""}
+        </p>
         <GroupedBarChart
           rows={data?.series || []}
           series={[
-            { key: "platformCents", label: "平台收益", color: PLATFORM },
+            { key: "profitCents", label: "平台毛利", color: PLATFORM },
             { key: "agentCents", label: "代理收益", color: AGENT },
           ]}
         />
@@ -515,7 +557,8 @@ export function AdminEarningsStats() {
                   <th className="py-2 pr-3">代理</th>
                   <th className="py-2 pr-3">单量</th>
                   <th className="py-2 pr-3">销售额</th>
-                  <th className="py-2 pr-3">平台收益</th>
+                  <th className="py-2 pr-3">上游进价</th>
+                  <th className="py-2 pr-3">平台毛利</th>
                   <th className="py-2 pr-3">代理收益</th>
                   <th className="py-2 pr-3">待结算</th>
                   <th className="py-2">已返佣</th>
@@ -527,7 +570,8 @@ export function AdminEarningsStats() {
                     <td className="py-2 pr-3">{row.agentName}</td>
                     <td className="py-2 pr-3">{row.orderCount}</td>
                     <td className="py-2 pr-3">{yuan(row.grossCents)}</td>
-                    <td className="py-2 pr-3">{yuan(row.platformCents)}</td>
+                    <td className="py-2 pr-3">{yuan(row.upstreamCents)}</td>
+                    <td className="py-2 pr-3">{yuan(row.profitCents)}</td>
                     <td className="py-2 pr-3">{yuan(row.agentCents)}</td>
                     <td className="py-2 pr-3">{yuan(row.pendingCents)}</td>
                     <td className="py-2">{yuan(row.settledCents)}</td>

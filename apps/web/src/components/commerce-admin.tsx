@@ -135,6 +135,23 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
   const [orderFilters, setOrderFilters] = useState(emptyOrderFilters);
   const [backgroundJobs, setBackgroundJobs] = useState<BackgroundJob[]>([]);
   const [health, setHealth] = useState<OpsHealth | null>(null);
+  const [audit, setAudit] = useState<{
+    scanned: number;
+    ok: number;
+    issues: Array<{
+      orderNo: string;
+      agent: string;
+      kinds: string[];
+      earningStatus?: string | null;
+      settlementNo?: string | null;
+      expected?: { agentEarningCents?: number };
+      stored?: { agentEarningCents?: number };
+    }>;
+  } | null>(null);
+  const [settlementItems, setSettlementItems] = useState<{
+    id: number;
+    lines: string[];
+  } | null>(null);
   const [settlementForm, setSettlementForm] = useState({
     agentId: 0,
     periodStart: localIsoDate(
@@ -378,10 +395,80 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
       periodEnd: settlementForm.periodEnd,
     });
     if (data?.settlement) {
+      const skipped = Array.isArray(data.skippedManualReview) ? data.skippedManualReview : [];
       setMessage(
-        `已生成结算单 ${data.settlement.settlementNo}，金额 ¥${(data.settlement.amountCents / 100).toFixed(2)}`,
+        `已生成结算单 ${data.settlement.settlementNo}，金额 ¥${(data.settlement.amountCents / 100).toFixed(2)}` +
+          (skipped.length ? `。跳过 ${skipped.length} 笔手续费待核对：${skipped.join("、")}` : ""),
       );
       await load();
+    }
+  }
+
+  async function runAudit() {
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/admin/earnings/audit", { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "核对失败");
+      setAudit(data);
+      setMessage(`核对了 ${data.scanned} 笔已支付订单，${data.issues?.length || 0} 笔需要看`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "核对失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reviewFee(orderNo: string, decision: "accept_gateway" | "keep_estimate") {
+    const data = await submit(`/api/admin/store-orders/${encodeURIComponent(orderNo)}/fee-review`, {
+      decision,
+    });
+    if (data?.ok) {
+      setMessage(
+        decision === "accept_gateway"
+          ? `${orderNo} 已采用网关手续费`
+          : `${orderNo} 已保留估算手续费`,
+      );
+      await runAudit();
+    }
+  }
+
+  async function fixAudit(orderNo: string) {
+    const data = await submit("/api/admin/earnings/audit", { orderNo });
+    if (data?.ok) {
+      setMessage(
+        data.adjustmentCents != null
+          ? `${orderNo} 已返佣，差额 ¥${(data.adjustmentCents / 100).toFixed(2)} 记到下期`
+          : `${orderNo} 已按快照修正`,
+      );
+      await runAudit();
+    }
+  }
+
+  async function showSettlementItems(settlement: Settlement) {
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/admin/settlements/${settlement.id}/items`, {
+        cache: "no-store",
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "明细加载失败");
+      const lines = [
+        ...(data.earnings || []).map(
+          (row: { orderNo: string; earningCents: number; couponCode?: string }) =>
+            `${row.orderNo}  收益 ¥${(row.earningCents / 100).toFixed(2)}${row.couponCode ? `  券 ${row.couponCode}` : ""}`,
+        ),
+        ...(data.adjustments || []).map(
+          (row: { orderNo: string; amountCents: number; type: string }) =>
+            `${row.orderNo}  调整 ${row.type} ¥${(row.amountCents / 100).toFixed(2)}`,
+        ),
+      ];
+      setSettlementItems({ id: settlement.id, lines });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "明细加载失败");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -1159,13 +1246,111 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
           <p className="text-xs text-[var(--km-fg-muted)]">
             如果待改的收益还被待返佣结算单占着，重算时会问你要不要连带撤销。已返佣的不会动。
           </p>
-          <button
-            className="km-btn km-btn-ghost"
-            disabled={busy || !loaded}
-            onClick={() => recalculateFees()}
-          >
-            按当前费率重算未结算手续费
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="km-btn km-btn-ghost"
+              disabled={busy || !loaded}
+              onClick={() => recalculateFees()}
+            >
+              按当前费率重算未结算手续费
+            </button>
+            <button
+              className="km-btn km-btn-ghost"
+              disabled={busy || !loaded}
+              onClick={() => void runAudit()}
+            >
+              收益核对
+            </button>
+          </div>
+          {audit ? (
+            <div className="space-y-2 text-xs">
+              <p>
+                已支付 {audit.scanned} 笔，对得上 {audit.ok} 笔，要看 {audit.issues.length} 笔。
+                低收益多半是用了优惠券；公式对不上才需要修正。
+              </p>
+              {audit.issues.length ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[640px] text-left">
+                    <thead>
+                      <tr className="border-b border-[var(--km-border)]">
+                        <th className="py-1 pr-3">订单</th>
+                        <th className="py-1 pr-3">代理</th>
+                        <th className="py-1 pr-3">问题</th>
+                        <th className="py-1 pr-3">账面 / 快照</th>
+                        <th className="py-1">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {audit.issues.map((issue) => (
+                        <tr key={issue.orderNo} className="border-b border-[var(--km-border)]">
+                          <td className="py-1 pr-3 font-mono">{issue.orderNo}</td>
+                          <td className="py-1 pr-3">{issue.agent}</td>
+                          <td className="py-1 pr-3">
+                            {issue.kinds
+                              .map((kind) =>
+                                kind === "formula_mismatch"
+                                  ? "公式对不上"
+                                  : kind === "order_earning_row_mismatch"
+                                    ? "订单和收益行不一致"
+                                    : kind === "fee_anomalous"
+                                      ? "手续费异常"
+                                      : kind === "low_earning"
+                                        ? "收益低于 1 元"
+                                        : kind,
+                              )
+                              .join("、")}
+                          </td>
+                          <td className="py-1 pr-3">
+                            ¥{((issue.stored?.agentEarningCents || 0) / 100).toFixed(2)} / ¥
+                            {((issue.expected?.agentEarningCents || 0) / 100).toFixed(2)}
+                            {issue.settlementNo ? ` · ${issue.settlementNo}` : ""}
+                          </td>
+                          <td className="py-1">
+                            <div className="flex flex-wrap gap-1">
+                              {issue.kinds.includes("fee_anomalous") ? (
+                                <>
+                                  <button
+                                    className="km-btn km-btn-ghost"
+                                    disabled={busy}
+                                    onClick={() => void reviewFee(issue.orderNo, "accept_gateway")}
+                                  >
+                                    采用网关值
+                                  </button>
+                                  <button
+                                    className="km-btn km-btn-ghost"
+                                    disabled={busy}
+                                    onClick={() => void reviewFee(issue.orderNo, "keep_estimate")}
+                                  >
+                                    保留估算
+                                  </button>
+                                </>
+                              ) : null}
+                              {issue.kinds.some(
+                                (kind) => kind !== "low_earning" && kind !== "fee_anomalous",
+                              ) ? (
+                                <button
+                                  className="km-btn km-btn-ghost"
+                                  disabled={busy}
+                                  onClick={() => void fixAudit(issue.orderNo)}
+                                >
+                                  按快照修正
+                                </button>
+                              ) : null}
+                              {!issue.kinds.some(
+                                (kind) => kind !== "low_earning",
+                              ) ? (
+                                "—"
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         <div className="grid gap-3 md:grid-cols-4">
           <select
@@ -1256,6 +1441,13 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
                         <button
                           className="km-btn km-btn-ghost"
                           disabled={busy}
+                          onClick={() => void showSettlementItems(settlement)}
+                        >
+                          明细
+                        </button>
+                        <button
+                          className="km-btn km-btn-ghost"
+                          disabled={busy}
                           onClick={() => markSettlementPaid(settlement)}
                         >
                           标记已返佣
@@ -1269,7 +1461,13 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
                         </button>
                       </div>
                     ) : (
-                      settlement.paymentReference || "—"
+                      <button
+                        className="km-btn km-btn-ghost"
+                        disabled={busy}
+                        onClick={() => void showSettlementItems(settlement)}
+                      >
+                        {settlement.paymentReference || "明细"}
+                      </button>
                     )}
                   </td>
                 </tr>
@@ -1277,6 +1475,11 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
             </tbody>
           </table>
         </div>
+        {settlementItems ? (
+          <pre className="overflow-x-auto rounded-xl bg-[var(--km-bg)] p-3 text-xs">
+            {settlementItems.lines.join("\n") || "这张结算单没有明细"}
+          </pre>
+        ) : null}
       </section>
     </div>
   );

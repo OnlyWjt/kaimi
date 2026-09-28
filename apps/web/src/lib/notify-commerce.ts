@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { agents, issuedCdks, orders, storeOrders } from "@/db/schema";
 import { publicShopName } from "@/lib/agent-names";
@@ -29,14 +29,33 @@ export async function loadRedeemNotifyContext(orderNo: string): Promise<Partial<
 
   const quantity = Math.max(1, store?.quantity ?? 1);
   const plan = store?.productNameSnapshot || order.upstreamPlan || "";
+  const goodsCents = store ? Math.max(0, store.grossCents - (store.invoiceSurchargeCents || 0)) : undefined;
+  const listGoodsCents =
+    store && store.listGoodsCents > 0 ? store.listGoodsCents : goodsCents;
+  let cardIndex: number | undefined;
+  if (store && issued && quantity > 1) {
+    const siblings = await db.query.issuedCdks.findMany({
+      where: eq(issuedCdks.orderId, store.id),
+      columns: { id: true },
+      orderBy: [asc(issuedCdks.id)],
+    });
+    const index = siblings.findIndex((row) => row.id === issued.id);
+    if (index >= 0) cardIndex = index + 1;
+  }
   return {
     agentName: agent ? publicShopName(agent) : "",
     account: (order.accountEmail || "").trim(),
     plan: plan || undefined,
-    retailCents: store?.retailPriceCents,
-    platformCents: store?.agentCostCents,
-    agentEarningCents: store
-      ? Math.round(store.agentEarningCents / quantity)
-      : undefined,
+    quantity,
+    cardIndex,
+    listGoodsCents,
+    couponCode: store?.couponCodeSnapshot || undefined,
+    couponDiscountCents: store?.couponDiscountCents || undefined,
+    goodsCents,
+    agentCostTotalCents: store?.agentCostTotalCents,
+    agentFeeCents: store?.agentFeeCents,
+    agentEarningCents: store?.agentEarningCents,
+    upstreamCostTotalCents: store?.upstreamCostTotalCents,
+    platformProfitCents: store?.platformProfitCents,
   };
 }
