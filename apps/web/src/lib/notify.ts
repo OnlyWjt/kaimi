@@ -180,6 +180,7 @@ export async function notifyStoreInvoicePaid(order: {
   platformProfitCents?: number | null;
   invoiceRequested?: boolean;
   invoiceTitle: string;
+  invoiceTaxNo?: string;
   invoiceNote: string;
   invoiceEmail: string;
   invoiceAmountCents: number;
@@ -218,6 +219,7 @@ export async function notifyStoreInvoicePaid(order: {
     invoice: order.invoiceRequested
       ? {
           title: order.invoiceTitle,
+          taxNo: order.invoiceTaxNo || "",
           note: order.invoiceNote,
           amountCents: order.invoiceAmountCents || order.grossCents,
           email: order.invoiceEmail || order.customerEmail || "",

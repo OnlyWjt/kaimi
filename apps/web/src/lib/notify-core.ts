@@ -105,6 +105,7 @@ export function formatNotifyText(payload: NotifyPayload) {
 
 export type StorePaidInvoice = {
   title: string;
+  taxNo?: string;
   note: string;
   amountCents: number;
   email: string;
@@ -174,6 +175,7 @@ function storePaidLines(payload: StorePaidNotifyPayload) {
             : `（上游 ¥${yuanTextFromCents(payload.upstreamCostTotalCents)}）`
         }`,
     invoice ? `抬头：${invoice.title}` : "",
+    invoice?.taxNo ? `税号：${invoice.taxNo}` : "",
     invoice?.note ? `备注：${invoice.note}` : "",
     invoice ? yuanLine("开票金额", invoice.amountCents) : "",
     invoice?.email ? `收票邮箱：${invoice.email}` : "",

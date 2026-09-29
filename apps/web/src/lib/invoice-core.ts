@@ -5,6 +5,8 @@ import type { FeeRule } from "./payments/fees";
 export const INVOICE_SURCHARGE_RATE = 0.1;
 export const INVOICE_TITLE_MAX = 120;
 export const INVOICE_NOTE_MAX = 200;
+/** 纳税人识别号、统一社会信用代码常见为 15、18 或 20 位。 */
+export const INVOICE_TAX_NO_RE = /^[0-9A-Z]{15,20}$/;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -78,31 +80,34 @@ export function storeOrderGoodsCents(order: {
 }
 
 export type NormalizedInvoice =
-  | { requested: false; title: ""; note: ""; email: "" }
-  | { requested: true; title: string; note: string; email: string };
+  | { requested: false; title: ""; taxNo: ""; note: ""; email: "" }
+  | { requested: true; title: string; taxNo: string; note: string; email: string };
 
 export function normalizeInvoiceRequest(input: {
   requested?: boolean;
   title?: string;
+  taxNo?: string;
   note?: string;
   email?: string;
   fallbackEmail?: string;
 }): NormalizedInvoice {
   if (!input.requested) {
-    return { requested: false, title: "", note: "", email: "" };
+    return { requested: false, title: "", taxNo: "", note: "", email: "" };
   }
   const title = (input.title ?? "").trim();
+  const taxNo = (input.taxNo ?? "").trim().toUpperCase();
   const note = (input.note ?? "").trim();
-  const email = (
-    (input.email ?? "").trim() ||
-    (input.fallbackEmail ?? "").trim()
-  ).toLowerCase();
+  const email = (input.email ?? "").trim().toLowerCase();
   if (!title) throw new Error("请填写发票抬头");
   if (title.length > INVOICE_TITLE_MAX) throw new Error("发票抬头过长");
+  if (!taxNo) throw new Error("请填写纳税人识别号");
+  if (!INVOICE_TAX_NO_RE.test(taxNo)) {
+    throw new Error("纳税人识别号须为 15–20 位字母或数字");
+  }
   if (!note) throw new Error("请填写发票备注");
   if (note.length > INVOICE_NOTE_MAX) throw new Error("发票备注过长");
   if (!email || email.length > 254 || !EMAIL_RE.test(email)) {
     throw new Error("请填写有效收票邮箱");
   }
-  return { requested: true, title, note, email };
+  return { requested: true, title, taxNo, note, email };
 }

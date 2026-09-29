@@ -354,6 +354,8 @@ export const storeOrders = sqliteTable(
       .notNull()
       .default(false),
     invoiceTitle: text("invoice_title").notNull().default(""),
+    /** 纳税人识别号或统一社会信用代码。老订单为空。 */
+    invoiceTaxNo: text("invoice_tax_no").notNull().default(""),
     invoiceNote: text("invoice_note").notNull().default(""),
     invoiceEmail: text("invoice_email").notNull().default(""),
     /** 开票金额 = 实付。只在勾选开票时写入，否则为 0。 */

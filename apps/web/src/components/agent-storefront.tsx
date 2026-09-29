@@ -170,15 +170,19 @@ const I18N = {
       invoiceCancel: "返回",
       invoiceContinue: "去支付",
       invoiceWarn: "仅支持增值税普通发票。勾选后实付金额上浮 10%（开票服务费）。",
-      invoiceTitle: "发票抬头",
+      invoiceTitle: "发票抬头（必填）",
       invoiceTitlePh: "公司或个人名称",
       invoiceTitleRequired: "请填写发票抬头",
+      invoiceTaxNo: "纳税人识别号（必填）",
+      invoiceTaxNoPh: "15–20 位字母或数字",
+      invoiceTaxNoRequired: "请填写纳税人识别号",
+      invoiceTaxNoInvalid: "纳税人识别号须为 15–20 位字母或数字",
       invoiceNote: "发票备注",
       invoiceNotePh: "如：项目名称、订单用途",
       invoiceNoteRequired: "请填写发票备注",
       invoiceAmount: "开票金额",
       invoiceAmountHint: (goods: string, fee: string) => `商品 ¥${goods} + 开票服务费 10% ¥${fee}`,
-      invoiceEmail: "收票邮箱",
+      invoiceEmail: "收票邮箱（必填）",
       invoiceEmailHint: "发票发到这个邮箱，默认使用下单邮箱",
       invoiceEmailRequired: "请填写收票邮箱",
     },
@@ -251,15 +255,19 @@ const I18N = {
       invoiceCancel: "Back",
       invoiceContinue: "Pay now",
       invoiceWarn: "VAT regular invoice only. Checking this adds 10% to the amount you pay (invoice service fee).",
-      invoiceTitle: "Invoice title",
+      invoiceTitle: "Invoice title (required)",
       invoiceTitlePh: "Company or personal name",
       invoiceTitleRequired: "Please enter the invoice title",
+      invoiceTaxNo: "Taxpayer ID (required)",
+      invoiceTaxNoPh: "15–20 letters or digits",
+      invoiceTaxNoRequired: "Please enter the taxpayer ID",
+      invoiceTaxNoInvalid: "Taxpayer ID must be 15–20 letters or digits",
       invoiceNote: "Invoice note",
       invoiceNotePh: "e.g. project name or purpose",
       invoiceNoteRequired: "Please enter an invoice note",
       invoiceAmount: "Invoice amount",
       invoiceAmountHint: (goods: string, fee: string) => `Goods ¥${goods} + 10% invoice fee ¥${fee}`,
-      invoiceEmail: "Invoice email",
+      invoiceEmail: "Invoice email (required)",
       invoiceEmailHint: "The invoice will be sent here. Defaults to your order email.",
       invoiceEmailRequired: "Please enter an invoice email",
     },
@@ -503,6 +511,7 @@ export function AgentStorefront({
   const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [wantInvoice, setWantInvoice] = useState(false);
   const [invoiceTitle, setInvoiceTitle] = useState("");
+  const [invoiceTaxNo, setInvoiceTaxNo] = useState("");
   const [invoiceNote, setInvoiceNote] = useState("");
   const [invoiceEmail, setInvoiceEmail] = useState("");
   const [invoiceEmailTouched, setInvoiceEmailTouched] = useState(false);
@@ -657,6 +666,7 @@ export function AgentStorefront({
     setCouponQuote(null);
     setCouponError("");
     setInvoiceTitle("");
+    setInvoiceTaxNo("");
     setInvoiceNote("");
     setInvoiceEmailTouched(false);
     setInvoiceEmail(buyerEmail);
@@ -714,6 +724,7 @@ export function AgentStorefront({
     setBuyError("");
     setWantInvoice(false);
     setInvoiceTitle("");
+    setInvoiceTaxNo("");
     setInvoiceNote("");
     setInvoiceEmailTouched(false);
     setInvoiceEmail(buyerEmail);
@@ -733,11 +744,20 @@ export function AgentStorefront({
         setBuyError(t.detail.invoiceTitleRequired);
         return;
       }
+      const taxNo = invoiceTaxNo.trim().toUpperCase();
+      if (!taxNo) {
+        setBuyError(t.detail.invoiceTaxNoRequired);
+        return;
+      }
+      if (!/^[0-9A-Z]{15,20}$/.test(taxNo)) {
+        setBuyError(t.detail.invoiceTaxNoInvalid);
+        return;
+      }
       if (!invoiceNote.trim()) {
         setBuyError(t.detail.invoiceNoteRequired);
         return;
       }
-      if (!(invoiceEmail.trim() || email)) {
+      if (!invoiceEmail.trim()) {
         setBuyError(t.detail.invoiceEmailRequired);
         return;
       }
@@ -774,8 +794,9 @@ export function AgentStorefront({
             quantity: qty,
             invoiceRequested: wantInvoice,
             invoiceTitle: wantInvoice ? invoiceTitle.trim() : undefined,
+            invoiceTaxNo: wantInvoice ? invoiceTaxNo.trim() : undefined,
             invoiceNote: wantInvoice ? invoiceNote.trim() : undefined,
-            invoiceEmail: wantInvoice ? (invoiceEmail.trim() || email) : undefined,
+            invoiceEmail: wantInvoice ? invoiceEmail.trim() : undefined,
             couponCode: couponCode.trim() || undefined,
           }),
         }),
@@ -1449,6 +1470,17 @@ export function AgentStorefront({
                   onChange={(event) => setInvoiceTitle(event.target.value)}
                   placeholder={t.detail.invoiceTitlePh}
                   maxLength={120}
+                  required
+                />
+                <p className="km-sf-field-label">{t.detail.invoiceTaxNo}</p>
+                <input
+                  className="km-input"
+                  value={invoiceTaxNo}
+                  onChange={(event) => setInvoiceTaxNo(event.target.value)}
+                  placeholder={t.detail.invoiceTaxNoPh}
+                  maxLength={20}
+                  autoCapitalize="characters"
+                  required
                 />
                 <p className="km-sf-field-label">{t.detail.invoiceNote}</p>
                 <input
@@ -1479,6 +1511,7 @@ export function AgentStorefront({
                     setInvoiceEmail(event.target.value);
                   }}
                   placeholder={t.queryPlaceholder}
+                  required
                 />
                 <p className="km-sf-modal-hint">{t.detail.invoiceEmailHint}</p>
               </div>

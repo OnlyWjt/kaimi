@@ -91,39 +91,70 @@ describe("normalizeInvoiceRequest", () => {
         note: "备注",
         email: "a@b.com",
       }),
-    ).toEqual({ requested: false, title: "", note: "", email: "" });
+    ).toEqual({ requested: false, title: "", taxNo: "", note: "", email: "" });
   });
 
-  it("勾选后收票邮箱可回落到下单邮箱", () => {
+  it("抬头、税号和收票邮箱都要单独填写", () => {
     expect(
       normalizeInvoiceRequest({
         requested: true,
         title: "某某公司",
+        taxNo: " 91310000ma1fl2xw3r ",
         note: "项目 A",
-        fallbackEmail: "Buyer@Example.com",
+        email: "Buyer@Example.com",
+        fallbackEmail: "other@example.com",
       }),
     ).toEqual({
       requested: true,
       title: "某某公司",
+      taxNo: "91310000MA1FL2XW3R",
       note: "项目 A",
       email: "buyer@example.com",
     });
   });
 
-  it("缺抬头或备注就拒绝", () => {
+  it("缺抬头、税号、备注或收票邮箱就拒绝", () => {
     expect(() =>
       normalizeInvoiceRequest({
         requested: true,
+        taxNo: "91310000MA1FL2XW3R",
         note: "备注",
-        fallbackEmail: "a@b.com",
+        email: "a@b.com",
       }),
     ).toThrow("请填写发票抬头");
     expect(() =>
       normalizeInvoiceRequest({
         requested: true,
         title: "某某公司",
-        fallbackEmail: "a@b.com",
+        note: "备注",
+        email: "a@b.com",
+      }),
+    ).toThrow("请填写纳税人识别号");
+    expect(() =>
+      normalizeInvoiceRequest({
+        requested: true,
+        title: "某某公司",
+        taxNo: "123",
+        note: "备注",
+        email: "a@b.com",
+      }),
+    ).toThrow("纳税人识别号须为 15–20 位字母或数字");
+    expect(() =>
+      normalizeInvoiceRequest({
+        requested: true,
+        title: "某某公司",
+        taxNo: "91310000MA1FL2XW3R",
+        email: "a@b.com",
       }),
     ).toThrow("请填写发票备注");
+    expect(() =>
+      normalizeInvoiceRequest({
+        requested: true,
+        title: "某某公司",
+        taxNo: "91310000MA1FL2XW3R",
+        note: "备注",
+        fallbackEmail: "a@b.com",
+      }),
+    ).toThrow("请填写有效收票邮箱");
   });
 });

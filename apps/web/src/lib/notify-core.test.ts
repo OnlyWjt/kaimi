@@ -47,6 +47,7 @@ describe("formatStorePaidText", () => {
     quantity: 1,
     invoice: {
       title: "某某科技有限公司",
+      taxNo: "91310000MA1FL2XW3R",
       note: "项目 A",
       amountCents: 16500,
       email: "finance@example.com",
@@ -64,6 +65,7 @@ describe("formatStorePaidText", () => {
         "支付渠道：微信",
         "套餐：Pro",
         "抬头：某某科技有限公司",
+        "税号：91310000MA1FL2XW3R",
         "备注：项目 A",
         "开票金额：¥165.00",
         "收票邮箱：finance@example.com",

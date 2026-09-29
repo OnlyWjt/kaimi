@@ -233,6 +233,7 @@ CREATE TABLE IF NOT EXISTS store_orders (
   agent_cost_total_cents INTEGER NOT NULL DEFAULT 0,
   invoice_requested INTEGER NOT NULL DEFAULT 0,
   invoice_title TEXT NOT NULL DEFAULT '',
+  invoice_tax_no TEXT NOT NULL DEFAULT '',
   invoice_note TEXT NOT NULL DEFAULT '',
   invoice_email TEXT NOT NULL DEFAULT '',
   invoice_amount_cents INTEGER NOT NULL DEFAULT 0,
@@ -860,6 +861,9 @@ export async function ensureSchema() {
   );
   await addColumn(
     "ALTER TABLE store_orders ADD COLUMN invoice_title TEXT NOT NULL DEFAULT ''",
+  );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN invoice_tax_no TEXT NOT NULL DEFAULT ''",
   );
   await addColumn(
     "ALTER TABLE store_orders ADD COLUMN invoice_note TEXT NOT NULL DEFAULT ''",

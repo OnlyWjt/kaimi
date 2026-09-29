@@ -215,6 +215,7 @@ export async function createStoreOrder(input: {
   couponCode?: string;
   invoiceRequested?: boolean;
   invoiceTitle?: string;
+  invoiceTaxNo?: string;
   invoiceNote?: string;
   invoiceEmail?: string;
 }) {
@@ -239,9 +240,9 @@ export async function createStoreOrder(input: {
   const invoice = normalizeInvoiceRequest({
     requested: input.invoiceRequested,
     title: input.invoiceTitle,
+    taxNo: input.invoiceTaxNo,
     note: input.invoiceNote,
     email: input.invoiceEmail,
-    fallbackEmail: input.customerEmail,
   });
   const invoiceQuote = invoice.requested
     ? quoteStorePayment({
@@ -297,6 +298,7 @@ export async function createStoreOrder(input: {
         platformProfitCents: ledger.platformProfitCents,
         invoiceRequested: invoice.requested,
         invoiceTitle: invoice.title,
+        invoiceTaxNo: invoice.taxNo,
         invoiceNote: invoice.note,
         invoiceEmail: invoice.email,
         invoiceAmountCents: invoice.requested ? invoiceQuote.payCents : 0,

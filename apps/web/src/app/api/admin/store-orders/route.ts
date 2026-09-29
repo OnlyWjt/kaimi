@@ -35,6 +35,7 @@ export async function GET(req: Request) {
       like(storeOrders.productNameSnapshot, pattern),
       like(storeOrders.planKeySnapshot, pattern),
       like(storeOrders.invoiceTitle, pattern),
+      like(storeOrders.invoiceTaxNo, pattern),
       like(storeOrders.invoiceEmail, pattern),
       like(agents.displayName, pattern),
     );
@@ -85,6 +86,7 @@ export async function GET(req: Request) {
       lastErrorMessage: storeOrders.lastErrorMessage,
       invoiceRequested: storeOrders.invoiceRequested,
       invoiceTitle: storeOrders.invoiceTitle,
+      invoiceTaxNo: storeOrders.invoiceTaxNo,
       invoiceNote: storeOrders.invoiceNote,
       invoiceEmail: storeOrders.invoiceEmail,
       invoiceAmountCents: storeOrders.invoiceAmountCents,

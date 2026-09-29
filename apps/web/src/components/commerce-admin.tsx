@@ -52,6 +52,7 @@ type StoreOrder = {
   lastErrorMessage: string;
   invoiceRequested?: boolean;
   invoiceTitle?: string;
+  invoiceTaxNo?: string;
   invoiceNote?: string;
   invoiceEmail?: string;
   invoiceAmountCents?: number;
@@ -907,6 +908,7 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
                           {((order.invoiceAmountCents || order.grossCents) / 100).toFixed(2)}
                           {order.invoiceTitle ? ` · ${order.invoiceTitle}` : ""}
                         </div>
+                        {order.invoiceTaxNo ? <div>税号 {order.invoiceTaxNo}</div> : null}
                         {order.invoiceNote ? <div>备注 {order.invoiceNote}</div> : null}
                         {order.invoiceEmail ? <div>邮箱 {order.invoiceEmail}</div> : null}
                       </div>
