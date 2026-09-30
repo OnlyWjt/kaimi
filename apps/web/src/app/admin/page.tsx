@@ -12,6 +12,7 @@ import { AdminOrderTimeline } from "@/components/admin-order-timeline";
 import { CardIntegration } from "@/components/card-integration";
 import { CardSelectionConfig } from "@/components/card-selection-config";
 import { AdminEarningsStats } from "@/components/admin-earnings-stats";
+import { AdminAgentDraw } from "@/components/admin-agent-draw";
 import { AdminUsageStats } from "@/components/admin-usage-stats";
 import { CommerceAdmin } from "@/components/commerce-admin";
 import { FinishedAccountsAdmin } from "@/components/finished-accounts-admin";
@@ -32,6 +33,7 @@ type Tab =
   | "guard"
   | "apikeys"
   | "announcements"
+  | "draw"
   | "earnings"
   | "usage"
   | "appearance"
@@ -104,6 +106,7 @@ const HASH_TABS: Tab[] = [
   "guard",
   "apikeys",
   "announcements",
+  "draw",
   "earnings",
   "usage",
   "appearance",
@@ -267,6 +270,7 @@ export default function AdminPage() {
         ["guard", "兑换拦截"],
         ["apikeys", "开放 API"],
         ["announcements", "公告"],
+        ["draw", "提卡账本"],
         ["earnings", "收益统计"],
         ["usage", "用量统计"],
         ["appearance", "外观"],
@@ -1085,6 +1089,8 @@ export default function AdminPage() {
         {tab === "apikeys" ? <AdminApiKeys /> : null}
 
         {tab === "announcements" ? <AdminAnnouncements /> : null}
+
+        {tab === "draw" ? <AdminAgentDraw /> : null}
 
         {tab === "earnings" ? <AdminEarningsStats /> : null}
 

@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ApplyTheme } from "@/components/apply-theme";
 import { readApiJson } from "@/lib/http-error";
+import { RegionBadge } from "@/components/region-badge";
+import { regionDisplay } from "@/lib/cardplatform/regions";
 import { invoiceSurchargeCents } from "@/lib/invoice-core";
 import { yuanTextFromCents } from "@/lib/money";
 import { publicStatusLabel } from "@/lib/status-labels";
@@ -32,6 +34,8 @@ type EmailOrder = {
   payStatus: string;
   fulfillStatus: string;
   queryToken: string;
+  paymentCountry?: string | null;
+  regionLabel?: string | null;
 };
 
 function productAvailable(product: StorefrontProduct) {
@@ -132,6 +136,9 @@ const I18N = {
     buyNow: "立即购买",
     empty: "当前暂无可售套餐",
     allCategory: "全部",
+    allRegions: "全部地区",
+    regionEmpty: "这个地区暂时没有在售商品",
+    seeAllRegions: "看全部地区",
     detail: {
       crumbHome: "首页",
       crumbProducts: "商品中心",
@@ -159,6 +166,14 @@ const I18N = {
       couponOff: (amount: string) => `已减 ¥${amount}`,
       couponWas: (amount: string) => `原价 ¥${amount}`,
       pay: "立即购买",
+      chooseRegion: "选择付款地区",
+      regionWarn: (region: string) =>
+        `你选的是【${region}】卡密。付款地区在出卡时写进卡密，兑换时按该地区结账，买错不能换区。不确定选哪个，先问店主。`,
+      regionConfirmLabel: (region: string) =>
+        `我已确认购买的是【${region}】卡密，买错不能换区`,
+      regionConfirmRequired: "请先确认付款地区",
+      regionBanner: (region: string) => `兑换时按${region}结账，付款后不能换区、不能退换`,
+      regionSwitched: (from: string, to: string) => `${from}暂停销售，已为你切到${to}`,
       payBusy: "正在创建订单…",
       previewNote: "预览模式不会真的下单",
       infoTitle: "详细资讯",
@@ -217,6 +232,9 @@ const I18N = {
     buyNow: "Buy now",
     empty: "No plans available right now",
     allCategory: "All",
+    allRegions: "All regions",
+    regionEmpty: "Nothing on sale in this region right now",
+    seeAllRegions: "See all regions",
     detail: {
       crumbHome: "Home",
       crumbProducts: "Products",
@@ -244,6 +262,15 @@ const I18N = {
       couponOff: (amount: string) => `−¥${amount}`,
       couponWas: (amount: string) => `Was ¥${amount}`,
       pay: "Buy now",
+      chooseRegion: "Choose payment region",
+      regionWarn: (region: string) =>
+        `This is a ${region} code. The payment region is fixed when the code is issued and used at redemption. It can't be changed after purchase.`,
+      regionConfirmLabel: (region: string) =>
+        `I confirm this is a ${region} code and the region can't be changed`,
+      regionConfirmRequired: "Please confirm the payment region first",
+      regionBanner: (region: string) =>
+        `Redeemed as ${region}. Region can't be changed or refunded after payment.`,
+      regionSwitched: (from: string, to: string) => `${from} is paused. Switched to ${to}.`,
       payBusy: "Creating order…",
       previewNote: "Preview mode does not place real orders",
       infoTitle: "Details",
@@ -493,6 +520,8 @@ export function AgentStorefront({
   const [lang, setLang] = useState<Lang>(config.defaultLang);
   const [nav, setNav] = useState<"home" | "products" | "query" | "contact">("home");
   const [filter, setFilter] = useState("all");
+  const [regionFilter, setRegionFilter] = useState("");
+  const [regionSwitchNote, setRegionSwitchNote] = useState("");
   const [keyword, setKeyword] = useState("");
 
   const [queryEmail, setQueryEmail] = useState("");
@@ -508,6 +537,7 @@ export function AgentStorefront({
   const [channel, setChannel] = useState<Channel>(channels[0] || "alipay");
   const [buyBusy, setBuyBusy] = useState(false);
   const [buyError, setBuyError] = useState("");
+  const [regionConfirmed, setRegionConfirmed] = useState(false);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [wantInvoice, setWantInvoice] = useState(false);
   const [invoiceTitle, setInvoiceTitle] = useState("");
@@ -545,18 +575,34 @@ export function AgentStorefront({
     categories.length > 1 ||
     (categories.length === 1 && products.some((item) => item.category === "all"));
 
+  const regionOptions = useMemo(() => {
+    const seen = new Map<string, { country: string; code: string; zh: string; en: string }>();
+    for (const product of products) {
+      for (const spec of product.specs) {
+        if (!spec.region) continue;
+        const key = spec.region.code.toLowerCase();
+        if (!seen.has(key)) seen.set(key, spec.region);
+      }
+    }
+    return [...seen.values()];
+  }, [products]);
+  const showRegions = regionOptions.length >= 2;
+
   const visible = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     return products.filter((item) => {
       const inCategory = filter === "all" || item.category === filter;
+      const inRegion =
+        !regionFilter ||
+        item.specs.some((spec) => spec.region?.code.toLowerCase() === regionFilter);
       const inKeyword =
         !kw ||
         item.name.zh.toLowerCase().includes(kw) ||
         item.name.en.toLowerCase().includes(kw) ||
         item.desc.zh.toLowerCase().includes(kw);
-      return inCategory && inKeyword;
+      return inCategory && inRegion && inKeyword;
     });
-  }, [products, filter, keyword]);
+  }, [products, filter, keyword, regionFilter]);
 
   const activeSpec = active?.specs.find((spec) => spec.id === specId) ?? active?.specs[0] ?? null;
   const listGoodsCents = activeSpec ? activeSpec.priceCents * qty : 0;
@@ -583,7 +629,45 @@ export function AgentStorefront({
     } catch {
       /* sessionStorage 不可用时忽略 */
     }
-  }, []);
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = (params.get("region") || "").trim().toLowerCase();
+    let stored = "";
+    try {
+      stored = window.localStorage.getItem(`km-sf-region:${slug}`) || "";
+    } catch {
+      stored = "";
+    }
+    const initial = fromUrl || stored;
+    if (initial && products.some((product) => product.specs.some((spec) => spec.region?.code.toLowerCase() === initial))) {
+      setRegionFilter(initial);
+    }
+    const plan = (params.get("plan") || "").trim();
+    if (!plan) return;
+    const product = products.find(
+      (item) => item.id === plan || item.specs.some((spec) => spec.id === plan),
+    );
+    if (!product) return;
+    const spec = product.specs.find((item) => item.id === plan);
+    setActive(product);
+    setNav("products");
+    if (spec) {
+      setSpecId(spec.id);
+      return;
+    }
+    const fallback = product.specs.find((item) => item.region?.code === "PH") ?? product.specs[0];
+    setSpecId(fallback?.id ?? "");
+    const missing = regionDisplay(plan.includes(":") ? plan.split(":")[1] : "");
+    const landed = fallback?.region;
+    const useEn = config.defaultLang === "en";
+    if (landed) {
+      setRegionSwitchNote(
+        I18N[config.defaultLang].detail.regionSwitched(
+          useEn ? missing.en : missing.zh,
+          useEn ? landed.en : landed.zh,
+        ),
+      );
+    }
+  }, [products, slug, config.defaultLang]);
 
   useEffect(() => {
     if (!invoiceEmailTouched) setInvoiceEmail(buyerEmail);
@@ -655,10 +739,45 @@ export function AgentStorefront({
     });
   }
 
+  function chooseRegion(code: string) {
+    setRegionFilter(code);
+    const key = `km-sf-region:${slug || "preview"}`;
+    try {
+      if (code) window.localStorage.setItem(key, code);
+      else window.localStorage.removeItem(key);
+    } catch {
+      /* 记住失败不影响筛选 */
+    }
+    const url = new URL(window.location.href);
+    if (code) url.searchParams.set("region", code);
+    else url.searchParams.delete("region");
+    window.history.replaceState(null, "", url);
+  }
+
+  function specForProduct(product: StorefrontProduct, preferred = "") {
+    if (preferred) {
+      const exact = product.specs.find((spec) => spec.id === preferred);
+      if (exact) return exact.id;
+    }
+    if (regionFilter) {
+      const matched = product.specs.find(
+        (spec) => spec.region?.code.toLowerCase() === regionFilter,
+      );
+      if (matched) return matched.id;
+    }
+    return (
+      product.specs.find((spec) => spec.region?.code === "PH")?.id ??
+      product.specs[0]?.id ??
+      ""
+    );
+  }
+
   function openProduct(product: StorefrontProduct) {
     setActive(product);
-    setSpecId(product.specs[0]?.id ?? "");
+    setSpecId(specForProduct(product));
     setQty(1);
+    setRegionSwitchNote("");
+    setRegionConfirmed(false);
     setBuyError("");
     setInvoiceOpen(false);
     setWantInvoice(false);
@@ -766,6 +885,11 @@ export function AgentStorefront({
       setBuyError(t.detail.channelEmpty);
       return;
     }
+    const regionChoices = (active?.specs ?? []).filter((spec) => spec.region).length;
+    if (regionChoices >= 2 && !regionConfirmed) {
+      setBuyError(t.detail.regionConfirmRequired);
+      return;
+    }
     if (couponCode.trim() && (couponChecking || couponError || !couponQuote)) {
       setBuyError(couponError || t.detail.couponChecking);
       return;
@@ -798,6 +922,7 @@ export function AgentStorefront({
             invoiceNote: wantInvoice ? invoiceNote.trim() : undefined,
             invoiceEmail: wantInvoice ? invoiceEmail.trim() : undefined,
             couponCode: couponCode.trim() || undefined,
+            regionConfirmed: regionChoices >= 2 ? regionConfirmed : undefined,
           }),
         }),
       );
@@ -997,6 +1122,12 @@ export function AgentStorefront({
                         >
                           <span className="min-w-0">
                             <strong>{order.productName}</strong>
+                            {order.paymentCountry !== null && order.paymentCountry !== undefined ? (
+                              <RegionBadge
+                                country={order.paymentCountry}
+                                regionLabel={order.regionLabel || ""}
+                              />
+                            ) : null}
                             <span className="km-sf-order-status">
                               {orderStatusText(order)}
                               {(order.quantity || 1) > 1 ? ` · ${order.quantity} 张` : ""}
@@ -1074,10 +1205,39 @@ export function AgentStorefront({
                 </div>
               ) : null}
 
+              {showRegions ? (
+                <div className="km-sf-filters" role="tablist" aria-label={t.allRegions}>
+                  <button
+                    type="button"
+                    className={`km-sf-cat${regionFilter === "" ? " km-sf-cat-active" : ""}`}
+                    onClick={() => chooseRegion("")}
+                  >
+                    {t.allRegions}
+                  </button>
+                  {regionOptions.map((region) => (
+                    <button
+                      key={region.code}
+                      type="button"
+                      className={`km-sf-cat${regionFilter === region.code.toLowerCase() ? " km-sf-cat-active" : ""}`}
+                      onClick={() => chooseRegion(region.code.toLowerCase())}
+                    >
+                      <RegionBadge country={region.country} regionLabel={region.zh} compact={lang === "en"} />
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
               {visible.length ? (
                 <div className="km-sf-grid2">
                   {visible.map((product) => {
-                    const minCents = Math.min(...product.specs.map((spec) => spec.priceCents));
+                    const matched = regionFilter
+                      ? product.specs.find((spec) => spec.region?.code.toLowerCase() === regionFilter)
+                      : null;
+                    const minCents = matched
+                      ? matched.priceCents
+                      : Math.min(...product.specs.map((spec) => spec.priceCents));
+                    const badges = product.specs.filter((spec) => spec.region);
+                    const shownBadges = matched ? badges.filter((spec) => spec.id === matched.id) : badges;
                     return (
                       <button
                         key={product.id}
@@ -1110,9 +1270,21 @@ export function AgentStorefront({
                             </span>
                           </div>
                           <h3 className="km-sf-card2-title">{pickText(product.name, lang)}</h3>
+                          {shownBadges.length ? (
+                            <span style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                              {shownBadges.slice(0, 4).map((spec) => (
+                                <RegionBadge
+                                  key={spec.id}
+                                  country={spec.region?.country || ""}
+                                  regionLabel={spec.region?.zh}
+                                  compact
+                                />
+                              ))}
+                            </span>
+                          ) : null}
                           <div className="km-sf-card2-foot">
                             <span className="km-sf-price2">
-                              {product.specs.length > 1
+                              {!matched && product.specs.length > 1
                                 ? t.priceFrom(yuanTextFromCents(minCents))
                                 : `¥${yuanTextFromCents(minCents)}`}
                             </span>
@@ -1125,6 +1297,13 @@ export function AgentStorefront({
                       </button>
                     );
                   })}
+                </div>
+              ) : regionFilter ? (
+                <div className="km-sf-empty">
+                  <p>{t.regionEmpty}</p>
+                  <button type="button" className="km-btn" onClick={() => chooseRegion("")}>
+                    {t.seeAllRegions}
+                  </button>
                 </div>
               ) : (
                 <p className="km-sf-empty">{t.empty}</p>
@@ -1206,7 +1385,11 @@ export function AgentStorefront({
 
                 {active.specs.length ? (
                   <>
-                    <p className="km-sf-field-label">{t.detail.chooseSpec}</p>
+                    <p className="km-sf-field-label">
+                      {active.specs.every((spec) => spec.region)
+                        ? t.detail.chooseRegion
+                        : t.detail.chooseSpec}
+                    </p>
                     <div className="km-sf-spec-list">
                       {active.specs.map((spec) => {
                         const selected = spec.id === activeSpec.id;
@@ -1219,10 +1402,17 @@ export function AgentStorefront({
                             onClick={() => {
                               setSpecId(spec.id);
                               setQty(1);
+                              setRegionConfirmed(false);
                             }}
                           >
                             <span className="km-sf-spec-row-main">
-                              <span className="km-sf-spec-row-name">{pickText(spec.name, lang)}</span>
+                              <span className="km-sf-spec-row-name">
+                                {spec.region ? (
+                                  <RegionBadge country={spec.region.country} regionLabel={spec.region.zh} size="md" />
+                                ) : (
+                                  pickText(spec.name, lang)
+                                )}
+                              </span>
                               <span className="km-sf-spec-row-stock">
                                 {active && !productAvailable(active)
                                   ? t.detail.restocking
@@ -1249,6 +1439,14 @@ export function AgentStorefront({
                       })}
                     </div>
                   </>
+                ) : null}
+
+                {regionSwitchNote ? <p className="km-sf-modal-hint">{regionSwitchNote}</p> : null}
+                {active.specs.filter((spec) => spec.region).length >= 2 && activeSpec?.region ? (
+                  <p className="km-sf-modal-hint">
+                    {t.detail.regionWarn(pickText({ zh: activeSpec.region.zh, en: activeSpec.region.en }, lang))}
+                    {activeSpec.region.note ? ` ${activeSpec.region.note}` : ""}
+                  </p>
                 ) : null}
 
                 <div className="km-sf-buybox">
@@ -1341,6 +1539,26 @@ export function AgentStorefront({
                     </p>
                   ) : null}
 
+                  {(active?.specs ?? []).filter((spec) => spec.region).length >= 2 &&
+                  activeSpec?.region ? (
+                    <label className="km-sf-modal-hint" style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                      <input
+                        type="checkbox"
+                        checked={regionConfirmed}
+                        onChange={(event) => setRegionConfirmed(event.target.checked)}
+                        style={{ marginTop: 3 }}
+                      />
+                      <span>
+                        <b>
+                          <RegionBadge country={activeSpec.region.country} regionLabel={activeSpec.region.zh} size="md" />
+                        </b>{" "}
+                        {t.detail.regionBanner(pickText({ zh: activeSpec.region.zh, en: activeSpec.region.en }, lang))}
+                        <br />
+                        {t.detail.regionConfirmLabel(pickText({ zh: activeSpec.region.zh, en: activeSpec.region.en }, lang))}
+                      </span>
+                    </label>
+                  ) : null}
+
                   {buyError ? <p className="km-sf-error">{buyError}</p> : null}
                   {active && !productAvailable(active) ? (
                     <p className="km-sf-modal-hint">{t.detail.restockingHint}</p>
@@ -1358,7 +1576,7 @@ export function AgentStorefront({
                       ? t.detail.payBusy
                       : active && !productAvailable(active)
                         ? t.restocking
-                        : `${t.detail.pay} · ¥${yuanTextFromCents(goodsCents)}`}
+                        : `${activeSpec?.region ? `${pickText({ zh: activeSpec.region.zh, en: activeSpec.region.en }, lang)} · ` : ""}${t.detail.pay} · ¥${yuanTextFromCents(goodsCents)}`}
                   </button>
 
                   <p className="km-sf-secure">

@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import {
   agentPlanPrices,
@@ -26,6 +26,12 @@ import {
 } from "@/lib/invoice-core";
 import { computeOrderLedger } from "@/lib/order-ledger-core";
 import { isLocalAccountPlan } from "@/lib/finished-account-core";
+import { accountSupportsPaymentCountry } from "@/lib/cardplatform/issue-target";
+import {
+  groupPlansByBase,
+  planNameWithRegion,
+  regionConfirmationRequired,
+} from "@/lib/cardplatform/regions";
 import { countUnusedFinishedAccounts } from "@/lib/finished-accounts";
 import {
   applyCheckoutCoupon,
@@ -64,6 +70,11 @@ async function resolveStoreCheckout(input: {
     .select({
       planId: platformPlans.id,
       planKey: platformPlans.planKey,
+      basePlanKey: platformPlans.basePlanKey,
+      upstreamPlanKey: platformPlans.upstreamPlanKey,
+      paymentCountry: platformPlans.paymentCountry,
+      regionLabel: platformPlans.regionLabel,
+      regionCapable: platformPlans.regionCapable,
       name: platformPlans.name,
       globalCostPriceCents: platformPlans.globalCostPriceCents,
       upstreamCostCents: platformPlans.upstreamCostCents,
@@ -97,6 +108,15 @@ async function resolveStoreCheckout(input: {
     throw new Error("这个套餐现在买不了，换一个或联系店主。");
   }
 
+  // 地区变体必须由支持付款地区的卡台发。同步到下单之间默认账户可能换成了不支持的协议。
+  if (offer.paymentCountry && !localAccount) {
+    const account = await getDefaultCardplatformAccount();
+    const supported = !account || accountSupportsPaymentCountry(account);
+    if (!supported) {
+      unavailable(`默认卡台账户不支持付款地区 ${offer.paymentCountry}`);
+    }
+  }
+
   const costCents = offer.costOverrideCents ?? offer.globalCostPriceCents;
   if (costCents <= 0 || offer.retailPriceCents < costCents) {
     unavailable(
@@ -106,11 +126,18 @@ async function resolveStoreCheckout(input: {
   const storefront = await db.query.agentStorefronts.findFirst({
     where: eq(agentStorefronts.agentId, agent.id),
   });
-  const displayName = resolveProductName(
-    offer.planKey,
+  const baseName = resolveProductName(
+    offer.basePlanKey || offer.planKey,
     offer.name,
     rowToSettings(storefront).productNames,
   ).zh;
+  const displayName = planNameWithRegion(
+    baseName,
+    offer.regionCapable,
+    offer.paymentCountry,
+    offer.regionLabel,
+    "paren",
+  );
   const channelConfig = await db.query.paymentChannelConfigs.findFirst({
     where: and(
       eq(paymentChannelConfigs.channel, input.channel),
@@ -218,12 +245,43 @@ export async function createStoreOrder(input: {
   invoiceTaxNo?: string;
   invoiceNote?: string;
   invoiceEmail?: string;
+  /** 商品组内有两个及以上在售地区时必须为 true。 */
+  regionConfirmed?: boolean;
 }) {
   await assertStoreSalesOpen();
   const priced = await quoteCheckoutAmounts(input);
   const { checkout, coupon, listGoodsCents, discountCents, quote } = priced;
   const { agent, offer, localAccount, quantity, costCents, displayName, channelConfig } =
     checkout;
+
+  if (offer.regionCapable) {
+    const siblings = await db
+      .select({
+        planKey: platformPlans.planKey,
+        basePlanKey: platformPlans.basePlanKey,
+        name: platformPlans.name,
+        paymentCountry: platformPlans.paymentCountry,
+        regionLabel: platformPlans.regionLabel,
+        regionCapable: platformPlans.regionCapable,
+        sortOrder: platformPlans.sortOrder,
+      })
+      .from(agentPlanPrices)
+      .innerJoin(platformPlans, eq(platformPlans.id, agentPlanPrices.planId))
+      .where(
+        and(
+          eq(agentPlanPrices.agentId, agent.id),
+          eq(agentPlanPrices.enabled, true),
+          eq(platformPlans.enabled, true),
+          eq(platformPlans.cardplatformSellable, true),
+        ),
+      );
+    const group = groupPlansByBase(siblings).find(
+      (item) => item.baseKey === (offer.basePlanKey || offer.planKey),
+    );
+    if (regionConfirmationRequired(group?.plans.length ?? 1) && input.regionConfirmed !== true) {
+      throw new Error("请确认付款地区");
+    }
+  }
 
   const cardplatform = localAccount ? null : await getDefaultCardplatformAccount();
   if (!localAccount && !cardplatform) unavailable("没有可用的卡台账户");
@@ -278,6 +336,8 @@ export async function createStoreOrder(input: {
         agentId: agent.id,
         planId: offer.planId,
         planKeySnapshot: offer.planKey,
+        upstreamPlanKeySnapshot: offer.upstreamPlanKey || offer.planKey,
+        paymentCountrySnapshot: offer.paymentCountry,
         productNameSnapshot: displayName,
         quantity,
         retailPriceCents: offer.retailPriceCents,
@@ -370,7 +430,21 @@ export async function listStoreOrdersByEmail(input: {
     orderBy: [desc(storeOrders.id)],
     limit: 20,
   });
-  return rows.map((order) => ({
+  const planKeys = [...new Set(rows.map((order) => order.planKeySnapshot))];
+  const planRows = planKeys.length
+    ? await db
+        .select({
+          planKey: platformPlans.planKey,
+          regionCapable: platformPlans.regionCapable,
+          regionLabel: platformPlans.regionLabel,
+        })
+        .from(platformPlans)
+        .where(inArray(platformPlans.planKey, planKeys))
+    : [];
+  const planByKey = new Map(planRows.map((plan) => [plan.planKey, plan]));
+  return rows.map((order) => {
+    const plan = planByKey.get(order.planKeySnapshot);
+    return {
     orderNo: order.orderNo,
     productName: order.productNameSnapshot,
     quantity: order.quantity,
@@ -378,8 +452,11 @@ export async function listStoreOrdersByEmail(input: {
     payStatus: order.payStatus,
     fulfillStatus: order.fulfillStatus,
     createdAt: order.createdAt,
+    paymentCountry: plan?.regionCapable ? order.paymentCountrySnapshot : null,
+    regionLabel: plan?.regionCapable ? plan.regionLabel : null,
     queryToken: order.queryTokenEncrypted
       ? decryptSecret(order.queryTokenEncrypted)
       : "",
-  }));
+    };
+  });
 }

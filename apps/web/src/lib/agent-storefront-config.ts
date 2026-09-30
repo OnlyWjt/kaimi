@@ -335,6 +335,14 @@ export type StorefrontSpec = {
   priceCents: number;
   auto: boolean;
   stock: number | null;
+  /** 有地区概念的套餐才带。country 空串 = 菲区。 */
+  region?: {
+    country: string;
+    code: string;
+    zh: string;
+    en: string;
+    note: string;
+  };
 };
 
 export type DetailLine = {
@@ -407,9 +415,9 @@ const PLAN_COVERS: Record<string, string> = {
   finished_gpt: "/storefront/cover-plus.png?v=8",
 };
 
-/** 按套餐键匹配带标识的封面；没对上再按名字兜底 Claude / Grok。 */
-export function coverFromPlan(name: string, planKey: string): string {
-  const keyed = PLAN_COVERS[planKey];
+/** 按套餐键匹配带标识的封面；地区变体回退到基础套餐的封面；没对上再按名字兜底 Claude / Grok。 */
+export function coverFromPlan(name: string, planKey: string, basePlanKey = ""): string {
+  const keyed = PLAN_COVERS[planKey] || (basePlanKey ? PLAN_COVERS[basePlanKey] : "");
   if (keyed) return keyed;
   const hay = `${name} ${planKey}`.toLowerCase();
   if (/\bgrok\b|xai/.test(hay)) return "/storefront/cover-grok.png?v=2";
@@ -422,8 +430,9 @@ export function resolvePlanCover(
   custom: string | null | undefined,
   name: string,
   planKey: string,
+  basePlanKey = "",
 ) {
-  return normalizeStoredCoverUrl(custom) || coverFromPlan(name, planKey);
+  return normalizeStoredCoverUrl(custom) || coverFromPlan(name, planKey, basePlanKey);
 }
 
 /** 用套餐键算一个稳定色相，同一套餐每次刷新颜色不变 */
@@ -444,7 +453,61 @@ export type SellablePlan = {
   category?: string;
   fulfillmentKind?: string;
   available?: boolean;
+  basePlanKey?: string;
+  paymentCountry?: string;
+  regionLabel?: string;
+  regionCapable?: boolean;
+  regionNote?: string;
+  sortOrder?: number;
 };
+
+import { groupPlansByBase, regionDisplay } from "./cardplatform/regions";
+
+/**
+ * 平台套餐 → 前台商品。同一基础套餐的各地区合并成一个商品，地区是规格。
+ * 商品名、封面、分类取组内菲区行；没有菲区行时取排序第一行。
+ */
+export function plansToProducts(
+  plans: SellablePlan[],
+  names: Record<string, LocalText> = {},
+  covers: Record<string, string | null | undefined> = {},
+): StorefrontProduct[] {
+  const groups = groupPlansByBase(
+    plans.map((plan) => ({
+      ...plan,
+      basePlanKey: plan.basePlanKey || "",
+      paymentCountry: plan.paymentCountry || "",
+      regionLabel: plan.regionLabel || "",
+      regionCapable: Boolean(plan.regionCapable),
+      sortOrder: plan.sortOrder ?? 0,
+    })),
+  );
+  return groups.map((group) => {
+    const product = planToProduct(
+      group.primary,
+      names,
+      covers[group.baseKey] ?? covers[group.primary.planKey],
+    );
+    product.id = group.baseKey;
+    if (group.plans.length === 1) return product;
+    product.specs = group.plans.map((plan) => {
+      const region = plan.regionCapable
+        ? { ...regionDisplay(plan.paymentCountry, plan.regionLabel), note: plan.regionNote || "" }
+        : undefined;
+      return {
+        id: plan.planKey,
+        name: region
+          ? { zh: region.zh, en: region.en }
+          : { zh: "预设规格", en: "Standard" },
+        priceCents: plan.retailPriceCents,
+        auto: true,
+        stock: null,
+        region,
+      };
+    });
+    return product;
+  });
+}
 
 /** 平台套餐 → 前台商品。一个套餐一个商品、一个规格，下单直接用 planKey */
 export function planToProduct(
@@ -488,7 +551,7 @@ export function planToProduct(
     kind: account ? "account" : "cdk",
     hue: hueFromKey(plan.planKey),
     mark: markFromName(plan.name),
-    cover: resolvePlanCover(coverUrl, plan.name, plan.planKey),
+    cover: resolvePlanCover(coverUrl, plan.name, plan.planKey, plan.basePlanKey),
     specs: [
       {
         id: plan.planKey,

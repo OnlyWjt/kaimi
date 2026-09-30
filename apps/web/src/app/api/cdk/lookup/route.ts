@@ -10,14 +10,20 @@ import { enforceRateLimit } from "@/lib/rate-limit";
 import { isTerminalStatus } from "@/lib/recharge-types";
 import { publicStatusLabel } from "@/lib/status-labels";
 import { findIssuedCdkByCode } from "@/lib/cardplatform/issued-redemption";
+import { planNameWithRegion } from "@/lib/cardplatform/regions";
 
 /** 客户认的是「Plus」这种套餐名，不是 pro_5x 这种内部套餐码。 */
-async function planDisplayName(planKey: string) {
-  if (!planKey) return "";
+async function planDisplay(planKey: string) {
+  if (!planKey) return { name: "", regionCapable: false, regionLabel: "" };
   const plan = await db.query.platformPlans.findFirst({
     where: eq(platformPlans.planKey, planKey),
   });
-  return plan?.name || planKey;
+  if (!plan) return { name: planKey, regionCapable: false, regionLabel: "" };
+  return {
+    name: planNameWithRegion(plan.name, plan.regionCapable, plan.paymentCountry, plan.regionLabel),
+    regionCapable: plan.regionCapable,
+    regionLabel: plan.regionLabel,
+  };
 }
 
 export async function GET(req: Request) {
@@ -48,11 +54,14 @@ export async function GET(req: Request) {
       message = fresh?.message || order?.message || "";
       fulfillStatus = fresh?.fulfillStatus ?? order?.fulfillStatus ?? null;
     }
+    const display = await planDisplay(issued.planKey);
     return NextResponse.json({
       found: true,
       codeMasked: maskCode(issued.code),
       status: publicStatusLabel(issued.status, "cdk"),
-      planName: await planDisplayName(issued.planKey),
+      planName: display.name,
+      paymentCountry: display.regionCapable ? issued.paymentCountry : null,
+      regionLabel: display.regionCapable ? display.regionLabel : null,
       orderNo,
       fulfillStatus: fulfillStatus
         ? publicStatusLabel(fulfillStatus, "fulfill")
@@ -101,7 +110,7 @@ export async function GET(req: Request) {
     found: true,
     codeMasked: maskCode(row.code),
     status: publicStatusLabel(row.status, "cdk"),
-    planName: await planDisplayName(row.planKey),
+    planName: (await planDisplay(row.planKey)).name,
     orderNo,
     fulfillStatus: fulfillStatus
       ? publicStatusLabel(fulfillStatus, "fulfill")

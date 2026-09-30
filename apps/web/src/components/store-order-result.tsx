@@ -7,6 +7,8 @@ import { copyText } from "@/lib/copy-text";
 import { readApiJson } from "@/lib/http-error";
 import { yuanTextFromCents } from "@/lib/money";
 import { publicStatusLabel } from "@/lib/status-labels";
+import { RegionBadge } from "@/components/region-badge";
+import { regionDisplay } from "@/lib/cardplatform/regions";
 import { isExternalRedeemUrl } from "@/lib/agent-redeem-core";
 import { formatFinishedAccountLine } from "@/lib/finished-account-core";
 import {
@@ -30,6 +32,9 @@ type FinishedAccountView = {
 type StoreOrderResult = {
   orderNo: string;
   productName: string;
+  paymentCountry?: string | null;
+  regionLabel?: string | null;
+  codeCountries?: string[];
   quantity?: number;
   unitPriceCents?: number;
   amountCents: number;
@@ -208,11 +213,25 @@ export function StoreOrderResultPanel({
   const quantity = Math.max(1, order.quantity || 1);
   const pending = quantity - delivered;
   const unit = finished ? "个" : "张";
+  const showRegion = order.paymentCountry !== null && order.paymentCountry !== undefined && !finished;
+  const region = showRegion
+    ? regionDisplay(order.paymentCountry || "", order.regionLabel || "")
+    : null;
+  const regionHint = region
+    ? region.country
+      ? `这是${region.zh}卡密，兑换时按${region.zh}结账。`
+      : `这是${region.zh}卡密。`
+    : "";
 
   return (
     <div className="km-panel km-rise mx-auto max-w-[560px] space-y-5">
       <div>
         <h2 className="text-xl font-semibold">{order.productName}</h2>
+        {region ? (
+          <p className="mt-2 flex items-center gap-2 text-sm">
+            付款地区 <RegionBadge country={region.country} regionLabel={region.zh} size="md" />
+          </p>
+        ) : null}
         <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
           ¥{yuanTextFromCents(order.amountCents)}
           {quantity > 1 ? ` · ${quantity} ${unit}` : ""} · 支付{" "}
@@ -246,14 +265,19 @@ export function StoreOrderResultPanel({
                 卡密{quantity > 1 ? `（已出 ${codes.length}/${quantity}）` : ""}
               </p>
               <p className="text-sm text-[var(--km-fg-muted)]">请保存，丢失后只能用本页或邮箱查单找回。</p>
-              {codes.map((item) => (
+              {codes.map((item, index) => {
+                const country = order.codeCountries?.[index] ?? order.paymentCountry ?? "";
+                return (
                 <div
                   key={item}
-                  className="break-all rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 font-mono text-sm"
+                  className="flex items-center justify-between gap-2 break-all rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 font-mono text-sm"
                 >
-                  {item}
+                  <span>{item}</span>
+                  {region ? <RegionBadge country={country} /> : null}
                 </div>
-              ))}
+                );
+              })}
+              {regionHint ? <p className="text-sm text-[var(--km-fg-muted)]">{regionHint}</p> : null}
               <button
                 type="button"
                 className="km-btn km-btn-ghost w-full"

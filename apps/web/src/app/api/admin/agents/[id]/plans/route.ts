@@ -35,6 +35,11 @@ export async function GET(
   const plans = await db
     .select({
       planKey: platformPlans.planKey,
+      basePlanKey: platformPlans.basePlanKey,
+      paymentCountry: platformPlans.paymentCountry,
+      regionLabel: platformPlans.regionLabel,
+      regionCapable: platformPlans.regionCapable,
+      sortOrder: platformPlans.sortOrder,
       name: platformPlans.name,
       globalCostPriceCents: platformPlans.globalCostPriceCents,
       maxRetailPriceCents: platformPlans.maxRetailPriceCents,

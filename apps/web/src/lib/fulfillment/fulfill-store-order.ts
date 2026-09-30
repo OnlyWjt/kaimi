@@ -10,6 +10,11 @@ import {
 } from "@/db/schema";
 import { CardplatformError } from "@/lib/cardplatform/client";
 import { getCardplatformClientById } from "@/lib/cardplatform/config";
+import {
+  accountSupportsPaymentCountry,
+  isRegionIssueError,
+  issueTargetFromSnapshot,
+} from "@/lib/cardplatform/issue-target";
 import { issuePrefFromAccount } from "@/lib/cardplatform/policy";
 import { decryptSecret, encryptSecret, hashLookupValue } from "@/lib/crypto";
 import { issueIdempotencyKey } from "@/lib/fulfillment/issue-keys";
@@ -148,6 +153,8 @@ export async function fulfillStoreOrder(orderId: number) {
           idempotencyKey,
           requestSummaryJson: JSON.stringify({
             plan: order.planKeySnapshot,
+            upstreamPlan: order.upstreamPlanKeySnapshot || order.planKeySnapshot,
+            paymentCountry: order.paymentCountrySnapshot,
             count: remaining,
             quantity,
             alreadyIssued,
@@ -159,19 +166,24 @@ export async function fulfillStoreOrder(orderId: number) {
 
       const { account, client } = await getCardplatformClientById(boundAccountId);
       accountId = account.id;
+      const target = issueTargetFromSnapshot(order);
+      if (target.paymentCountry && !accountSupportsPaymentCountry(account)) {
+        throw new CardplatformError({
+          message: "订单绑定的卡台账户不支持付款地区，已停止发卡",
+          errorCode: "CARDPLATFORM_REGION_UNSUPPORTED",
+        });
+      }
       const pref = await issuePrefFromAccount(account.id);
-      const cdks = await client.issueMany(
-        order.planKeySnapshot,
-        remaining,
-        idempotencyKey,
-        pref
+      const cdks = await client.issueMany(target.plan, remaining, idempotencyKey, {
+        ...(pref
           ? {
               issuer: pref.issuer,
               segmentType: pref.segmentType,
               segmentKey: pref.segmentKey,
             }
-          : undefined,
-      );
+          : {}),
+        ...(target.paymentCountry ? { paymentCountry: target.paymentCountry } : {}),
+      });
 
       const hashes = cdks.map((cdk) => hashLookupValue(cdk.code.toUpperCase()));
       const clashes = await db.query.issuedCdks.findMany({
@@ -224,6 +236,7 @@ export async function fulfillStoreOrder(orderId: number) {
               orderId: order.id,
               agentId: order.agentId,
               planKey: order.planKeySnapshot,
+              paymentCountry: order.paymentCountrySnapshot,
               codeEncrypted: encryptSecret(item.code),
               codeHash: item.codeHash,
               codePrefix: item.codePrefix,
@@ -308,6 +321,7 @@ export async function fulfillStoreOrder(orderId: number) {
             message: error instanceof Error ? error.message : "发卡失败",
           });
     const unknown = cardError.outcomeUnknown && !cardError.retryable;
+    const regionError = isRegionIssueError(cardError);
     // 已经发出去几张的订单退回 partially_delivered，别把买家手上的卡当成一张都没发。
     const retryStatus =
       alreadyIssued > 0 ? "partially_delivered" : "paid_undelivered";
@@ -317,18 +331,43 @@ export async function fulfillStoreOrder(orderId: number) {
         .update(storeOrders)
         .set({
           fulfillStatus: unknown ? "unknown" : retryStatus,
-          lastErrorCode:
-            cardError.errorCode ||
-            (unknown ? "CARDPLATFORM_OUTCOME_UNKNOWN" : "CARDPLATFORM_FAILED"),
+          lastErrorCode: regionError
+            ? "CARDPLATFORM_REGION_UNAVAILABLE"
+            : cardError.errorCode ||
+              (unknown ? "CARDPLATFORM_OUTCOME_UNKNOWN" : "CARDPLATFORM_FAILED"),
           lastErrorMessage: cardError.message.slice(0, 500),
           updatedAt: now,
         })
-        .where(
+          .where(
           and(
             eq(storeOrders.id, order.id),
             eq(storeOrders.fulfillStatus, "issuing"),
           ),
         );
+      if (regionError) {
+        const planLabel = order.productNameSnapshot || order.planKeySnapshot;
+        void import("@/lib/notify")
+          .then(({ notifyRegionIssueRejected }) =>
+            notifyRegionIssueRejected({
+              orderNo: order.orderNo,
+              planLabel,
+              message: cardError.message,
+            }),
+          )
+          .catch((notifyError) => {
+            console.warn(
+              `[fulfill] 地区告警发送失败：${notifyError instanceof Error ? notifyError.message : notifyError}`,
+            );
+          });
+        // 卡台拒绝了这个地区。触发一次套餐同步让店铺尽快停售，避免更多买家下单。
+        void import("@/lib/cardplatform/plans")
+          .then(({ syncDefaultCardplatformPlans }) => syncDefaultCardplatformPlans())
+          .catch((syncError) => {
+            console.warn(
+              `[fulfill] 地区错误后同步套餐失败：${syncError instanceof Error ? syncError.message : syncError}`,
+            );
+          });
+      }
       if (attempt) {
         await tx
           .update(fulfillmentAttempts)

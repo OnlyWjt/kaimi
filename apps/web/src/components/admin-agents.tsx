@@ -12,6 +12,16 @@ import {
   isOverMaxRetailPrice,
   maxRetailPriceError,
 } from "@/lib/plan-price-core";
+import { groupPlansByBase, regionDisplay } from "@/lib/cardplatform/regions";
+import { RegionBadge } from "@/components/region-badge";
+
+type RegionFields = {
+  basePlanKey?: string;
+  paymentCountry?: string;
+  regionLabel?: string;
+  regionCapable?: boolean;
+  sortOrder?: number;
+};
 
 type AgentRow = {
   id: number;
@@ -22,7 +32,7 @@ type AgentRow = {
   status: "active" | "disabled";
   currentSlug: string;
   lastLoginAt: string | null;
-  allowedPlans: Array<{ planKey: string; name: string }>;
+  allowedPlans: Array<{ planKey: string; name: string } & RegionFields>;
 };
 
 type CatalogPlan = {
@@ -33,7 +43,7 @@ type CatalogPlan = {
   fulfillmentKind?: string;
   globalCostPriceCents: number;
   maxRetailPriceCents: number | null;
-};
+} & RegionFields;
 
 type AgentPlanRow = {
   planKey: string;
@@ -45,7 +55,28 @@ type AgentPlanRow = {
   enabled: boolean;
   costOverrideCents: number | null;
   retailPriceCents: number;
-};
+} & RegionFields;
+
+function withRegion<T extends { planKey: string; name: string } & RegionFields>(plans: T[]) {
+  return plans.map((plan) => ({
+    ...plan,
+    basePlanKey: plan.basePlanKey || "",
+    paymentCountry: plan.paymentCountry || "",
+    regionLabel: plan.regionLabel || "",
+    regionCapable: Boolean(plan.regionCapable),
+    sortOrder: plan.sortOrder ?? 0,
+  }));
+}
+
+function allowedPlanLabels(plans: AgentRow["allowedPlans"]) {
+  return groupPlansByBase(withRegion(plans)).map((group) => {
+    if (!group.plans.some((plan) => plan.regionCapable)) return group.primary.name;
+    const regions = group.plans.map(
+      (plan) => regionDisplay(plan.paymentCountry, plan.regionLabel).zh,
+    );
+    return `${group.primary.name}（${regions.join("/")}）`;
+  });
+}
 
 export function AdminAgents() {
   const { ask, dialog } = useAskDialog();
@@ -536,68 +567,96 @@ export function AdminAgents() {
                 </tr>
               </thead>
               <tbody>
-                {catalog.map((plan) => (
-                  <tr key={plan.planKey} className="border-b border-[var(--km-border)]">
-                    <td className="py-2 pr-3">
-                      <div className="font-medium">{plan.name}</div>
-                      <div className="font-mono text-xs text-[var(--km-fg-muted)]">
-                        {plan.planKey}
-                      </div>
-                    </td>
-                    <td className="py-2 pr-3">
-                      {plan.cardplatformSellable || isLocalAccountPlan(plan)
-                        ? isLocalAccountPlan(plan)
-                          ? "本地库存"
-                          : "可售"
-                        : "不可售"}
-                    </td>
-                    <td className="py-2 pr-3">
-                      <input
-                        className="km-input w-28"
-                        inputMode="decimal"
-                        value={costDraft[plan.planKey] ?? ""}
-                        onChange={(event) =>
-                          setCostDraft((current) => ({
-                            ...current,
-                            [plan.planKey]: event.target.value,
-                          }))
-                        }
-                      />
-                    </td>
-                    <td className="py-2 pr-3">
-                      <input
-                        className="km-input w-28"
-                        inputMode="decimal"
-                        placeholder="不限价"
-                        value={capDraft[plan.planKey] ?? ""}
-                        onChange={(event) =>
-                          setCapDraft((current) => ({
-                            ...current,
-                            [plan.planKey]: event.target.value,
-                          }))
-                        }
-                      />
-                    </td>
-                    <td className="py-2">
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={plan.enabled}
-                          onChange={(event) =>
-                            setCatalog((current) =>
-                              current.map((item) =>
-                                item.planKey === plan.planKey
-                                  ? { ...item, enabled: event.target.checked }
-                                  : item,
-                              ),
-                            )
-                          }
-                        />
-                        启用
-                      </label>
-                    </td>
-                  </tr>
-                ))}
+                {groupPlansByBase(withRegion(catalog)).flatMap((group) => {
+                  const grouped =
+                    group.plans.length > 1 || group.plans.some((plan) => plan.regionCapable);
+                  const rows = [];
+                  if (grouped) {
+                    rows.push(
+                      <tr key={`group-${group.baseKey}`} className="border-b border-[var(--km-border)]">
+                        <td className="py-2 pr-3" colSpan={5}>
+                          <b>{group.primary.name}</b>
+                          <span className="ml-2 text-xs text-[var(--km-fg-muted)]">
+                            {group.plans.length} 个地区
+                          </span>
+                        </td>
+                      </tr>,
+                    );
+                  }
+                  for (const plan of group.plans) {
+                    rows.push(
+                      <tr key={plan.planKey} className="border-b border-[var(--km-border)]">
+                        <td className="py-2 pr-3">
+                          {grouped ? (
+                            <RegionBadge country={plan.paymentCountry} regionLabel={plan.regionLabel} />
+                          ) : (
+                            <>
+                              <div className="font-medium">{plan.name}</div>
+                              <div className="font-mono text-xs text-[var(--km-fg-muted)]">
+                                {plan.planKey}
+                              </div>
+                            </>
+                          )}
+                        </td>
+                        <td className="py-2 pr-3">
+                          {plan.cardplatformSellable || isLocalAccountPlan(plan)
+                            ? isLocalAccountPlan(plan)
+                              ? "本地库存"
+                              : "可售"
+                            : plan.paymentCountry
+                              ? "卡台已停售"
+                              : "不可售"}
+                        </td>
+                        <td className="py-2 pr-3">
+                          <input
+                            className="km-input w-28"
+                            inputMode="decimal"
+                            value={costDraft[plan.planKey] ?? ""}
+                            onChange={(event) =>
+                              setCostDraft((current) => ({
+                                ...current,
+                                [plan.planKey]: event.target.value,
+                              }))
+                            }
+                          />
+                        </td>
+                        <td className="py-2 pr-3">
+                          <input
+                            className="km-input w-28"
+                            inputMode="decimal"
+                            placeholder="不限价"
+                            value={capDraft[plan.planKey] ?? ""}
+                            onChange={(event) =>
+                              setCapDraft((current) => ({
+                                ...current,
+                                [plan.planKey]: event.target.value,
+                              }))
+                            }
+                          />
+                        </td>
+                        <td className="py-2">
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={plan.enabled}
+                              onChange={(event) =>
+                                setCatalog((current) =>
+                                  current.map((item) =>
+                                    item.planKey === plan.planKey
+                                      ? { ...item, enabled: event.target.checked }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            />
+                            启用
+                          </label>
+                        </td>
+                      </tr>,
+                    );
+                  }
+                  return rows;
+                })}
               </tbody>
             </table>
           </div>
@@ -650,9 +709,9 @@ export function AdminAgents() {
                   <td className="py-3 pr-4">
                     {agent.allowedPlans?.length ? (
                       <span className="flex flex-wrap gap-1">
-                        {agent.allowedPlans.map((plan) => (
-                          <span key={plan.planKey} className="km-badge">
-                            {plan.name}
+                        {allowedPlanLabels(agent.allowedPlans).map((label) => (
+                          <span key={label} className="km-badge">
+                            {label}
                           </span>
                         ))}
                       </span>
@@ -780,62 +839,106 @@ export function AdminAgents() {
                         </td>
                       </tr>
                     ) : null}
-                    {agentPlans.map((plan) => (
-                      <tr key={plan.planKey} className="border-b border-[var(--km-border)]">
-                        <td className="py-2 pr-3">
-                          <input
-                            type="checkbox"
-                            checked={plan.enabled}
-                            onChange={(event) =>
-                              setAgentPlans((current) =>
-                                current.map((item) =>
-                                  item.planKey === plan.planKey
-                                    ? { ...item, enabled: event.target.checked }
-                                    : item,
-                                ),
-                              )
-                            }
-                          />
-                        </td>
-                        <td className="py-2 pr-3">
-                          {plan.name}
-                          <span className="ml-2 font-mono text-xs text-[var(--km-fg-muted)]">
-                            {plan.planKey}
-                          </span>
-                        </td>
-                        <td className="py-2 pr-3">
-                          ¥{yuanTextFromCents(plan.globalCostPriceCents)}
-                        </td>
-                        <td className="py-2 pr-3">
-                          {plan.maxRetailPriceCents
-                            ? `¥${yuanTextFromCents(plan.maxRetailPriceCents)}`
-                            : "不限价"}
-                        </td>
-                        <td className="py-2 pr-3">
-                          <input
-                            className="km-input w-28"
-                            inputMode="decimal"
-                            placeholder="留空用默认"
-                            value={overrideDraft[plan.planKey] ?? ""}
-                            onChange={(event) =>
-                              setOverrideDraft((current) => ({
-                                ...current,
-                                [plan.planKey]: event.target.value,
-                              }))
-                            }
-                          />
-                        </td>
-                        <td className="py-2">
-                          ¥{yuanTextFromCents(plan.retailPriceCents)}
-                          {isOverMaxRetailPrice(
-                            plan.retailPriceCents,
-                            plan.maxRetailPriceCents,
-                          ) ? (
-                            <span className="km-badge ml-2">已超上限</span>
-                          ) : null}
-                        </td>
-                      </tr>
-                    ))}
+                    {groupPlansByBase(withRegion(agentPlans)).flatMap((group) => {
+                      const grouped =
+                        group.plans.length > 1 || group.plans.some((plan) => plan.regionCapable);
+                      const openable = group.plans.filter((plan) => plan.platformEnabled);
+                      const rows = [];
+                      if (grouped) {
+                        const allOn =
+                          openable.length > 0 && openable.every((plan) => plan.enabled);
+                        rows.push(
+                          <tr key={`group-${group.baseKey}`} className="border-b border-[var(--km-border)]">
+                            <td className="py-2 pr-3">
+                              <input
+                                type="checkbox"
+                                checked={allOn}
+                                disabled={openable.length === 0}
+                                onChange={(event) => {
+                                  const keys = new Set(openable.map((plan) => plan.planKey));
+                                  setAgentPlans((current) =>
+                                    current.map((item) =>
+                                      keys.has(item.planKey)
+                                        ? { ...item, enabled: event.target.checked }
+                                        : item,
+                                    ),
+                                  );
+                                }}
+                              />
+                            </td>
+                            <td className="py-2 pr-3" colSpan={5}>
+                              <b>{group.primary.name}</b>
+                              <span className="ml-2 text-xs text-[var(--km-fg-muted)]">整组勾选</span>
+                            </td>
+                          </tr>,
+                        );
+                      }
+                      for (const plan of group.plans) {
+                        rows.push(
+                          <tr key={plan.planKey} className="border-b border-[var(--km-border)]">
+                            <td className="py-2 pr-3">
+                              <input
+                                type="checkbox"
+                                checked={plan.enabled}
+                                disabled={!plan.platformEnabled}
+                                title={plan.platformEnabled ? undefined : "平台未启用"}
+                                onChange={(event) =>
+                                  setAgentPlans((current) =>
+                                    current.map((item) =>
+                                      item.planKey === plan.planKey
+                                        ? { ...item, enabled: event.target.checked }
+                                        : item,
+                                    ),
+                                  )
+                                }
+                              />
+                              {plan.platformEnabled ? null : (
+                                <span className="ml-2 text-xs text-[var(--km-fg-muted)]">平台未启用</span>
+                              )}
+                            </td>
+                            <td className="py-2 pr-3">
+                              {plan.regionCapable ? (
+                                <RegionBadge country={plan.paymentCountry || ""} regionLabel={plan.regionLabel} />
+                              ) : (
+                                plan.name
+                              )}
+                            </td>
+                            <td className="py-2 pr-3">
+                              ¥{yuanTextFromCents(plan.globalCostPriceCents)}
+                            </td>
+                            <td className="py-2 pr-3">
+                              {plan.maxRetailPriceCents
+                                ? `¥${yuanTextFromCents(plan.maxRetailPriceCents)}`
+                                : "不限价"}
+                            </td>
+                            <td className="py-2 pr-3">
+                              <input
+                                className="km-input w-28"
+                                inputMode="decimal"
+                                placeholder="留空用默认"
+                                value={overrideDraft[plan.planKey] ?? ""}
+                                onChange={(event) =>
+                                  setOverrideDraft((current) => ({
+                                    ...current,
+                                    [plan.planKey]: event.target.value,
+                                  }))
+                                }
+                              />
+                            </td>
+                            <td className="py-2">
+                              ¥{yuanTextFromCents(plan.retailPriceCents)}
+                              {isOverMaxRetailPrice(
+                                plan.retailPriceCents,
+                                plan.maxRetailPriceCents,
+                              ) ? (
+                                <span className="km-badge ml-2">已超上限</span>
+                              ) : null}
+                            </td>
+                          </tr>,
+                        );
+                      }
+                      return rows;
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -956,7 +1059,9 @@ export function AdminAgents() {
                         onChange={() => toggleCreatePlan(plan.planKey)}
                       />
                       <span>
-                        {plan.name}
+                        {plan.regionCapable
+                          ? `${plan.name} · ${regionDisplay(plan.paymentCountry || "", plan.regionLabel).zh}`
+                          : plan.name}
                         <span className="ml-2 text-xs text-[var(--km-fg-muted)]">
                           成本 ¥{yuanTextFromCents(plan.globalCostPriceCents)}
                         </span>

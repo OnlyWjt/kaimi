@@ -1,7 +1,8 @@
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { agents, issuedCdks, orders, storeOrders } from "@/db/schema";
+import { agents, issuedCdks, orders, platformPlans, storeOrders } from "@/db/schema";
 import { publicShopName } from "@/lib/agent-names";
+import { planNameWithRegion } from "@/lib/cardplatform/regions";
 import type { NotifyPayload } from "@/lib/notify-core";
 
 /** 用兑换单号找回代理店、开通账号、售价和这一张的收益。 */
@@ -28,7 +29,18 @@ export async function loadRedeemNotifyContext(orderNo: string): Promise<Partial<
     : null;
 
   const quantity = Math.max(1, store?.quantity ?? 1);
-  const plan = store?.productNameSnapshot || order.upstreamPlan || "";
+  // 提卡来的卡没有商城订单，套餐名从套餐表拼，带上地区。
+  const drawPlan = !store && issued
+    ? await db.query.platformPlans.findFirst({
+        where: eq(platformPlans.planKey, issued.planKey),
+      })
+    : null;
+  const plan = store?.productNameSnapshot
+    || (drawPlan
+      ? planNameWithRegion(drawPlan.name, drawPlan.regionCapable, issued?.paymentCountry || "", drawPlan.regionLabel)
+      : "")
+    || order.upstreamPlan
+    || "";
   const goodsCents = store ? Math.max(0, store.grossCents - (store.invoiceSurchargeCents || 0)) : undefined;
   const listGoodsCents =
     store && store.listGoodsCents > 0 ? store.listGoodsCents : goodsCents;

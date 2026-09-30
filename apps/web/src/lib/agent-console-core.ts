@@ -23,6 +23,10 @@ export type AgentPlanRow = {
   enabled: boolean;
   cardplatformSellable: boolean;
   fulfillmentKind?: string;
+  basePlanKey?: string;
+  paymentCountry?: string;
+  regionLabel?: string;
+  regionCapable?: boolean;
 };
 
 export type AgentCouponWarning = { message: string; reason: string };

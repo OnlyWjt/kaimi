@@ -23,6 +23,7 @@ const schema = z.object({
   invoiceNote: z.string().max(200).optional(),
   invoiceEmail: z.string().max(254).optional(),
   couponCode: z.string().trim().max(20).optional(),
+  regionConfirmed: z.boolean().optional(),
 });
 
 const lookupSchema = z.object({

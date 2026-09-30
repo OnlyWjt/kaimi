@@ -7,7 +7,7 @@ import {
 } from "@/db/schema";
 import { AgentStorefront } from "@/components/agent-storefront";
 import { ApplyTheme } from "@/components/apply-theme";
-import { planToProduct, type StorefrontConfig } from "@/lib/agent-storefront-config";
+import { plansToProducts, type StorefrontConfig } from "@/lib/agent-storefront-config";
 import { getAgentRedeemUrl } from "@/lib/agent-redeem";
 import { publicShopName } from "@/lib/agent-names";
 import { loadAgentShop } from "@/lib/agent-shop";
@@ -30,6 +30,12 @@ export default async function AgentStorePage({
     ? await db
         .select({
           planKey: platformPlans.planKey,
+          basePlanKey: platformPlans.basePlanKey,
+          paymentCountry: platformPlans.paymentCountry,
+          regionLabel: platformPlans.regionLabel,
+          regionCapable: platformPlans.regionCapable,
+          regionNote: platformPlans.regionNote,
+          sortOrder: platformPlans.sortOrder,
           name: platformPlans.name,
           description: platformPlans.description,
           category: platformPlans.category,
@@ -98,23 +104,27 @@ export default async function AgentStorePage({
     ...settings,
     shopName: publicShopName(agent),
     themeId,
-    products: sellablePlans.map((plan) =>
-      planToProduct(
-        {
-          planKey: plan.planKey,
-          name: plan.name,
-          description: plan.description,
-          retailPriceCents: plan.retailPriceCents,
-          category: plan.category,
-          fulfillmentKind: plan.fulfillmentKind,
-          available:
-            plan.fulfillmentKind === LOCAL_ACCOUNT_FULFILLMENT
-              ? (unusedByPlan.get(plan.planKey) || 0) > 0
-              : true,
-        },
-        settings.productNames,
-        plan.coverUrl,
-      ),
+    products: plansToProducts(
+      sellablePlans.map((plan) => ({
+        planKey: plan.planKey,
+        basePlanKey: plan.basePlanKey,
+        paymentCountry: plan.paymentCountry,
+        regionLabel: plan.regionLabel,
+        regionCapable: plan.regionCapable,
+        regionNote: plan.regionNote,
+        sortOrder: plan.sortOrder,
+        name: plan.name,
+        description: plan.description,
+        retailPriceCents: plan.retailPriceCents,
+        category: plan.category,
+        fulfillmentKind: plan.fulfillmentKind,
+        available:
+          plan.fulfillmentKind === LOCAL_ACCOUNT_FULFILLMENT
+            ? (unusedByPlan.get(plan.planKey) || 0) > 0
+            : true,
+      })),
+      settings.productNames,
+      Object.fromEntries(sellablePlans.map((plan) => [plan.planKey, plan.coverUrl])),
     ),
   };
 

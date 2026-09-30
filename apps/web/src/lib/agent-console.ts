@@ -27,6 +27,10 @@ export async function listAgentConsolePlans(agentId: number): Promise<AgentPlanR
   const rows = await db
     .select({
       planKey: platformPlans.planKey,
+      basePlanKey: platformPlans.basePlanKey,
+      paymentCountry: platformPlans.paymentCountry,
+      regionLabel: platformPlans.regionLabel,
+      regionCapable: platformPlans.regionCapable,
       name: platformPlans.name,
       globalCostPriceCents: platformPlans.globalCostPriceCents,
       maxRetailPriceCents: platformPlans.maxRetailPriceCents,
@@ -50,6 +54,10 @@ export async function listAgentConsolePlans(agentId: number): Promise<AgentPlanR
     enabled: row.enabled,
     cardplatformSellable: row.cardplatformSellable,
     fulfillmentKind: row.fulfillmentKind,
+    basePlanKey: row.basePlanKey,
+    paymentCountry: row.paymentCountry,
+    regionLabel: row.regionLabel,
+    regionCapable: row.regionCapable,
   }));
 }
 

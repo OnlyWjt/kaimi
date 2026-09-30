@@ -35,6 +35,13 @@ export type IssueCardPref = {
   issuer?: string;
   segmentType?: string;
   segmentKey?: string;
+  /** 卡台 payment_country。空 = 菲区，此时请求里不带这个字段。 */
+  paymentCountry?: string;
+};
+
+export type CardplatformPaymentRegion = {
+  country: string;
+  currency: string;
 };
 
 export type DirectCardSelectPref = {
@@ -239,6 +246,9 @@ export class CardplatformClient {
           ? { preferred_segment_type: pref.segmentType }
           : {}),
         ...(pref?.segmentKey ? { preferred_segment_key: pref.segmentKey } : {}),
+        ...(pref?.paymentCountry?.trim()
+          ? { payment_country: pref.paymentCountry.trim().toUpperCase() }
+          : {}),
       },
       idempotencyKey,
       timeoutMs: 180_000,
@@ -313,6 +323,15 @@ export class CardplatformClient {
   }
 
   async getPlans(timeoutMs = 45_000): Promise<CardplatformPlan[]> {
+    const { plans } = await this.getPlansWithRegions(timeoutMs);
+    return plans;
+  }
+
+  /** plans 之外多解析 payment_regions。字段缺失或格式不对时 regions 为空。 */
+  async getPlansWithRegions(timeoutMs = 45_000): Promise<{
+    plans: CardplatformPlan[];
+    regions: CardplatformPaymentRegion[];
+  }> {
     const data = await this.request<unknown>("GET", "/gpt-direct/plans", {
       timeoutMs,
     });
@@ -335,7 +354,10 @@ export class CardplatformClient {
         raw: { ...row, registry: meta },
       };
     });
-    return filterSellablePlans(mapped, registry.length > 0);
+    return {
+      plans: filterSellablePlans(mapped, registry.length > 0),
+      regions: parsePaymentRegions(root.payment_regions),
+    };
   }
 
   /** 对账用：按 updated_after 拉 CDK 兑换订单，回调不可用时同步卡密状态。 */
@@ -579,6 +601,23 @@ function parseDirectCardRule(value: unknown): DirectCardRule {
     strict_select: Boolean(row.strict_select),
     is_default: Boolean(row.is_default),
   };
+}
+
+/** payment_regions 里格式不对的条目直接丢掉，不影响套餐同步。 */
+export function parsePaymentRegions(value: unknown): CardplatformPaymentRegion[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const regions: CardplatformPaymentRegion[] = [];
+  for (const item of value) {
+    const row = asObject(item);
+    const country = String(row.country || "")
+      .trim()
+      .toUpperCase();
+    if (!/^[A-Z]{2}$/.test(country) || seen.has(country)) continue;
+    seen.add(country);
+    regions.push({ country, currency: String(row.currency || "").trim().toUpperCase() });
+  }
+  return regions;
 }
 
 const NON_CDK_PLAN_PREFIXES = ["claude_"];

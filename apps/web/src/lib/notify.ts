@@ -7,10 +7,19 @@ import { decryptSecret } from "@/lib/crypto";
 import { maskRequestId, sanitizeLog } from "@/lib/log";
 import { loadRedeemNotifyContext } from "@/lib/notify-commerce";
 import {
+  formatDrawAlertTelegramHtml,
+  formatDrawAlertText,
+  formatDrawApplyTelegramHtml,
+  formatDrawApplyText,
+  formatDrawCreatedTelegramHtml,
+  formatDrawCreatedText,
   formatNotifyText,
   formatStorePaidTelegramHtml,
   formatStorePaidText,
   notifyYuanFields,
+  type DrawAlertNotifyPayload,
+  type DrawApplyNotifyPayload,
+  type DrawCreatedNotifyPayload,
   type NotifyPayload,
   type StorePaidNotifyPayload,
 } from "@/lib/notify-core";
@@ -261,6 +270,55 @@ export async function notifyStoreInvoicePaid(order: {
   return result;
 }
 
+function notifyOutcome(result: NotifyDispatchResult) {
+  const status =
+    result.telegram.ok || result.webhook.ok
+      ? "sent"
+      : result.telegram.attempted || result.webhook.attempted
+        ? "failed"
+        : "unsent";
+  const error =
+    status === "sent"
+      ? ""
+      : result.telegram.error ||
+        result.webhook.error ||
+        (status === "unsent" ? "未配置 Telegram 或 Webhook" : "");
+  return { status, error };
+}
+
+export async function notifyDrawApply(payload: DrawApplyNotifyPayload) {
+  const result = await dispatchNotifyText(
+    formatDrawApplyText(payload),
+    { ...payload },
+    payload.kind === "remind" ? "draw.remind" : "draw.apply",
+    {},
+    formatDrawApplyTelegramHtml(payload),
+  );
+  return notifyOutcome(result);
+}
+
+export async function notifyDrawCreated(payload: DrawCreatedNotifyPayload) {
+  const result = await dispatchNotifyText(
+    formatDrawCreatedText(payload),
+    { ...payload },
+    "draw.created",
+    {},
+    formatDrawCreatedTelegramHtml(payload),
+  );
+  return notifyOutcome(result);
+}
+
+export async function notifyDrawAlert(payload: DrawAlertNotifyPayload) {
+  const result = await dispatchNotifyText(
+    formatDrawAlertText(payload),
+    { ...payload },
+    "draw.alert",
+    {},
+    formatDrawAlertTelegramHtml(payload),
+  );
+  return notifyOutcome(result);
+}
+
 export async function notifyOrderTerminal(payload: NotifyPayload) {
   const extra =
     payload.orderNo && payload.orderNo !== "OPS"
@@ -278,4 +336,24 @@ export async function notifyOpsAlert(message: string) {
     status: "alert",
     message,
   });
+}
+
+/** 卡台拒绝了某个付款地区。同步停售由发卡流程触发，这里只发告警。 */
+export async function notifyRegionIssueRejected(input: {
+  orderNo: string;
+  planLabel: string;
+  message: string;
+}) {
+  const text = [
+    "[Kaimi] 地区发码被卡台拒绝",
+    `套餐：${input.planLabel}`,
+    `订单：${input.orderNo}`,
+    `卡台返回：${input.message}`,
+    "已自动触发套餐同步，该地区将在同步后停售。",
+  ].join("\n");
+  await dispatchNotifyText(
+    text,
+    { orderNo: input.orderNo, plan: input.planLabel },
+    "region.rejected",
+  );
 }

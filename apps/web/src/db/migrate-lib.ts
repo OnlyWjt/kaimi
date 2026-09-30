@@ -746,6 +746,171 @@ export async function ensureAnnouncementTables() {
   await client.executeMultiple(ANNOUNCEMENT_DDL);
 }
 
+const AGENT_DRAW_DDL = `
+CREATE TABLE IF NOT EXISTS agent_draw_access (
+  agent_id INTEGER PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT 'none',
+  link_token TEXT,
+  credit_limit_cents INTEGER NOT NULL DEFAULT 0,
+  daily_limit_count INTEGER NOT NULL DEFAULT 0,
+  max_per_draw INTEGER NOT NULL DEFAULT 10,
+  allowed_plan_keys_json TEXT NOT NULL DEFAULT '[]',
+  notify_each_draw INTEGER NOT NULL DEFAULT 1,
+  credit_warned_at TEXT,
+  reject_reason TEXT NOT NULL DEFAULT '',
+  admin_note TEXT NOT NULL DEFAULT '',
+  approved_at TEXT,
+  approved_by INTEGER,
+  suspended_at TEXT,
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS agent_draw_access_token_uq
+  ON agent_draw_access(link_token);
+
+CREATE TABLE IF NOT EXISTS agent_draw_applications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_id INTEGER NOT NULL,
+  contact TEXT NOT NULL DEFAULT '',
+  expected_monthly TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending',
+  review_note TEXT NOT NULL DEFAULT '',
+  reviewed_by INTEGER,
+  reviewed_at TEXT,
+  notify_status TEXT NOT NULL DEFAULT '',
+  notify_error TEXT NOT NULL DEFAULT '',
+  last_reminded_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS agent_draw_applications_agent_idx
+  ON agent_draw_applications(agent_id, created_at);
+CREATE INDEX IF NOT EXISTS agent_draw_applications_status_idx
+  ON agent_draw_applications(status);
+
+CREATE TABLE IF NOT EXISTS agent_draw_orders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  draw_no TEXT NOT NULL,
+  agent_id INTEGER NOT NULL,
+  request_id TEXT NOT NULL,
+  plan_id INTEGER NOT NULL,
+  plan_key_snapshot TEXT NOT NULL,
+  plan_name_snapshot TEXT NOT NULL,
+  quantity INTEGER NOT NULL,
+  issued_count INTEGER NOT NULL DEFAULT 0,
+  unit_price_cents INTEGER NOT NULL,
+  price_source TEXT NOT NULL,
+  upstream_cost_unit_cents INTEGER,
+  cardplatform_account_id INTEGER NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'issuing',
+  last_error_code TEXT NOT NULL DEFAULT '',
+  last_error_message TEXT NOT NULL DEFAULT '',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  empty_responses INTEGER NOT NULL DEFAULT 0,
+  client_ip TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  delivered_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS agent_draw_orders_no_uq ON agent_draw_orders(draw_no);
+CREATE UNIQUE INDEX IF NOT EXISTS agent_draw_orders_request_uq
+  ON agent_draw_orders(agent_id, request_id);
+CREATE INDEX IF NOT EXISTS agent_draw_orders_agent_created_idx
+  ON agent_draw_orders(agent_id, created_at);
+CREATE INDEX IF NOT EXISTS agent_draw_orders_status_idx ON agent_draw_orders(status);
+
+CREATE TABLE IF NOT EXISTS agent_draw_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  draw_order_id INTEGER NOT NULL,
+  issued_cdk_id INTEGER NOT NULL,
+  agent_id INTEGER NOT NULL,
+  plan_key TEXT NOT NULL,
+  amount_cents INTEGER NOT NULL,
+  upstream_cost_cents INTEGER,
+  status TEXT NOT NULL DEFAULT 'unsettled',
+  bill_id INTEGER,
+  void_reason TEXT NOT NULL DEFAULT '',
+  voided_at TEXT,
+  voided_by INTEGER,
+  settled_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS agent_draw_items_cdk_uq ON agent_draw_items(issued_cdk_id);
+CREATE INDEX IF NOT EXISTS agent_draw_items_agent_status_idx
+  ON agent_draw_items(agent_id, status, created_at);
+CREATE INDEX IF NOT EXISTS agent_draw_items_bill_idx ON agent_draw_items(bill_id);
+CREATE INDEX IF NOT EXISTS agent_draw_items_order_idx ON agent_draw_items(draw_order_id);
+
+CREATE TABLE IF NOT EXISTS agent_draw_bills (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  bill_no TEXT NOT NULL,
+  agent_id INTEGER NOT NULL,
+  item_count INTEGER NOT NULL,
+  amount_cents INTEGER NOT NULL,
+  first_item_at TEXT NOT NULL,
+  last_item_at TEXT NOT NULL,
+  summary_json TEXT NOT NULL DEFAULT '[]',
+  payment_method TEXT NOT NULL DEFAULT '',
+  payment_reference TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'settled',
+  created_by INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  reverted_at TEXT,
+  reverted_by INTEGER,
+  revert_reason TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS agent_draw_bills_no_uq ON agent_draw_bills(bill_no);
+CREATE INDEX IF NOT EXISTS agent_draw_bills_agent_created_idx
+  ON agent_draw_bills(agent_id, created_at);
+`;
+
+async function ensurePaymentRegionSchema() {
+  const addColumn = async (sqlText: string) => {
+    try {
+      await client.execute(sqlText);
+    } catch (error) {
+      if (!/duplicate column/i.test(String(error))) throw error;
+    }
+  };
+  await addColumn("ALTER TABLE platform_plans ADD COLUMN base_plan_key TEXT NOT NULL DEFAULT ''");
+  await addColumn("ALTER TABLE platform_plans ADD COLUMN upstream_plan_key TEXT NOT NULL DEFAULT ''");
+  await addColumn("ALTER TABLE platform_plans ADD COLUMN payment_country TEXT NOT NULL DEFAULT ''");
+  await addColumn("ALTER TABLE platform_plans ADD COLUMN region_label TEXT NOT NULL DEFAULT ''");
+  await addColumn("ALTER TABLE platform_plans ADD COLUMN region_capable INTEGER NOT NULL DEFAULT 0");
+  await addColumn("ALTER TABLE platform_plans ADD COLUMN region_note TEXT NOT NULL DEFAULT ''");
+  await client.execute(
+    "CREATE INDEX IF NOT EXISTS platform_plans_base_idx ON platform_plans(base_plan_key, sort_order)",
+  );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN upstream_plan_key_snapshot TEXT NOT NULL DEFAULT ''",
+  );
+  await addColumn(
+    "ALTER TABLE store_orders ADD COLUMN payment_country_snapshot TEXT NOT NULL DEFAULT ''",
+  );
+  await addColumn("ALTER TABLE issued_cdks ADD COLUMN payment_country TEXT NOT NULL DEFAULT ''");
+}
+
+async function ensureAgentDrawSchema() {
+  await client.executeMultiple(AGENT_DRAW_DDL);
+  const addColumn = async (sqlText: string) => {
+    try {
+      await client.execute(sqlText);
+    } catch (error) {
+      if (!/duplicate column/i.test(String(error))) throw error;
+    }
+  };
+  await addColumn(
+    "ALTER TABLE issued_cdks ADD COLUMN source TEXT NOT NULL DEFAULT 'store'",
+  );
+  await addColumn("ALTER TABLE issued_cdks ADD COLUMN draw_order_id INTEGER");
+  await client.execute(
+    "CREATE INDEX IF NOT EXISTS issued_cdks_draw_order_idx ON issued_cdks(draw_order_id)",
+  );
+  await addColumn("ALTER TABLE agent_plan_prices ADD COLUMN draw_price_cents INTEGER");
+}
+
 export async function ensureSchema() {
   await client.executeMultiple(DDL);
   await client.executeMultiple(`
@@ -917,6 +1082,9 @@ export async function ensureSchema() {
   await addColumn(
     "ALTER TABLE agent_plan_prices ADD COLUMN cover_url TEXT NOT NULL DEFAULT ''",
   );
+  // 新列必须在第一次查询 platform_plans 之前加上，否则老库会报 no such column。
+  await ensureOrderLedgerSchema();
+  await ensurePaymentRegionSchema();
 
   const finishedGpt = await db.query.platformPlans.findFirst({
     where: eq(platformPlans.planKey, FINISHED_GPT_PLAN_KEY),
@@ -952,7 +1120,7 @@ export async function ensureSchema() {
   await ensureCardOpsTables();
   await ensureAnnouncementTables();
   await ensureRedeemGuardSchema();
-  await ensureOrderLedgerSchema();
+  await ensureAgentDrawSchema();
 
   const shop = await db.query.storefronts.findFirst({
     where: (t, { eq }) => eq(t.kind, "shop"),
@@ -1077,6 +1245,12 @@ export async function ensureSchema() {
   await ensureSetting("notify_webhook_url", "");
   await ensureSetting("telegram_bot_token", "");
   await ensureSetting("telegram_chat_id", "");
+  await ensureSetting("draw_enabled", "1");
+  await ensureSetting("draw_notify_each", "1");
+  await ensureSetting("draw_default_credit_cents", "300000");
+  await ensureSetting("draw_default_max_per_draw", "10");
+  await ensureSetting("draw_agent_notice", "");
+  await ensureSetting("cardplatform_region_whitelist", "US,CL");
 
   // Older saves accidentally wrote storefront titles into site_name via 外观店面卡.
   const siteNameRow = await db.query.settings.findFirst({

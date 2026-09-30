@@ -9,6 +9,8 @@ async function plansFor(auth: ApiKeyContext) {
     const rows = await db
       .select({
         planKey: platformPlans.planKey,
+        basePlanKey: platformPlans.basePlanKey,
+        paymentCountry: platformPlans.paymentCountry,
         name: platformPlans.name,
         description: platformPlans.description,
         category: platformPlans.category,
@@ -28,6 +30,8 @@ async function plansFor(auth: ApiKeyContext) {
       .orderBy(asc(platformPlans.sortOrder));
     return rows.map((row) => ({
       plan_key: row.planKey,
+      base_plan_key: row.basePlanKey || row.planKey,
+      payment_country: row.paymentCountry,
       name: row.name,
       description: row.description,
       category: row.category,
@@ -39,6 +43,8 @@ async function plansFor(auth: ApiKeyContext) {
   const rows = await db
     .select({
       planKey: platformPlans.planKey,
+      basePlanKey: platformPlans.basePlanKey,
+      paymentCountry: platformPlans.paymentCountry,
       name: platformPlans.name,
       description: platformPlans.description,
       category: platformPlans.category,
@@ -49,6 +55,8 @@ async function plansFor(auth: ApiKeyContext) {
     .orderBy(asc(platformPlans.sortOrder));
   return rows.map((row) => ({
     plan_key: row.planKey,
+    base_plan_key: row.basePlanKey || row.planKey,
+    payment_country: row.paymentCountry,
     name: row.name,
     description: row.description,
     category: row.category,

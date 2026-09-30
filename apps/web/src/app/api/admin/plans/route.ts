@@ -8,6 +8,7 @@ import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { MAX_CATEGORY_LENGTH, normalizeCategory } from "@/lib/plan-category";
 import { maxRetailPriceError } from "@/lib/plan-price-core";
+import { planNameWithRegion } from "@/lib/cardplatform/regions";
 
 /** 分类标签存的就是展示文案，统一收敛空白后入库，前台按它分组 */
 const categorySchema = z
@@ -28,6 +29,9 @@ const planSchema = z.object({
   enabled: z.boolean().optional().default(false),
   cardplatformSellable: z.boolean().optional().default(false),
   sortOrder: z.number().int().min(-10000).max(10000).optional().default(0),
+  // 地区语义由卡台同步生成，不接受手工改。
+  regionLabel: z.string().trim().max(20).optional(),
+  regionNote: z.string().trim().max(40).optional(),
 });
 
 async function authorize() {
@@ -100,6 +104,8 @@ const batchSchema = z.object({
       planKey: z.string().trim().min(1),
       name: z.string().trim().min(1).max(100).optional(),
       category: categorySchema,
+      regionLabel: z.string().trim().max(20).optional(),
+      regionNote: z.string().trim().max(40).optional(),
       globalCostPriceCents: z.number().int().min(0),
       upstreamCostCents: z.number().int().min(0).nullable().optional(),
       maxRetailPriceCents: z.number().int().min(0).nullable().optional(),
@@ -122,6 +128,23 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "套餐格式无效" }, { status: 400 });
   }
   // 成本价和限价在同一张表里改，任何一边都可能把区间压反，所以整批先校验再落库。
+  const existingPlans = await db.query.platformPlans.findMany();
+  const existingByKey = new Map(existingPlans.map((plan) => [plan.planKey, plan]));
+  for (const item of parsed.data.plans) {
+    const existing = existingByKey.get(item.planKey);
+    if (existing && existing.paymentCountry && item.enabled && item.globalCostPriceCents <= 0) {
+      const label = planNameWithRegion(
+        existing.name,
+        true,
+        existing.paymentCountry,
+        item.regionLabel ?? existing.regionLabel,
+      );
+      return NextResponse.json(
+        { error: `${label}：请先填默认成本再启用` },
+        { status: 400 },
+      );
+    }
+  }
   for (const item of parsed.data.plans) {
     const capError = maxRetailPriceError(
       item.maxRetailPriceCents ?? null,
@@ -146,6 +169,8 @@ export async function PUT(req: Request) {
         .set({
           name: item.name || existing.name,
           category: item.category,
+          ...(item.regionLabel !== undefined ? { regionLabel: item.regionLabel } : {}),
+          ...(item.regionNote !== undefined ? { regionNote: item.regionNote } : {}),
           globalCostPriceCents: item.globalCostPriceCents,
           ...(item.upstreamCostCents !== undefined
             ? { upstreamCostCents: item.upstreamCostCents }
@@ -163,7 +188,17 @@ export async function PUT(req: Request) {
       item.upstreamCostCents != null &&
       item.upstreamCostCents > item.globalCostPriceCents
     ) {
-      warnings.push(`${item.name || item.planKey}：上游进价高于默认成本，按这个价卖平台会亏`);
+      const existing = existingByKey.get(item.planKey);
+      const label = existing
+        ? planNameWithRegion(existing.name, existing.regionCapable, existing.paymentCountry, item.regionLabel ?? existing.regionLabel)
+        : item.name || item.planKey;
+      warnings.push(`${label}：上游进价高于默认成本，按这个价卖平台会亏`);
+      if (existing?.paymentCountry) {
+        const base = existingByKey.get(existing.basePlanKey);
+        if (base && base.globalCostPriceCents > 0 && item.globalCostPriceCents < base.globalCostPriceCents) {
+          warnings.push(`${label}：成本比菲区还低，确认没填错？`);
+        }
+      }
     }
   }
   const cheap = await db

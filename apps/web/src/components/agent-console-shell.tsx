@@ -19,6 +19,7 @@ const NAV = [
   { href: "/agent/sell", label: "售价与优惠", hint: "定价", group: "怎么卖" },
   { href: "/agent/storefront", label: "店铺", hint: "装修", group: "怎么卖" },
   { href: "/agent/books", label: "账本", hint: "收益", group: "钱和量" },
+  { href: "/agent/draw", label: "自助提卡", hint: "进货", group: "钱和量" },
   { href: "/agent/codes", label: "已售卡密", hint: "售后", group: "钱和量" },
   { href: "/agent/api", label: "开放 API", hint: "对接", group: "钱和量" },
 ] as const;

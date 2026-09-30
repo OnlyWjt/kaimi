@@ -5,11 +5,14 @@ import { type AgentPlanRow } from "@/lib/agent-console-core";
 import { readApiJson } from "@/lib/http-error";
 import { hasNextPage, pageLabel } from "@/lib/pagination-core";
 import { publicStatusLabel } from "@/lib/status-labels";
+import { planNameWithRegion } from "@/lib/cardplatform/regions";
+import { RegionBadge } from "@/components/region-badge";
 
 type AgentCdk = {
   id: number;
   code: string;
   planKey: string;
+  paymentCountry?: string;
   status: string;
   orderNo: string;
 };
@@ -26,7 +29,14 @@ export function AgentCodes() {
   const [error, setError] = useState("");
 
   function planName(planKey: string) {
-    return plans.find((plan) => plan.planKey === planKey)?.name || planKey;
+    const plan = plans.find((item) => item.planKey === planKey);
+    if (!plan) return planKey;
+    return planNameWithRegion(
+      plan.name,
+      Boolean(plan.regionCapable),
+      plan.paymentCountry || "",
+      plan.regionLabel || "",
+    );
   }
 
   useEffect(() => {
@@ -117,6 +127,7 @@ export function AgentCodes() {
               <tr>
                 <th>卡密</th>
                 <th>套餐</th>
+                <th>地区</th>
                 <th>订单</th>
                 <th>状态</th>
                 <th>操作</th>
@@ -127,6 +138,13 @@ export function AgentCodes() {
                 <tr key={cdk.id}>
                   <td className="font-mono text-xs">{cdk.code}</td>
                   <td>{planName(cdk.planKey)}</td>
+                  <td>
+                    {plans.find((plan) => plan.planKey === cdk.planKey)?.regionCapable ? (
+                      <RegionBadge country={cdk.paymentCountry || ""} />
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                   <td className="font-mono text-xs">{cdk.orderNo}</td>
                   <td>
                     <span className={`km-acp-pill${cdk.status === "unused" ? " warn" : ""}`}>

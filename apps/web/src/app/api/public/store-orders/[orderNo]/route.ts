@@ -1,7 +1,7 @@
 import { after, NextResponse } from "next/server";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { agents, issuedCdks, storeOrders } from "@/db/schema";
+import { agents, issuedCdks, platformPlans, storeOrders } from "@/db/schema";
 import {
   buildRechargePath,
   isExternalRedeemUrl,
@@ -41,6 +41,11 @@ async function serializePublicOrder(
         })
       : [];
   const codes = cdks.map((row) => decryptSecret(row.codeEncrypted));
+  const plan = await db.query.platformPlans.findFirst({
+    where: eq(platformPlans.planKey, order.planKeySnapshot),
+    columns: { regionCapable: true, regionLabel: true },
+  });
+  const regionCapable = Boolean(plan?.regionCapable);
   const finishedAccount = isLocalAccountPlan({
     planKey: order.planKeySnapshot,
   });
@@ -81,6 +86,9 @@ async function serializePublicOrder(
   return {
     orderNo: order.orderNo,
     productName: order.productNameSnapshot,
+    paymentCountry: regionCapable ? order.paymentCountrySnapshot : null,
+    regionLabel: regionCapable ? plan?.regionLabel || "" : null,
+    codeCountries: regionCapable ? cdks.map((row) => row.paymentCountry) : [],
     quantity,
     unitPriceCents: order.retailPriceCents,
     amountCents: order.grossCents,

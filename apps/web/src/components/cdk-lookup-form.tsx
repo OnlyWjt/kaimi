@@ -1,12 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import { RegionBadge } from "@/components/region-badge";
 
 type LookupResult = {
   found: boolean;
   codeMasked?: string;
   status?: string;
   planName?: string;
+  paymentCountry?: string | null;
+  regionLabel?: string | null;
   orderNo?: string | null;
   fulfillStatus?: string | null;
   message?: string;
@@ -80,6 +83,11 @@ export function CdkLookupForm() {
                   <li>卡密：{result.codeMasked}</li>
                   <li>状态：{result.status}</li>
                   {result.planName ? <li>套餐：{result.planName}</li> : null}
+                  {result.paymentCountry !== null && result.paymentCountry !== undefined ? (
+                    <li>
+                      付款地区：<RegionBadge country={result.paymentCountry} regionLabel={result.regionLabel || ""} />
+                    </li>
+                  ) : null}
                   {result.orderNo ? <li>关联订单：{result.orderNo}</li> : null}
                   {result.fulfillStatus ? <li>订单状态：{result.fulfillStatus}</li> : null}
                   {result.message ? <li>{result.message}</li> : null}

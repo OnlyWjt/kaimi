@@ -10,6 +10,7 @@ import { syncDefaultCardplatformPlans } from "@/lib/cardplatform/plans";
 import { syncEnabledAccountProducts } from "@/lib/cardplatform/products";
 import { reconcileIssuedCdkStatuses } from "@/lib/cardplatform/reconcile-issued";
 import { pruneRedeemGuard } from "@/lib/redeem-guard";
+import { recoverStuckDrawOrders } from "@/lib/agent-draw";
 
 const DEFAULT_MINUTES = 15;
 const TICK_INTERVAL_MS = 30_000;
@@ -22,9 +23,11 @@ type SchedulerState = {
   lastIssuedReconcileMs?: number;
   lastPayloadPruneMs?: number;
   lastGuardPruneMs?: number;
+  lastDrawRecoverMs?: number;
 };
 
 const ISSUED_RECONCILE_INTERVAL_MS = 120_000;
+const DRAW_RECOVER_INTERVAL_MS = 5 * 60_000;
 /** 报文清理一天一次就够。 */
 const PAYLOAD_PRUNE_INTERVAL_MS = 24 * 60 * 60_000;
 
@@ -78,6 +81,19 @@ async function maybeTick() {
         await refreshOpsHealth();
       } catch (err) {
         console.warn("[kaimi-sync] ops health failed", sanitizeLog(err));
+      }
+      try {
+        if (now - (state.lastDrawRecoverMs || 0) >= DRAW_RECOVER_INTERVAL_MS) {
+          state.lastDrawRecoverMs = now;
+          const recovered = await recoverStuckDrawOrders();
+          if (recovered.checked > 0 || recovered.alerted > 0) {
+            console.log(
+              `[kaimi-sync] draw recover: checked=${recovered.checked} alerted=${recovered.alerted}`,
+            );
+          }
+        }
+      } catch (err) {
+        console.warn("[kaimi-sync] draw recover failed", sanitizeLog(err));
       }
       try {
         const poll = await pollInFlightOrders();
@@ -159,7 +175,7 @@ async function maybeTick() {
         try {
           const plans = await syncDefaultCardplatformPlans();
           console.log(
-            `[kaimi-sync] sellable plans: count=${plans.count} created=${plans.created} updated=${plans.updated}`,
+            `[kaimi-sync] sellable plans: count=${plans.count} created=${plans.created} updated=${plans.updated} regions=${plans.regions.join(",") || "-"} variants=${plans.variantsCreated}`,
           );
         } catch (err) {
           console.warn("[kaimi-sync] sellable plans sync failed", sanitizeLog(err));

@@ -163,6 +163,21 @@ export const platformPlans = sqliteTable(
     coverUrl: text("cover_url").notNull().default(""),
     /** 店铺前台的分类标签，空串表示未分类 */
     category: text("category").notNull().default(""),
+    /**
+     * 同一套餐的分组键。菲区行等于自己的 plan_key；地区变体等于基础套餐的 plan_key。
+     * 空串是老数据，读取时按 plan_key 处理。
+     */
+    basePlanKey: text("base_plan_key").notNull().default(""),
+    /** 发给卡台的 plan。空串表示用 plan_key（老数据与菲区行）。 */
+    upstreamPlanKey: text("upstream_plan_key").notNull().default(""),
+    /** 卡台 payment_country，大写两位码。空串 = 菲区，发码时不传。 */
+    paymentCountry: text("payment_country").notNull().default(""),
+    /** 地区中文名覆盖。空串时按地区默认名（菲区 / 美区 / 智利区）。 */
+    regionLabel: text("region_label").notNull().default(""),
+    /** 这个套餐有没有地区概念。点数档、续费档、本地成品号为 false。 */
+    regionCapable: integer("region_capable", { mode: "boolean" }).notNull().default(false),
+    /** 店铺选中该规格时显示的一句话说明，例如「以美元结算」。 */
+    regionNote: text("region_note").notNull().default(""),
     globalCostPriceCents: integer("global_cost_price_cents").notNull().default(0),
     /** 平台向上游拿货的单价。NULL 表示还没配，毛利先空着。 */
     upstreamCostCents: integer("upstream_cost_cents"),
@@ -188,6 +203,7 @@ export const platformPlans = sqliteTable(
   (t) => ({
     planKeyIdx: uniqueIndex("platform_plans_plan_key_uq").on(t.planKey),
     enabledSortIdx: index("platform_plans_enabled_sort_idx").on(t.enabled, t.sortOrder),
+    baseIdx: index("platform_plans_base_idx").on(t.basePlanKey, t.sortOrder),
   }),
 );
 
@@ -201,6 +217,8 @@ export const agentPlanPrices = sqliteTable(
     retailPriceCents: integer("retail_price_cents").notNull().default(0),
     /** 这家店自己的套餐图。空串表示继续用内置封面。 */
     coverUrl: text("cover_url").notNull().default(""),
+    /** 自助提卡专用单价。NULL 表示按代理成本价。 */
+    drawPriceCents: integer("draw_price_cents"),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
     createdAt: text("created_at")
       .notNull()
@@ -339,6 +357,10 @@ export const storeOrders = sqliteTable(
     agentId: integer("agent_id").notNull(),
     planId: integer("plan_id").notNull(),
     planKeySnapshot: text("plan_key_snapshot").notNull(),
+    /** 发给卡台的 plan。空串 = 用 plan_key_snapshot（老订单与菲区订单）。 */
+    upstreamPlanKeySnapshot: text("upstream_plan_key_snapshot").notNull().default(""),
+    /** 卡台 payment_country 快照。空串 = 菲区，发码时不传。 */
+    paymentCountrySnapshot: text("payment_country_snapshot").notNull().default(""),
     productNameSnapshot: text("product_name_snapshot").notNull(),
     /** 买几张。历史订单一律 1。 */
     quantity: integer("quantity").notNull().default(1),
@@ -454,6 +476,11 @@ export const issuedCdks = sqliteTable(
     upstreamRef: text("upstream_ref").notNull().default(""),
     upstreamFeeMinor: integer("upstream_fee_minor").notNull().default(0),
     status: text("status").notNull().default("unused"),
+    /** 这张卡实际发给卡台的付款地区。空串 = 菲区。 */
+    paymentCountry: text("payment_country").notNull().default(""),
+    /** store = 商城订单发出；draw = 代理自助提卡，此时 order_id 为 0。 */
+    source: text("source").notNull().default("store"),
+    drawOrderId: integer("draw_order_id"),
     issuedAt: text("issued_at")
       .notNull()
       .default(sql`(datetime('now'))`),
@@ -473,6 +500,7 @@ export const issuedCdks = sqliteTable(
       t.agentId,
       t.issuedAt,
     ),
+    drawOrderIdx: index("issued_cdks_draw_order_idx").on(t.drawOrderId),
   }),
 );
 
@@ -1170,6 +1198,180 @@ export const platformAnnouncements = sqliteTable(
     liveKeyIdx: uniqueIndex("platform_announcements_live_key_uq").on(t.liveKey),
     statusIdx: index("platform_announcements_status_idx").on(t.status),
     publishedIdx: index("platform_announcements_published_idx").on(t.publishedAt),
+  }),
+);
+
+/** 代理自助提卡权限，一个代理一行。 */
+export const agentDrawAccess = sqliteTable(
+  "agent_draw_access",
+  {
+    agentId: integer("agent_id").primaryKey(),
+    /** none | pending | approved | rejected | suspended */
+    status: text("status").notNull().default("none"),
+    linkToken: text("link_token"),
+    creditLimitCents: integer("credit_limit_cents").notNull().default(0),
+    /** 0 表示不限。 */
+    dailyLimitCount: integer("daily_limit_count").notNull().default(0),
+    maxPerDraw: integer("max_per_draw").notNull().default(10),
+    /** 空数组表示该代理全部可提套餐。 */
+    allowedPlanKeysJson: text("allowed_plan_keys_json").notNull().default("[]"),
+    notifyEachDraw: integer("notify_each_draw", { mode: "boolean" })
+      .notNull()
+      .default(true),
+    creditWarnedAt: text("credit_warned_at"),
+    rejectReason: text("reject_reason").notNull().default(""),
+    adminNote: text("admin_note").notNull().default(""),
+    approvedAt: text("approved_at"),
+    approvedBy: integer("approved_by"),
+    suspendedAt: text("suspended_at"),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+  },
+  (t) => ({
+    tokenIdx: uniqueIndex("agent_draw_access_token_uq").on(t.linkToken),
+  }),
+);
+
+export const agentDrawApplications = sqliteTable(
+  "agent_draw_applications",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    agentId: integer("agent_id").notNull(),
+    contact: text("contact").notNull().default(""),
+    expectedMonthly: text("expected_monthly").notNull().default(""),
+    note: text("note").notNull().default(""),
+    /** pending | approved | rejected | cancelled */
+    status: text("status").notNull().default("pending"),
+    reviewNote: text("review_note").notNull().default(""),
+    reviewedBy: integer("reviewed_by"),
+    reviewedAt: text("reviewed_at"),
+    notifyStatus: text("notify_status").notNull().default(""),
+    notifyError: text("notify_error").notNull().default(""),
+    lastRemindedAt: text("last_reminded_at"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+  },
+  (t) => ({
+    agentIdx: index("agent_draw_applications_agent_idx").on(t.agentId, t.createdAt),
+    statusIdx: index("agent_draw_applications_status_idx").on(t.status),
+  }),
+);
+
+/** 代理点一次「生成」就是一行。 */
+export const agentDrawOrders = sqliteTable(
+  "agent_draw_orders",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    drawNo: text("draw_no").notNull(),
+    agentId: integer("agent_id").notNull(),
+    requestId: text("request_id").notNull(),
+    planId: integer("plan_id").notNull(),
+    planKeySnapshot: text("plan_key_snapshot").notNull(),
+    planNameSnapshot: text("plan_name_snapshot").notNull(),
+    quantity: integer("quantity").notNull(),
+    issuedCount: integer("issued_count").notNull().default(0),
+    unitPriceCents: integer("unit_price_cents").notNull(),
+    /** draw_override | agent_cost | global_cost */
+    priceSource: text("price_source").notNull(),
+    upstreamCostUnitCents: integer("upstream_cost_unit_cents"),
+    cardplatformAccountId: integer("cardplatform_account_id").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    /** issuing | delivered | partial | failed | unknown */
+    status: text("status").notNull().default("issuing"),
+    lastErrorCode: text("last_error_code").notNull().default(""),
+    lastErrorMessage: text("last_error_message").notNull().default(""),
+    attempts: integer("attempts").notNull().default(0),
+    emptyResponses: integer("empty_responses").notNull().default(0),
+    clientIp: text("client_ip").notNull().default(""),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+    deliveredAt: text("delivered_at"),
+  },
+  (t) => ({
+    drawNoIdx: uniqueIndex("agent_draw_orders_no_uq").on(t.drawNo),
+    requestIdx: uniqueIndex("agent_draw_orders_request_uq").on(t.agentId, t.requestId),
+    agentCreatedIdx: index("agent_draw_orders_agent_created_idx").on(
+      t.agentId,
+      t.createdAt,
+    ),
+    statusIdx: index("agent_draw_orders_status_idx").on(t.status),
+  }),
+);
+
+/** 提卡账本，一张卡一行。 */
+export const agentDrawItems = sqliteTable(
+  "agent_draw_items",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    drawOrderId: integer("draw_order_id").notNull(),
+    issuedCdkId: integer("issued_cdk_id").notNull(),
+    agentId: integer("agent_id").notNull(),
+    planKey: text("plan_key").notNull(),
+    amountCents: integer("amount_cents").notNull(),
+    upstreamCostCents: integer("upstream_cost_cents"),
+    /** unsettled | settled | void */
+    status: text("status").notNull().default("unsettled"),
+    billId: integer("bill_id"),
+    voidReason: text("void_reason").notNull().default(""),
+    voidedAt: text("voided_at"),
+    voidedBy: integer("voided_by"),
+    settledAt: text("settled_at"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+  },
+  (t) => ({
+    cdkIdx: uniqueIndex("agent_draw_items_cdk_uq").on(t.issuedCdkId),
+    agentStatusIdx: index("agent_draw_items_agent_status_idx").on(
+      t.agentId,
+      t.status,
+      t.createdAt,
+    ),
+    billIdx: index("agent_draw_items_bill_idx").on(t.billId),
+    orderIdx: index("agent_draw_items_order_idx").on(t.drawOrderId),
+  }),
+);
+
+/** 代理转账给平台后，管理员登记的结算账单。 */
+export const agentDrawBills = sqliteTable(
+  "agent_draw_bills",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    billNo: text("bill_no").notNull(),
+    agentId: integer("agent_id").notNull(),
+    itemCount: integer("item_count").notNull(),
+    amountCents: integer("amount_cents").notNull(),
+    firstItemAt: text("first_item_at").notNull(),
+    lastItemAt: text("last_item_at").notNull(),
+    summaryJson: text("summary_json").notNull().default("[]"),
+    paymentMethod: text("payment_method").notNull().default(""),
+    paymentReference: text("payment_reference").notNull().default(""),
+    notes: text("notes").notNull().default(""),
+    /** settled | reverted */
+    status: text("status").notNull().default("settled"),
+    createdBy: integer("created_by").notNull(),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+    revertedAt: text("reverted_at"),
+    revertedBy: integer("reverted_by"),
+    revertReason: text("revert_reason").notNull().default(""),
+  },
+  (t) => ({
+    billNoIdx: uniqueIndex("agent_draw_bills_no_uq").on(t.billNo),
+    agentCreatedIdx: index("agent_draw_bills_agent_created_idx").on(
+      t.agentId,
+      t.createdAt,
+    ),
   }),
 );
 

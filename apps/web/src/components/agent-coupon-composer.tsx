@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { groupPlansByBase, planNameWithRegion } from "@/lib/cardplatform/regions";
 import { toast } from "@/components/toast";
 import {
   moneyYuan,
@@ -313,17 +314,53 @@ export function AgentCouponComposer({ couponId }: { couponId?: number }) {
             <div>
               <p className="mb-2 text-sm">用在哪些套餐</p>
               {sellable.length ? (
-                <div className="km-acp-chips">
-                  {sellable.map((plan) => (
-                    <button
-                      key={plan.planKey}
-                      type="button"
-                      className={`km-acp-chip${draft.planKeys.includes(plan.planKey) ? " is-on" : ""}`}
-                      onClick={() => togglePlan(plan.planKey)}
-                    >
-                      {plan.name}
-                    </button>
-                  ))}
+                <div className="grid gap-2">
+                  {groupPlansByBase(
+                    sellable.map((plan) => ({
+                      ...plan,
+                      basePlanKey: plan.basePlanKey || "",
+                      paymentCountry: plan.paymentCountry || "",
+                      regionLabel: plan.regionLabel || "",
+                      regionCapable: Boolean(plan.regionCapable),
+                      sortOrder: 0,
+                    })),
+                  ).map((group) => {
+                    const keys = group.plans.map((plan) => plan.planKey);
+                    const allOn = keys.every((key) => draft.planKeys.includes(key));
+                    return (
+                      <div key={group.baseKey} className="km-acp-chips">
+                        <b>{group.primary.name}</b>
+                        {group.plans.length > 1 ? (
+                          <button
+                            type="button"
+                            className={`km-acp-chip${allOn ? " is-on" : ""}`}
+                            onClick={() =>
+                              setDraft((current) => ({
+                                ...current,
+                                planKeys: allOn
+                                  ? current.planKeys.filter((key) => !keys.includes(key))
+                                  : [...new Set([...current.planKeys, ...keys])],
+                              }))
+                            }
+                          >
+                            全部地区
+                          </button>
+                        ) : null}
+                        {group.plans.map((plan) => (
+                          <button
+                            key={plan.planKey}
+                            type="button"
+                            className={`km-acp-chip${draft.planKeys.includes(plan.planKey) ? " is-on" : ""}`}
+                            onClick={() => togglePlan(plan.planKey)}
+                          >
+                            {plan.regionCapable
+                              ? planNameWithRegion(plan.name, true, plan.paymentCountry, plan.regionLabel)
+                              : plan.name}
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <p className="text-sm text-[var(--km-fg-muted)]">

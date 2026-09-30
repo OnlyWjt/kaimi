@@ -7,11 +7,14 @@ import {
   type ProgressEvent,
 } from "@/components/order-progress-panel";
 import { isOrderTerminalStatus, normalizeOrderStatus } from "@/lib/order-status";
+import { RegionBadge } from "@/components/region-badge";
 
 type Validated = {
   codeMasked: string;
   planKey: string;
   planName: string;
+  paymentCountry?: string;
+  regionLabel?: string;
   productId: number | null;
   price?: string;
   status: string;
@@ -142,6 +145,8 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
         codeMasked: data.codeMasked,
         planKey: data.planKey,
         planName: data.planName,
+        paymentCountry: data.paymentCountry || "",
+        regionLabel: data.regionLabel || "",
         productId: data.productId ?? null,
         price: data.price,
         status: data.status,
@@ -315,6 +320,12 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
               <span className="km-badge">{validated?.status === "unused" ? "未使用" : validated?.status}</span>
             </div>
             <p className="text-sm text-[var(--km-fg-muted)]">卡密 {validated?.codeMasked}</p>
+            {validated && (validated.regionLabel || validated.planName.includes("·")) ? (
+              <p className="text-sm">
+                付款地区 <RegionBadge country={validated.paymentCountry || ""} regionLabel={validated.regionLabel} size="md" />
+                {validated.paymentCountry ? " · 这张卡密按该地区结账，与你账号所在地无关。" : null}
+              </p>
+            ) : null}
             {!progress ? (
               <button type="button" className="text-sm text-[var(--km-accent)] hover:underline" onClick={resetCode}>
                 更换卡密

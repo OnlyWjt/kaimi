@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   SAMPLE_NOTIFY_PAYLOAD,
   escapeTelegramHtml,
+  formatDrawAlertText,
+  formatDrawApplyTelegramHtml,
+  formatDrawApplyText,
+  formatDrawCreatedText,
   formatNotifyText,
   formatStorePaidTelegramHtml,
   formatStorePaidText,
@@ -122,6 +126,100 @@ describe("formatStorePaidText", () => {
     expect(notifyPaymentChannelLabel("alipay")).toBe("支付宝");
     expect(notifyPaymentChannelLabel("wxpay")).toBe("微信");
     expect(escapeTelegramHtml("a<b>&c")).toBe("a&lt;b&gt;&amp;c");
+  });
+});
+
+describe("自助提卡通知", () => {
+  const apply = {
+    kind: "apply" as const,
+    agentName: "Polus",
+    username: "polus01",
+    agentId: 12,
+    shopUrl: "https://kaimi.example.com/s/polus",
+    contact: "@polus_tg",
+    expectedMonthlyLabel: "50–200 张",
+    note: "<script>alert(1)</script>",
+    paidOrderCount: 138,
+    recentPaidOrderCount: 42,
+    appliedAt: "2026-09-30 15:30",
+    adminUrl: "https://kaimi.example.com/admin?tab=draw",
+  };
+
+  it("申请通知带代理、联系方式、订单量和审批链接", () => {
+    const text = formatDrawApplyText(apply);
+    expect(text).toContain("[Kaimi] 代理申请开通自助提卡");
+    expect(text).toContain("代理：Polus（账号 polus01 · ID 12）");
+    expect(text).toContain("已有商城订单：138 单 · 近 30 天 42 单");
+    expect(text).toContain("去审批：https://kaimi.example.com/admin?tab=draw");
+  });
+
+  it("代理填的内容在 HTML 里被转义", () => {
+    const html = formatDrawApplyTelegramHtml(apply);
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("催审批带首次申请时间", () => {
+    const text = formatDrawApplyText({ ...apply, kind: "remind", firstAppliedHoursAgo: 7 });
+    expect(text).toContain("代理催审批");
+    expect(text).toContain("首次申请：7 小时前");
+  });
+
+  it("提卡通知：部分出卡和毛利", () => {
+    const text = formatDrawCreatedText({
+      drawNo: "DR1",
+      agentName: "Polus",
+      planName: "Plus",
+      quantity: 3,
+      issuedCount: 2,
+      unitPriceCents: 12500,
+      amountCents: 25000,
+      exposureCents: 87500,
+      limitCents: 300000,
+      upstreamCostUnitCents: 12000,
+    });
+    expect(text).toContain("代理提卡（部分：2/3）  DR1");
+    expect(text).toContain("本次：¥250.00");
+    expect(text).toContain("（29%）");
+    expect(text).toContain("平台毛利：¥10.00（上游 ¥120.00/张）");
+  });
+
+  it("上游进价未配置时不出现毛利", () => {
+    const text = formatDrawCreatedText({
+      drawNo: "DR1",
+      agentName: "Polus",
+      planName: "Plus",
+      quantity: 1,
+      issuedCount: 1,
+      unitPriceCents: 12500,
+      amountCents: 12500,
+      exposureCents: 12500,
+      limitCents: 300000,
+      upstreamCostUnitCents: null,
+    });
+    expect(text).not.toContain("平台毛利");
+  });
+
+  it("告警", () => {
+    expect(
+      formatDrawAlertText({
+        kind: "credit_warning",
+        agentName: "Polus",
+        exposureCents: 255000,
+        limitCents: 300000,
+        adminUrl: "",
+      }),
+    ).toContain("（85%）");
+    expect(
+      formatDrawAlertText({
+        kind: "recover_failed",
+        agentName: "Polus",
+        drawNo: "DR9",
+        planName: "Plus",
+        quantity: 3,
+        adminUrl: "",
+      }),
+    ).toContain("需人工核对：DR9");
   });
 });
 

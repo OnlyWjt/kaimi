@@ -418,6 +418,58 @@ describe("external adapters", () => {
       plan: "plus",
       count: 5,
     });
+    expect(JSON.parse(String(init.body))).not.toHaveProperty("payment_country");
+  });
+
+  it("付款地区单独存在时也会发出去，并归一成大写", async () => {
+    const fetchMock = vi.fn(async (...args: Parameters<typeof fetch>) => {
+      void args;
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          data: { issued: [{ id: 1, code: "GPTD-US-1", plan: "plus", fee_amount_minor: 100 }] },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CardplatformClient({ siteBase: "https://card.invalid", apiKey: "test-key" });
+    await client.issueMany("plus", 1, "kaimi-order-US", { paymentCountry: "us" });
+    const body = JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.body));
+    expect(body.payment_country).toBe("US");
+    expect(body).not.toHaveProperty("payment_currency");
+  });
+
+  it("payment_regions 缺失或格式不对时地区为空", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({ code: 0, data: { plans: { plus: { enabled: true, label: "Plus" } } } }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CardplatformClient({ siteBase: "https://card.invalid", apiKey: "test-key" });
+    const first = await client.getPlansWithRegions();
+    expect(first.regions).toEqual([]);
+    expect(first.plans.map((plan) => plan.key)).toEqual(["plus"]);
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          code: 0,
+          data: {
+            plans: { plus: { enabled: true, label: "Plus" } },
+            payment_regions: [{ country: "us", currency: "usd" }, { country: "USA" }, { country: "CL", currency: "CLP" }],
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const second = await client.getPlansWithRegions();
+    expect(second.regions).toEqual([
+      { country: "US", currency: "USD" },
+      { country: "CL", currency: "CLP" },
+    ]);
   });
 
   it("卡台只发出一部分时按明确结果返回，不报错也不重试", async () => {

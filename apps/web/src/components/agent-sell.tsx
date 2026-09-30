@@ -16,6 +16,8 @@ import { isLocalAccountPlan } from "@/lib/finished-account-core";
 import { readApiJson } from "@/lib/http-error";
 import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
 import { retailPriceError, retailPriceRangeHint } from "@/lib/plan-price-core";
+import { groupPlansByBase, planNameWithRegion } from "@/lib/cardplatform/regions";
+import { RegionBadge } from "@/components/region-badge";
 
 function planStatus(plan: AgentPlanRow) {
   if (!plan.enabled) return { label: "未开放", tone: "mute" as const };
@@ -70,13 +72,13 @@ export function AgentSell({
         if (!plan.enabled) continue;
         const cents = centsFromYuanText(prices[plan.planKey] ?? "");
         if (cents == null || Number.isNaN(cents)) {
-          throw new Error(`${plan.name} 请填写零售价`);
+          throw new Error(`${planLabel(plan)} 请填写零售价`);
         }
         const priceError = retailPriceError(cents, {
           costPriceCents: plan.costPriceCents,
           maxRetailPriceCents: plan.maxRetailPriceCents,
         });
-        if (priceError) throw new Error(`${plan.name} ${priceError}`);
+        if (priceError) throw new Error(`${planLabel(plan)} ${priceError}`);
         await readApiJson(
           await fetch(`/api/agent/plans/${encodeURIComponent(plan.planKey)}`, {
             method: "PATCH",
@@ -113,7 +115,17 @@ export function AgentSell({
   }
 
   function planName(planKey: string) {
-    return plans.find((plan) => plan.planKey === planKey)?.name || planKey;
+    const plan = plans.find((item) => item.planKey === planKey);
+    return plan ? planLabel(plan) : planKey;
+  }
+
+  function planLabel(plan: AgentPlanRow) {
+    return planNameWithRegion(
+      plan.name,
+      Boolean(plan.regionCapable),
+      plan.paymentCountry || "",
+      plan.regionLabel || "",
+    );
   }
 
   return (
@@ -163,12 +175,44 @@ export function AgentSell({
                 </tr>
               </thead>
               <tbody>
-                {plans.map((plan) => {
-                  const status = planStatus(plan);
-                  return (
+                {groupPlansByBase(
+                  plans.map((plan) => ({
+                    ...plan,
+                    basePlanKey: plan.basePlanKey || "",
+                    paymentCountry: plan.paymentCountry || "",
+                    regionLabel: plan.regionLabel || "",
+                    regionCapable: Boolean(plan.regionCapable),
+                    sortOrder: 0,
+                  })),
+                ).flatMap((group) => {
+                  const grouped = group.plans.some((plan) => plan.regionCapable);
+                  const rows = [];
+                  if (grouped) {
+                    const sellableCount = group.plans.filter(
+                      (plan) => planStatus(plan).tone === "ok",
+                    ).length;
+                    rows.push(
+                      <tr key={`group-${group.baseKey}`}>
+                        <td colSpan={5}>
+                          <b>{group.primary.name}</b>
+                          <span className="text-[var(--km-fg-muted)]">
+                            {" "}
+                            · 店里显示为一个商品，{sellableCount} 个地区规格
+                          </span>
+                        </td>
+                      </tr>,
+                    );
+                  }
+                  for (const plan of group.plans) {
+                    const status = planStatus(plan);
+                    rows.push(
                     <tr key={plan.planKey}>
                       <td>
-                        <b>{plan.name}</b>
+                        {plan.regionCapable ? (
+                          <RegionBadge country={plan.paymentCountry} regionLabel={plan.regionLabel} />
+                        ) : (
+                          <b>{plan.name}</b>
+                        )}
                       </td>
                       <td>{moneyYuan(plan.costPriceCents)}</td>
                       <td className="text-[var(--km-fg-muted)]">
@@ -196,8 +240,10 @@ export function AgentSell({
                           {status.label}
                         </span>
                       </td>
-                    </tr>
-                  );
+                    </tr>,
+                    );
+                  }
+                  return rows;
                 })}
               </tbody>
             </table>

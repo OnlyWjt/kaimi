@@ -63,15 +63,20 @@ export async function GET() {
     .select({
       agentId: agentPlanPrices.agentId,
       planKey: platformPlans.planKey,
+      basePlanKey: platformPlans.basePlanKey,
+      paymentCountry: platformPlans.paymentCountry,
+      regionLabel: platformPlans.regionLabel,
+      regionCapable: platformPlans.regionCapable,
+      sortOrder: platformPlans.sortOrder,
       name: platformPlans.name,
     })
     .from(agentPlanPrices)
     .innerJoin(platformPlans, eq(platformPlans.id, agentPlanPrices.planId))
     .where(eq(agentPlanPrices.enabled, true));
-  const plansByAgent = new Map<number, Array<{ planKey: string; name: string }>>();
+  const plansByAgent = new Map<number, typeof assigned>();
   for (const row of assigned) {
     const current = plansByAgent.get(row.agentId) || [];
-    current.push({ planKey: row.planKey, name: row.name });
+    current.push(row);
     plansByAgent.set(row.agentId, current);
   }
 

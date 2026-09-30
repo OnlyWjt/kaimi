@@ -3,6 +3,7 @@ import { platformPlans } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { maskCode } from "@/lib/crypto";
 import { isLocalAccountPlan } from "@/lib/finished-account-core";
+import { planNameWithRegion } from "./regions";
 import type { AgentCredential } from "@/lib/recharge-types";
 import {
   getCardplatformClientById,
@@ -32,6 +33,9 @@ export type RedeemableCdk = {
   code: string;
   planKey: string;
   planName: string;
+  /** 本站卡密且套餐有地区概念时才有值。空串 = 菲区。 */
+  paymentCountry: string;
+  regionLabel: string;
   accountId: number;
   issued: NonNullable<Awaited<ReturnType<typeof findIssuedCdkByCode>>> | null;
 };
@@ -49,12 +53,23 @@ export function cardplatformCredential(account: AgentCredential) {
   };
 }
 
-async function planNameFor(planKey: string) {
-  if (!planKey) return "";
+async function planInfoFor(planKey: string) {
+  if (!planKey) return null;
   const plan = await db.query.platformPlans.findFirst({
     where: eq(platformPlans.planKey, planKey),
   });
-  return plan?.name || planKey;
+  if (!plan) return null;
+  return {
+    name: planNameWithRegion(
+      plan.name,
+      plan.regionCapable,
+      plan.paymentCountry,
+      plan.regionLabel,
+    ),
+    paymentCountry: plan.regionCapable ? plan.paymentCountry : "",
+    regionLabel: plan.regionCapable ? plan.regionLabel : "",
+    regionCapable: plan.regionCapable,
+  };
 }
 
 export async function resolveRedeemClient(code: string) {
@@ -116,11 +131,14 @@ export async function previewRedeemableCdk(
     issued?.planKey ||
     nestedString(result.payload, "plan", "plan_key", "product") ||
     "";
+  const planInfo = await planInfoFor(planKey);
   return {
     redeemable: {
       code: issued?.code || trimmed,
       planKey,
-      planName: (await planNameFor(planKey)) || planKey || "卡台套餐",
+      planName: planInfo?.name || planKey || "卡台套餐",
+      paymentCountry: issued && planInfo?.regionCapable ? issued.paymentCountry : "",
+      regionLabel: issued && planInfo?.regionCapable ? planInfo.regionLabel : "",
       accountId,
       issued,
     },
@@ -193,6 +211,8 @@ export function summarizePreview(input: {
     status: "未使用",
     planKey: input.redeemable.planKey,
     planName: input.redeemable.planName,
+    paymentCountry: input.redeemable.paymentCountry,
+    regionLabel: input.redeemable.regionLabel,
     productId: null as number | null,
     price: undefined as string | undefined,
   };
