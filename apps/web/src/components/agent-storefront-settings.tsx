@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { KmSelect } from "@/components/km-select";
 import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
 import { readApiJson } from "@/lib/http-error";
@@ -521,24 +522,22 @@ export function AgentStorefrontSettings() {
         {settings.contacts.map((contact, index) => (
           <div key={index} className="space-y-2 rounded-xl border border-[var(--km-border)] p-3">
             <div className="flex flex-wrap items-center gap-2">
-              <select
-                className="km-input w-32"
+              <KmSelect
+                className="w-32"
                 value={contact.type}
-                onChange={(event) => {
+                options={CONTACT_TYPES.map((type) => ({
+                  value: type,
+                  label: CONTACT_TYPE_LABEL[type],
+                }))}
+                onChange={(value) => {
                   const contacts = [...settings.contacts];
                   contacts[index] = {
                     ...contact,
-                    type: event.target.value as ContactItem["type"],
+                    type: value as ContactItem["type"],
                   };
                   patch({ contacts });
                 }}
-              >
-                {CONTACT_TYPES.map((type) => (
-                  <option key={type} value={type}>
-                    {CONTACT_TYPE_LABEL[type]}
-                  </option>
-                ))}
-              </select>
+              />
               <input
                 className="km-input min-w-0 flex-1"
                 value={contact.value}
@@ -589,17 +588,15 @@ export function AgentStorefrontSettings() {
         </div>
         <label className="block space-y-1.5">
           <span className="text-sm">默认语言</span>
-          <select
-            className="km-input w-40"
+          <KmSelect
+            className="w-40"
             value={settings.defaultLang}
-            onChange={(event) => patch({ defaultLang: event.target.value as Lang })}
-          >
-            {settings.languages.map((lang) => (
-              <option key={lang} value={lang}>
-                {lang === "zh" ? "中文" : "English"}
-              </option>
-            ))}
-          </select>
+            options={settings.languages.map((lang) => ({
+              value: lang,
+              label: lang === "zh" ? "中文" : "English",
+            }))}
+            onChange={(value) => patch({ defaultLang: value as Lang })}
+          />
         </label>
         <p className="text-xs text-[var(--km-fg-muted)]">
           只启用一种语言时，店铺不显示语言切换按钮。

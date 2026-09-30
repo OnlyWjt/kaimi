@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { KmSelect } from "@/components/km-select";
 import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
 import { hasNextPage, pageLabel } from "@/lib/pagination-core";
@@ -181,16 +182,18 @@ export function FinishedAccountsAdmin() {
             onChange={(event) => setQ(event.target.value)}
             placeholder="按邮箱搜索"
           />
-          <select
-            className="km-input w-32"
+          <KmSelect
+            className="w-32"
             value={status}
-            onChange={(event) => setStatus(event.target.value)}
-          >
-            <option value="">全部状态</option>
-            <option value="unused">未售</option>
-            <option value="sold">已售</option>
-            <option value="disabled">已作废</option>
-          </select>
+            placeholder="全部状态"
+            options={[
+              { value: "", label: "全部状态" },
+              { value: "unused", label: "未售" },
+              { value: "sold", label: "已售" },
+              { value: "disabled", label: "已作废" },
+            ]}
+            onChange={setStatus}
+          />
           <button
             type="button"
             className="km-btn"

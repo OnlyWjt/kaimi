@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { toast } from "@/components/toast";
+import { KmSelect } from "@/components/km-select";
 import { RegionBadge } from "@/components/region-badge";
 import {
   CDK_USE_LABEL,
@@ -291,13 +292,16 @@ export function AgentDraw() {
           <>
             <label className="block text-sm">
               套餐
-              <select className="km-input mt-1 w-full" value={planKey} onChange={(event) => setPlanKey(event.target.value)}>
-                {(state.plans || []).map((item) => (
-                  <option key={item.planKey} value={item.planKey}>
-                    {item.name} · ¥{yuanTextFromCents(item.unitPriceCents)}
-                  </option>
-                ))}
-              </select>
+              <KmSelect
+                className="mt-1"
+                value={planKey}
+                placeholder="选择套餐"
+                options={(state.plans || []).map((item) => ({
+                  value: item.planKey,
+                  label: `${item.name} · ¥${yuanTextFromCents(item.unitPriceCents)}`,
+                }))}
+                onChange={setPlanKey}
+              />
             </label>
             <label className="block text-sm">
               数量（一次最多 {state.limits?.maxPerDraw ?? 10} 张）

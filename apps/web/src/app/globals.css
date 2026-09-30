@@ -306,6 +306,82 @@ select.km-input option {
   color: var(--km-fg);
 }
 
+.km-select {
+  min-width: 0;
+}
+
+.km-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.km-select-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.km-select-chevron {
+  width: 0.8rem;
+  height: 0.8rem;
+  flex: none;
+  color: var(--km-fg-muted);
+  transition: transform 160ms ease;
+}
+
+.km-select-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.km-select-menu {
+  position: fixed;
+  z-index: 80;
+  max-height: 16rem;
+  overflow: auto;
+  padding: 0.35rem;
+  border-radius: 16px;
+  border: 1px solid var(--km-border);
+  background: var(--km-bg-elevated);
+  box-shadow: 0 18px 40px color-mix(in oklab, var(--km-fg) 14%, transparent);
+}
+
+.km-select-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.6rem;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--km-fg);
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.km-select-option:hover,
+.km-select-option:focus-visible {
+  background: var(--km-bg-muted);
+  outline: none;
+}
+
+.km-select-option[aria-selected="true"] {
+  background: color-mix(in oklab, var(--km-fg) 7%, var(--km-bg-muted));
+  font-weight: 600;
+}
+
+.km-select-mark {
+  width: 0.4rem;
+  height: 0.4rem;
+  flex: none;
+  border-radius: 999px;
+  background: var(--km-fg);
+}
+
 [data-theme="aurora"] select.km-input,
 [data-theme="ink"] select.km-input {
   color-scheme: dark;

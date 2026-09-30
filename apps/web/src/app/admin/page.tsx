@@ -13,6 +13,7 @@ import { CardIntegration } from "@/components/card-integration";
 import { CardSelectionConfig } from "@/components/card-selection-config";
 import { AdminEarningsStats } from "@/components/admin-earnings-stats";
 import { AdminAgentDraw } from "@/components/admin-agent-draw";
+import { KmSelect } from "@/components/km-select";
 import { AdminUsageStats } from "@/components/admin-usage-stats";
 import { CommerceAdmin } from "@/components/commerce-admin";
 import { FinishedAccountsAdmin } from "@/components/finished-accounts-admin";
@@ -592,10 +593,13 @@ export default function AdminPage() {
                 value={orderQ}
                 onChange={(e) => setOrderQ(e.target.value)}
               />
-              <select className="km-input max-w-[10rem]" value={orderStatus} onChange={(e) => setOrderStatus(e.target.value)}>
-                <option value="">全部状态</option>
-                {(
-                  [
+              <KmSelect
+                className="w-40"
+                value={orderStatus}
+                placeholder="全部状态"
+                options={[
+                  { value: "", label: "全部状态" },
+                  ...([
                     "pending",
                     "processing",
                     "success",
@@ -607,13 +611,10 @@ export default function AdminPage() {
                     "pending_pay",
                     "paid_undelivered",
                     "issuing",
-                  ] as const
-                ).map((value) => (
-                  <option key={value} value={value}>
-                    {STATUS_LABEL[value] || value}
-                  </option>
-                ))}
-              </select>
+                  ] as const).map((item) => ({ value: item, label: STATUS_LABEL[item] || item })),
+                ]}
+                onChange={setOrderStatus}
+              />
               <label className="flex items-center gap-2 text-sm text-[var(--km-fg-muted)]">
                 <input
                   type="checkbox"
@@ -835,11 +836,17 @@ export default function AdminPage() {
                   }
                 }}
               />
-              <select
-                className="km-input max-w-[10rem]"
+              <KmSelect
+                className="w-40"
                 value={cdkStatus}
-                onChange={(e) => {
-                  const next = e.target.value;
+                placeholder="全部状态"
+                options={[
+                  { value: "", label: "全部状态" },
+                  { value: "unused", label: "未使用" },
+                  { value: "used", label: "已核销" },
+                  { value: "disabled", label: "已禁用" },
+                ]}
+                onChange={(next) => {
                   setCdkStatus(next);
                   setCdkPage(1);
                   void (async () => {
@@ -853,12 +860,7 @@ export default function AdminPage() {
                     setCdkTotal(Number(data?.total) || 0);
                   })();
                 }}
-              >
-                <option value="">全部状态</option>
-                <option value="unused">未使用</option>
-                <option value="used">已核销</option>
-                <option value="disabled">已禁用</option>
-              </select>
+              />
               <button
                 className="km-btn"
                 onClick={() => {
@@ -1112,13 +1114,14 @@ export default function AdminPage() {
                 </label>
                 <label className="block space-y-1 text-sm">
                   <span>主题</span>
-                  <select className="km-input" value={siteTheme} onChange={(e) => setSiteTheme(e.target.value)}>
-                    {THEME_CHOICES.map((theme) => (
-                      <option key={theme.id} value={theme.id}>
-                        {theme.label} / {theme.hint}
-                      </option>
-                    ))}
-                  </select>
+                  <KmSelect
+                    value={siteTheme}
+                    options={THEME_CHOICES.map((theme) => ({
+                      value: theme.id,
+                      label: `${theme.label} / ${theme.hint}`,
+                    }))}
+                    onChange={setSiteTheme}
+                  />
                 </label>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-3">

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, like, lt, lte, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   agentDrawAccess,
@@ -1137,7 +1137,35 @@ export async function getAgentDrawOrderCodes(agentId: number, drawNo: string, ac
   };
 }
 
-export async function listDrawBills(agentId = 0) {
+export type DrawBillQuery = {
+  agentId?: number;
+  query?: string;
+  paymentMethod?: string;
+  status?: string;
+};
+
+function billQueryWhere(input: DrawBillQuery) {
+  const query = (input.query || "").trim().replace(/[%_]/g, "");
+  const status = input.status === "settled" || input.status === "reverted" ? input.status : "";
+  const method = normalizeDrawPaymentMethod(input.paymentMethod || "");
+  return and(
+    input.agentId && input.agentId > 0 ? eq(agentDrawBills.agentId, input.agentId) : undefined,
+    method ? eq(agentDrawBills.paymentMethod, method) : undefined,
+    status ? eq(agentDrawBills.status, status) : undefined,
+    query
+      ? or(
+          like(agentDrawBills.billNo, `%${query}%`),
+          like(agentDrawBills.paymentReference, `%${query}%`),
+          like(agentDrawBills.notes, `%${query}%`),
+          like(agents.displayName, `%${query}%`),
+          like(agents.shopName, `%${query}%`),
+        )
+      : undefined,
+  );
+}
+
+export async function listDrawBills(filter: DrawBillQuery | number = {}) {
+  const input: DrawBillQuery = typeof filter === "number" ? { agentId: filter } : filter;
   const rows = await db
     .select({
       id: agentDrawBills.id,
@@ -1156,7 +1184,7 @@ export async function listDrawBills(agentId = 0) {
     })
     .from(agentDrawBills)
     .innerJoin(agents, eq(agents.id, agentDrawBills.agentId))
-    .where(agentId > 0 ? eq(agentDrawBills.agentId, agentId) : undefined)
+    .where(billQueryWhere(input))
     .orderBy(desc(agentDrawBills.id))
     .limit(200);
   return rows.map((row) => ({
@@ -1562,9 +1590,9 @@ export async function updateDrawSettings(
   return credit;
 }
 
-export async function drawLedgerCsv(kind: "items" | "bills", agentId = 0) {
+export async function drawLedgerCsv(kind: "items" | "bills", agentId = 0, billQuery?: DrawBillQuery) {
   if (kind === "bills") {
-    const bills = await listDrawBills(agentId);
+    const bills = await listDrawBills({ ...billQuery, agentId: billQuery?.agentId || agentId });
     return toCsv(
       ["账单号", "代理", "结算时间", "张数", "金额", "方式", "流水号", "状态", "备注"],
       bills.map((bill) => [

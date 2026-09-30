@@ -40,13 +40,19 @@ export async function GET(req: Request) {
   const params = new URL(req.url).searchParams;
   const agentId = Number(params.get("agentId") || 0);
   const billId = Number(params.get("billId") || 0);
+  const billAgentId = Number(params.get("billAgentId") || 0);
   const [overview, agents, applications, items, stuck, bills, bill] = await Promise.all([
     drawLedgerOverview(),
     listDrawLedgerAgents(),
     listPendingDrawApplications(),
     agentId > 0 ? listUnsettledDrawItems(agentId) : Promise.resolve([]),
     agentId > 0 ? listStuckDrawOrders(agentId) : Promise.resolve([]),
-    listDrawBills(0),
+    listDrawBills({
+      agentId: billAgentId,
+      query: params.get("q") || "",
+      paymentMethod: params.get("method") || "",
+      status: params.get("billStatus") || "",
+    }),
     billId > 0 ? getDrawBill(billId).catch(() => null) : Promise.resolve(null),
   ]);
   return NextResponse.json({ overview, agents, applications, items, stuck, bills, bill });

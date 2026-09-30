@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { KmSelect } from "@/components/km-select";
 import { toast } from "@/components/toast";
 import { issuerChannelLabel } from "@/lib/cardplatform/issuer";
 import { parseDbDate } from "@/lib/datetime";
@@ -509,23 +510,22 @@ export function CardSelectionConfig() {
               </div>
             )}
             <div className="flex flex-wrap gap-2">
-              <select
-                className="km-input max-w-xs"
-                defaultValue=""
-                onChange={(e) => {
-                  const code = e.target.value;
+              <KmSelect
+                className="max-w-xs"
+                value=""
+                placeholder="从产品加入优先级…"
+                options={[
+                  { value: "", label: "从产品加入优先级…" },
+                  ...products.map((product) => ({
+                    value: product.productCode,
+                    label: `${product.productCode} / ${issuerChannelLabel(product.issuer)}`,
+                  })),
+                ]}
+                onChange={(code) => {
                   const product = products.find((item) => item.productCode === code);
-                  e.target.value = "";
                   if (product) addProduct(product);
                 }}
-              >
-                <option value="">从产品加入优先级…</option>
-                {products.map((product) => (
-                  <option key={product.productCode} value={product.productCode}>
-                    {product.productCode} / {issuerChannelLabel(product.issuer)}
-                  </option>
-                ))}
-              </select>
+              />
               <button
                 className="km-btn"
                 disabled={Boolean(busy)}

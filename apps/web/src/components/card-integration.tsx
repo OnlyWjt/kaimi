@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { KmSelect } from "@/components/km-select";
 import { toast } from "@/components/toast";
 import { copyText } from "@/lib/copy-text";
 import { parseDbDate } from "@/lib/datetime";
@@ -294,14 +295,14 @@ export function CardIntegration({ publicBaseUrl = "" }: { publicBaseUrl?: string
           </label>
           <label className="block space-y-1 text-sm">
             <span>协议</span>
-            <select
-              className="km-input"
+            <KmSelect
               value={form.protocol}
-              onChange={(e) => setForm((s) => ({ ...s, protocol: e.target.value }))}
-            >
-              <option value="spacexcard-legacy">SpaceX Legacy</option>
-              <option value="avanfinity-2026-08">Avanfinity</option>
-            </select>
+              options={[
+                { value: "spacexcard-legacy", label: "SpaceX Legacy" },
+                { value: "avanfinity-2026-08", label: "Avanfinity" },
+              ]}
+              onChange={(value) => setForm((current) => ({ ...current, protocol: value }))}
+            />
           </label>
           <label className="block space-y-1 text-sm sm:col-span-2">
             <span>卡台地址</span>

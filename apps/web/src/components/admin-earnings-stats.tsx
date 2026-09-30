@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { KmSelect } from "@/components/km-select";
 import { readApiJson } from "@/lib/http-error";
 import type { StatsGrain } from "@/lib/earnings-stats-core";
 
@@ -388,18 +389,15 @@ export function AdminEarningsStats() {
               {range.start} 至 {range.end}
             </p>
           )}
-          <select
-            className="km-input"
-            value={agentId}
-            onChange={(event) => setAgentId(Number(event.target.value))}
-          >
-            <option value={0}>全部代理</option>
-            {agents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.displayName}
-              </option>
-            ))}
-          </select>
+          <KmSelect
+            value={agentId ? String(agentId) : ""}
+            placeholder="全部代理"
+            options={[
+              { value: "", label: "全部代理" },
+              ...agents.map((agent) => ({ value: String(agent.id), label: agent.displayName })),
+            ]}
+            onChange={(value) => setAgentId(Number(value))}
+          />
         </div>
         {error ? <p className="text-sm text-[var(--km-danger)]">{error}</p> : null}
         {busy ? <p className="text-xs text-[var(--km-fg-muted)]">正在汇总…</p> : null}

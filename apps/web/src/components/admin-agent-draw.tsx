@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "@/components/toast";
 import { yuanTextFromCents, centsFromYuanText } from "@/lib/money";
+import { KmSelect } from "@/components/km-select";
 import { RegionBadge } from "@/components/region-badge";
 import {
   CDK_USE_LABEL,
@@ -79,6 +80,15 @@ type Overview = {
   unsettledCount: number;
 };
 
+type BillFilter = {
+  agentId: number;
+  query: string;
+  method: string;
+  status: string;
+};
+
+const EMPTY_BILL_FILTER: BillFilter = { agentId: 0, query: "", method: "", status: "" };
+
 const STATUS: Record<string, string> = {
   approved: "已开通",
   pending: "审核中",
@@ -97,6 +107,26 @@ function heatClass(cents: number, limit: number) {
   if (heat === "full") return "text-red-600";
   if (heat === "warn") return "text-amber-600";
   return "";
+}
+
+function billSearch(agentId: number, bills: BillFilter) {
+  const params = new URLSearchParams();
+  if (agentId > 0) params.set("agentId", String(agentId));
+  if (bills.agentId > 0) params.set("billAgentId", String(bills.agentId));
+  if (bills.query.trim()) params.set("q", bills.query.trim());
+  if (bills.method) params.set("method", bills.method);
+  if (bills.status) params.set("billStatus", bills.status);
+  return params;
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <label className="block text-xs font-medium text-[var(--km-fg-muted)]">
+      {label}
+      {hint ? <span className="ml-1 font-normal">{hint}</span> : null}
+      <span className="mt-1 block text-sm font-normal text-[var(--km-fg)]">{children}</span>
+    </label>
+  );
 }
 
 export function AdminAgentDraw() {
@@ -126,12 +156,16 @@ export function AdminAgentDraw() {
   const [billDetail, setBillDetail] = useState<{
     id: number;
     billNo: string;
+    notes?: string;
     items: LedgerItem[];
   } | null>(null);
+  const [itemQuery, setItemQuery] = useState("");
+  const [billDraft, setBillDraft] = useState<BillFilter>(EMPTY_BILL_FILTER);
+  const [billFilter, setBillFilter] = useState<BillFilter>(EMPTY_BILL_FILTER);
   const [busy, setBusy] = useState("");
 
-  async function load(agentId = selectedId) {
-    const data = await fetch(`/api/admin/draw?agentId=${agentId}`, { cache: "no-store" }).then((res) => res.json());
+  async function load(agentId = selectedId, bills = billFilter) {
+    const data = await fetch(`/api/admin/draw?${billSearch(agentId, bills)}`, { cache: "no-store" }).then((res) => res.json());
     if (data.error) throw new Error(data.error);
     setOverview(data.overview);
     setAgents(data.agents || []);
@@ -153,9 +187,16 @@ export function AdminAgentDraw() {
   }, []);
 
   const selected = agents.find((agent) => agent.agentId === selectedId) || null;
+  const visibleItems = useMemo(() => {
+    const query = itemQuery.trim().toLowerCase();
+    if (!query) return items;
+    return items.filter((item) =>
+      [item.drawNo, item.codeMasked, item.planName].some((value) => value.toLowerCase().includes(query)),
+    );
+  }, [items, itemQuery]);
   const selectedItems = useMemo(
-    () => items.filter((item) => checked.includes(item.id)),
-    [items, checked],
+    () => visibleItems.filter((item) => checked.includes(item.id)),
+    [visibleItems, checked],
   );
   const selectedCents = selectedItems.reduce((sum, item) => sum + item.amountCents, 0);
   const groups = summarizeDrawItems(
@@ -212,54 +253,65 @@ export function AdminAgentDraw() {
     }
   }
 
+  function openBills(next: BillFilter) {
+    setBillDraft(next);
+    setBillFilter(next);
+    setBillDetail(null);
+    setView("bills");
+    setBusy("load");
+    void load(selectedId, next)
+      .catch((error) => toast(error instanceof Error ? error.message : "查询失败", "err"))
+      .finally(() => setBusy(""));
+  }
+
+  const billExport = `/api/admin/draw/export?kind=bills&${billSearch(0, billFilter)}`;
+
   return (
     <div className="space-y-4">
       <section className="grid gap-3 sm:grid-cols-3">
-        <div className="km-panel">
-          <p className="text-sm text-[var(--km-fg-muted)]">待审批</p>
-          <p className="text-2xl font-semibold">{overview?.pendingApplications ?? "…"}</p>
+        <div className="km-stat">
+          <p className="text-xs text-[var(--km-fg-muted)]">待审批</p>
+          <p className="km-stat-value">{overview?.pendingApplications ?? "…"}</p>
         </div>
-        <div className="km-panel">
-          <p className="text-sm text-[var(--km-fg-muted)]">已开通代理</p>
-          <p className="text-2xl font-semibold">{overview?.approvedAgents ?? "…"}</p>
+        <div className="km-stat">
+          <p className="text-xs text-[var(--km-fg-muted)]">已开通代理</p>
+          <p className="km-stat-value">{overview?.approvedAgents ?? "…"}</p>
         </div>
-        <div className="km-panel">
-          <p className="text-sm text-[var(--km-fg-muted)]">未结算</p>
-          <p className="text-2xl font-semibold">{overview ? yuan(overview.unsettledCents) : "…"}</p>
+        <div className="km-stat">
+          <p className="text-xs text-[var(--km-fg-muted)]">未结算</p>
+          <p className="km-stat-value">{overview ? yuan(overview.unsettledCents) : "…"}</p>
           <p className="text-xs text-[var(--km-fg-muted)]">{overview?.unsettledCount ?? 0} 张</p>
         </div>
       </section>
 
-      <div className="flex flex-wrap gap-2">
-        <button type="button" className={`km-btn ${view === "ledger" ? "" : "km-btn-ghost"}`} onClick={() => setView("ledger")}>
+      <div className="km-tabs">
+        <button type="button" className={`km-tab ${view === "ledger" ? "km-tab-active" : ""}`} onClick={() => setView("ledger")}>
           未结算账本
         </button>
-        <button type="button" className={`km-btn ${view === "bills" ? "" : "km-btn-ghost"}`} onClick={() => setView("bills")}>
+        <button type="button" className={`km-tab ${view === "bills" ? "km-tab-active" : ""}`} onClick={() => setView("bills")}>
           已结算
         </button>
-        <button type="button" className={`km-btn ${view === "apply" ? "" : "km-btn-ghost"}`} onClick={() => setView("apply")}>
-          申请 {applications.length ? `(${applications.length})` : ""}
+        <button type="button" className={`km-tab ${view === "apply" ? "km-tab-active" : ""}`} onClick={() => setView("apply")}>
+          申请{applications.length ? ` ${applications.length}` : ""}
         </button>
       </div>
 
       {view === "apply" ? (
         <section className="km-panel space-y-3">
-          <div className="flex flex-wrap items-end gap-2">
-            <label className="text-sm">
-              直接开通
-              <select
-                className="km-input ml-2"
-                value={grantAgentId || ""}
-                onChange={(event) => setGrantAgentId(Number(event.target.value))}
-              >
-                <option value="">选择代理</option>
-                {allAgents.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.displayName}
-                  </option>
-                ))}
-              </select>
-            </label>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="w-full max-w-xs">
+              <Field label="直接开通">
+                <KmSelect
+                  value={grantAgentId ? String(grantAgentId) : ""}
+                  placeholder="选择代理"
+                  options={[
+                    { value: "", label: "选择代理" },
+                    ...allAgents.map((agent) => ({ value: String(agent.id), label: agent.displayName })),
+                  ]}
+                  onChange={(value) => setGrantAgentId(Number(value))}
+                />
+              </Field>
+            </div>
             <button
               type="button"
               className="km-btn"
@@ -324,16 +376,77 @@ export function AdminAgentDraw() {
       ) : null}
 
       {view === "bills" ? (
-        <section className="km-panel space-y-3">
-          <div className="flex justify-end">
-            <a className="km-btn km-btn-ghost" href="/api/admin/draw/export?kind=bills">
-              导出 CSV
-            </a>
+        <section className="km-panel space-y-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <Field label="代理">
+              <KmSelect
+                value={billDraft.agentId ? String(billDraft.agentId) : ""}
+                placeholder="全部"
+                options={[
+                  { value: "", label: "全部" },
+                  ...agents.map((agent) => ({ value: String(agent.agentId), label: agent.name })),
+                ]}
+                onChange={(value) => setBillDraft((current) => ({ ...current, agentId: Number(value) }))}
+              />
+            </Field>
+            <Field label="关键词" hint="账单号 / 流水号 / 备注">
+              <input
+                className="km-input w-full"
+                value={billDraft.query}
+                placeholder="例如 DB 或流水号"
+                onChange={(event) => setBillDraft((current) => ({ ...current, query: event.target.value }))}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") openBills(billDraft);
+                }}
+              />
+            </Field>
+            <Field label="收款方式">
+              <KmSelect
+                value={billDraft.method}
+                placeholder="全部"
+                options={[
+                  { value: "", label: "全部" },
+                  ...DRAW_PAYMENT_METHODS.map((method) => ({ value: method.value, label: method.label })),
+                ]}
+                onChange={(value) => setBillDraft((current) => ({ ...current, method: value }))}
+              />
+            </Field>
+            <Field label="状态">
+              <KmSelect
+                value={billDraft.status}
+                placeholder="全部"
+                options={[
+                  { value: "", label: "全部" },
+                  { value: "settled", label: "已结算" },
+                  { value: "reverted", label: "已撤销" },
+                ]}
+                onChange={(value) => setBillDraft((current) => ({ ...current, status: value }))}
+              />
+            </Field>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-[var(--km-fg-muted)]">{bills.length} 笔</p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className="km-btn km-btn-sm" disabled={Boolean(busy)} onClick={() => openBills(billDraft)}>
+                查询
+              </button>
+              <button
+                type="button"
+                className="km-btn km-btn-ghost km-btn-sm"
+                disabled={Boolean(busy)}
+                onClick={() => openBills(EMPTY_BILL_FILTER)}
+              >
+                清空
+              </button>
+              <a className="km-btn km-btn-ghost km-btn-sm" href={billExport}>
+                导出 CSV
+              </a>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[880px] text-left text-sm">
               <thead>
-                <tr className="border-b border-[var(--km-border)]">
+                <tr className="border-b border-[var(--km-border)] text-xs text-[var(--km-fg-muted)]">
                   <th className="py-2 pr-3">账单号</th>
                   <th className="py-2 pr-3">代理</th>
                   <th className="py-2 pr-3">时间</th>
@@ -349,12 +462,13 @@ export function AdminAgentDraw() {
                 {bills.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="py-6 text-[var(--km-fg-muted)]">
-                      还没有结算账单。
+                      没有符合条件的结算记录。
                     </td>
                   </tr>
                 ) : null}
                 {bills.map((bill) => (
-                  <tr key={bill.id} className="border-b border-[var(--km-border)]">
+                  <Fragment key={bill.id}>
+                  <tr>
                     <td className="py-2 pr-3 font-mono text-xs">{bill.billNo}</td>
                     <td className="py-2 pr-3">{bill.name}</td>
                     <td className="py-2 pr-3">{bill.createdAt.slice(5, 16).replace("T", " ")}</td>
@@ -368,7 +482,7 @@ export function AdminAgentDraw() {
                     <td className="py-2">
                       <button
                         type="button"
-                        className="km-btn km-btn-ghost"
+                        className="km-btn km-btn-ghost km-btn-sm"
                         onClick={() => {
                           if (billDetail?.id === bill.id) {
                             setBillDetail(null);
@@ -387,7 +501,7 @@ export function AdminAgentDraw() {
                       {bill.canRevert ? (
                         <button
                           type="button"
-                          className="km-btn km-btn-ghost"
+                          className="km-btn km-btn-ghost km-btn-sm"
                           disabled={Boolean(busy)}
                           onClick={() => {
                             const reason = window.prompt("撤销原因") || "";
@@ -400,19 +514,20 @@ export function AdminAgentDraw() {
                       ) : null}
                     </td>
                   </tr>
+                  {billDetail?.id === bill.id ? (
+                    <tr>
+                      <td colSpan={9} className="bg-[var(--km-bg-muted)] text-xs">
+                        {billDetail.notes ? <p className="mb-1">备注：{billDetail.notes}</p> : null}
+                        {billDetail.items.map((item) => (
+                          <span key={item.id} className="mr-3 inline-block py-0.5">
+                            {item.codeMasked} · {item.planName} · {yuan(item.amountCents)}
+                          </span>
+                        ))}
+                      </td>
+                    </tr>
+                  ) : null}
+                  </Fragment>
                 ))}
-                {billDetail ? (
-                  <tr>
-                    <td colSpan={9} className="bg-[var(--km-bg-muted)] px-3 py-2 text-xs">
-                      {billDetail.billNo}：
-                      {billDetail.items.map((item) => (
-                        <span key={item.id} className="mr-3 inline-block">
-                          {item.codeMasked} · {item.planName} · {yuan(item.amountCents)}
-                        </span>
-                      ))}
-                    </td>
-                  </tr>
-                ) : null}
               </tbody>
             </table>
           </div>
@@ -420,9 +535,9 @@ export function AdminAgentDraw() {
       ) : null}
 
       {view === "ledger" ? (
-        <section className="grid gap-4 lg:grid-cols-[240px_1fr]">
-          <div className="km-panel space-y-2">
-            <h2 className="font-semibold">代理</h2>
+        <section className="grid items-start gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+          <div className="km-panel space-y-1">
+            <h2 className="mb-2 font-semibold">代理</h2>
             {agents.length === 0 ? (
               <p className="text-sm text-[var(--km-fg-muted)]">还没有开通提卡的代理。到「申请」里开通。</p>
             ) : (
@@ -430,13 +545,17 @@ export function AdminAgentDraw() {
                 <button
                   key={agent.agentId}
                   type="button"
-                  className={`block w-full rounded-xl px-3 py-2 text-left text-sm ${agent.agentId === selectedId ? "bg-[var(--km-bg-muted)]" : ""}`}
+                  className={`block w-full rounded-xl px-3 py-2.5 text-left ${agent.agentId === selectedId ? "bg-[var(--km-bg-muted)]" : "hover:bg-[var(--km-bg-muted)]"}`}
                   onClick={() => void openAgent(agent.agentId)}
                 >
-                  <b>{agent.name}</b>
+                  <span className="flex items-center justify-between gap-2">
+                    <b className="truncate text-sm">{agent.name}</b>
+                    <span className="shrink-0 text-[11px] text-[var(--km-fg-muted)]">
+                      {STATUS[agent.drawStatus] || agent.drawStatus}
+                    </span>
+                  </span>
                   <span className={`mt-1 block text-xs ${heatClass(agent.unsettledCents, agent.creditLimitCents)}`}>
-                    {STATUS[agent.drawStatus] || agent.drawStatus} · 未结 {yuan(agent.unsettledCents)} / 上限{" "}
-                    {yuan(agent.creditLimitCents)}
+                    未结 {yuan(agent.unsettledCents)}
                   </span>
                 </button>
               ))
@@ -447,122 +566,144 @@ export function AdminAgentDraw() {
               <>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h2 className="text-xl font-semibold">{selected.name}</h2>
-                    <p className={`text-sm ${heatClass(selected.unsettledCents, selected.creditLimitCents)}`}>
-                      未结 {yuan(selected.unsettledCents)} / 上限 {yuan(selected.creditLimitCents)} · {selected.unsettledCount} 张
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-xl font-semibold">{selected.name}</h2>
+                      <span className="rounded-full bg-[var(--km-bg-muted)] px-2 py-0.5 text-xs text-[var(--km-fg-muted)]">
+                        {STATUS[selected.drawStatus] || selected.drawStatus}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-2">
+                        <p className="text-[11px] text-[var(--km-fg-muted)]">未结</p>
+                        <p className={`text-sm font-semibold ${heatClass(selected.unsettledCents, selected.creditLimitCents)}`}>
+                          {yuan(selected.unsettledCents)}
+                        </p>
+                      </div>
+                      <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-2">
+                        <p className="text-[11px] text-[var(--km-fg-muted)]">上限</p>
+                        <p className="text-sm font-semibold">{yuan(selected.creditLimitCents)}</p>
+                      </div>
+                      <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-2">
+                        <p className="text-[11px] text-[var(--km-fg-muted)]">未结张数</p>
+                        <p className="text-sm font-semibold">{selected.unsettledCount}</p>
+                      </div>
+                    </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <a className="km-btn km-btn-ghost" href={`/api/admin/draw/export?kind=items&agentId=${selected.agentId}`}>
-                      导出 CSV
+                    <a className="km-btn km-btn-ghost km-btn-sm" href={`/api/admin/draw/export?kind=items&agentId=${selected.agentId}`}>
+                      导出
                     </a>
                     <button
                       type="button"
-                      className="km-btn"
+                      className="km-btn km-btn-ghost km-btn-sm"
+                      onClick={() => openBills({ ...EMPTY_BILL_FILTER, agentId: selected.agentId })}
+                    >
+                      查结算
+                    </button>
+                    <button
+                      type="button"
+                      className="km-btn km-btn-sm"
                       disabled={!selectedItems.length || Boolean(busy)}
                       onClick={() => setSettleOpen(true)}
                     >
-                      登记结算 {selectedItems.length ? yuan(selectedCents) : ""}
+                      登记结算{selectedItems.length ? ` ${yuan(selectedCents)}` : ""}
                     </button>
                   </div>
                 </div>
-                <div className="space-y-2 rounded-xl border border-[var(--km-border)] p-3 text-sm">
-                  <p className="font-medium">提卡设置</p>
-                  <div className="flex flex-wrap items-end gap-3">
-                    <label>
-                      上限 ¥
-                      <input className="km-input ml-1 w-28" value={creditYuan} onChange={(event) => setCreditYuan(event.target.value)} />
-                    </label>
-                    <label>
-                      单次最多
-                      <input className="km-input ml-1 w-20" value={maxPerDraw} onChange={(event) => setMaxPerDraw(event.target.value)} /> 张
-                    </label>
-                    <label>
-                      每日最多
-                      <input className="km-input ml-1 w-20" value={dailyLimit} onChange={(event) => setDailyLimit(event.target.value)} /> 张
-                      <span className="ml-1 text-xs text-[var(--km-fg-muted)]">0 = 不限</span>
-                    </label>
-                    <label className="flex items-center gap-1">
+                <div className="rounded-2xl border border-[var(--km-border)] p-4">
+                  <p className="text-sm font-medium">提卡设置</p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                    <Field label="上限" hint="元">
+                      <input className="km-input w-full" inputMode="decimal" value={creditYuan} onChange={(event) => setCreditYuan(event.target.value)} />
+                    </Field>
+                    <Field label="单次最多" hint="张">
+                      <input className="km-input w-full" inputMode="numeric" value={maxPerDraw} onChange={(event) => setMaxPerDraw(event.target.value)} />
+                    </Field>
+                    <Field label="每日最多" hint="0 = 不限">
+                      <input className="km-input w-full" inputMode="numeric" value={dailyLimit} onChange={(event) => setDailyLimit(event.target.value)} />
+                    </Field>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <label className="flex items-center gap-2 text-sm">
                       <input type="checkbox" checked={notifyEach} onChange={(event) => setNotifyEach(event.target.checked)} />
                       每次提卡发 Telegram
                     </label>
-                    <button
-                      type="button"
-                      className="km-btn km-btn-ghost"
-                      disabled={Boolean(busy)}
-                      onClick={() => {
-                        const cents = centsFromYuanText(creditYuan);
-                        const per = Number(maxPerDraw);
-                        const daily = Number(dailyLimit);
-                        if (cents == null || cents <= 0) {
-                          toast("请填写大于 0 的上限", "err");
-                          return;
-                        }
-                        void post(
-                          {
-                            action: "settings",
-                            agentId: selected.agentId,
-                            creditLimitCents: cents,
-                            maxPerDraw: per,
-                            dailyLimitCount: daily,
-                            notifyEachDraw: notifyEach,
-                          },
-                          "提卡设置已保存",
-                        );
-                      }}
-                    >
-                      保存设置
-                    </button>
-                    {selected.drawStatus === "approved" ? (
+                    <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
-                        className="km-btn km-btn-ghost"
+                        className="km-btn km-btn-ghost km-btn-sm"
                         disabled={Boolean(busy)}
-                        onClick={() => void post({ action: "suspend", agentId: selected.agentId }, "已暂停提卡")}
+                        onClick={() => {
+                          const cents = centsFromYuanText(creditYuan);
+                          const per = Number(maxPerDraw);
+                          const daily = Number(dailyLimit);
+                          if (cents == null || cents <= 0) {
+                            toast("请填写大于 0 的上限", "err");
+                            return;
+                          }
+                          void post(
+                            {
+                              action: "settings",
+                              agentId: selected.agentId,
+                              creditLimitCents: cents,
+                              maxPerDraw: per,
+                              dailyLimitCount: daily,
+                              notifyEachDraw: notifyEach,
+                            },
+                            "提卡设置已保存",
+                          );
+                        }}
                       >
-                        暂停提卡
+                        保存设置
                       </button>
-                    ) : null}
-                    {selected.drawStatus === "suspended" ? (
-                      <button
-                        type="button"
-                        className="km-btn km-btn-ghost"
-                        disabled={Boolean(busy)}
-                        onClick={() => void post({ action: "resume", agentId: selected.agentId }, "已恢复提卡")}
-                      >
-                        恢复提卡
-                      </button>
-                    ) : null}
+                      {selected.drawStatus === "approved" ? (
+                        <button
+                          type="button"
+                          className="km-btn km-btn-ghost km-btn-sm"
+                          disabled={Boolean(busy)}
+                          onClick={() => void post({ action: "suspend", agentId: selected.agentId }, "已暂停提卡")}
+                        >
+                          暂停提卡
+                        </button>
+                      ) : null}
+                      {selected.drawStatus === "suspended" ? (
+                        <button
+                          type="button"
+                          className="km-btn km-btn-ghost km-btn-sm"
+                          disabled={Boolean(busy)}
+                          onClick={() => void post({ action: "resume", agentId: selected.agentId }, "已恢复提卡")}
+                        >
+                          恢复提卡
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
                 {settleOpen ? (
-                  <div className="space-y-2 rounded-xl border border-[var(--km-border)] p-3 text-sm">
+                  <div className="space-y-3 rounded-2xl border border-[var(--km-border)] p-4 text-sm">
                     <p className="font-medium">
                       登记结算 · {selected.name} · {selectedItems.length} 张 · {yuan(selectedCents)}
                     </p>
                     {groups.map((group) => (
-                      <p key={`${group.planKey}-${group.unitPriceCents}`}>
+                      <p key={`${group.planKey}-${group.unitPriceCents}`} className="text-[var(--km-fg-muted)]">
                         {group.planName} × {group.count} = {yuan(group.amountCents)}
                       </p>
                     ))}
-                    <label className="block">
-                      收款方式
-                      <select className="km-input ml-2" value={payMethod} onChange={(event) => setPayMethod(event.target.value)}>
-                        {DRAW_PAYMENT_METHODS.map((method) => (
-                          <option key={method.value} value={method.value}>
-                            {method.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="block">
-                      流水号
-                      <input className="km-input ml-2 w-64" value={payRef} onChange={(event) => setPayRef(event.target.value)} />
-                    </label>
-                    <label className="block">
-                      备注
-                      <input className="km-input ml-2 w-64" value={payNotes} onChange={(event) => setPayNotes(event.target.value)} />
-                    </label>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <Field label="收款方式">
+                        <KmSelect
+                          value={payMethod}
+                          options={DRAW_PAYMENT_METHODS.map((method) => ({ value: method.value, label: method.label }))}
+                          onChange={setPayMethod}
+                        />
+                      </Field>
+                      <Field label="流水号">
+                        <input className="km-input w-full" value={payRef} onChange={(event) => setPayRef(event.target.value)} />
+                      </Field>
+                      <Field label="备注">
+                        <input className="km-input w-full" value={payNotes} onChange={(event) => setPayNotes(event.target.value)} />
+                      </Field>
+                    </div>
                     <div className="flex gap-2">
                       <button type="button" className="km-btn km-btn-ghost" onClick={() => setSettleOpen(false)}>
                         取消
@@ -699,6 +840,19 @@ export function AdminAgentDraw() {
                     </div>
                   </div>
                 ) : null}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Field label="筛选未结卡密">
+                    <input
+                      className="km-input w-64"
+                      value={itemQuery}
+                      placeholder="单号、卡密或套餐"
+                      onChange={(event) => setItemQuery(event.target.value)}
+                    />
+                  </Field>
+                  <p className="text-xs text-[var(--km-fg-muted)]">
+                    {visibleItems.length} 张{itemQuery.trim() ? `，已选 ${selectedItems.length} 张` : ""}
+                  </p>
+                </div>
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[860px] text-left text-sm">
                     <thead>
@@ -706,8 +860,14 @@ export function AdminAgentDraw() {
                         <th className="py-2 pr-3">
                           <input
                             type="checkbox"
-                            checked={items.length > 0 && checked.length === items.length}
-                            onChange={(event) => setChecked(event.target.checked ? items.map((item) => item.id) : [])}
+                            checked={visibleItems.length > 0 && visibleItems.every((item) => checked.includes(item.id))}
+                            onChange={(event) =>
+                              setChecked(
+                                event.target.checked
+                                  ? [...new Set([...checked, ...visibleItems.map((item) => item.id)])]
+                                  : checked.filter((id) => !visibleItems.some((item) => item.id === id)),
+                              )
+                            }
                           />
                         </th>
                         <th className="py-2 pr-3">时间</th>
@@ -720,14 +880,14 @@ export function AdminAgentDraw() {
                       </tr>
                     </thead>
                     <tbody>
-                      {items.length === 0 ? (
+                      {visibleItems.length === 0 ? (
                         <tr>
                           <td colSpan={8} className="py-6 text-[var(--km-fg-muted)]">
-                            这个代理没有未结算的提卡。
+                            {items.length === 0 ? "这个代理没有未结算的提卡。" : "没有符合筛选的卡密。"}
                           </td>
                         </tr>
                       ) : null}
-                      {items.map((item) => (
+                      {visibleItems.map((item) => (
                         <tr key={item.id} className="border-b border-[var(--km-border)]">
                           <td className="py-2 pr-3">
                             <input
@@ -751,7 +911,7 @@ export function AdminAgentDraw() {
                           <td className="py-2 pr-3">{yuan(item.amountCents)}</td>
                           <td className="py-2">
                             {item.cdkStatus === "unused" ? (
-                              <button type="button" className="km-btn km-btn-ghost" onClick={() => setVoidTarget(item)}>
+                              <button type="button" className="km-btn km-btn-ghost km-btn-sm" onClick={() => setVoidTarget(item)}>
                                 作废
                               </button>
                             ) : null}

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { KmSelect } from "@/components/km-select";
 import { copyText } from "@/lib/copy-text";
 import { hasNextPage, pageLabel } from "@/lib/pagination-core";
 import { adminStatusLabel } from "@/lib/status-labels";
@@ -754,63 +755,63 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
           </label>
           <label className="block space-y-1 text-sm">
             <span>代理</span>
-            <select
-              className="km-input w-40"
+            <KmSelect
+              className="w-40"
               value={orderDraft.agentId}
-              onChange={(event) =>
+              placeholder="全部代理"
+              options={[
+                { value: "", label: "全部代理" },
+                ...agents.map((agent) => ({ value: String(agent.id), label: agent.displayName })),
+              ]}
+              onChange={(value) =>
                 setOrderDraft((current) => ({
                   ...current,
-                  agentId: event.target.value,
+                  agentId: value,
                 }))
               }
-            >
-              <option value="">全部代理</option>
-              {agents.map((agent) => (
-                <option key={agent.id} value={String(agent.id)}>
-                  {agent.displayName}
-                </option>
-              ))}
-            </select>
+            />
           </label>
           <label className="block space-y-1 text-sm">
             <span>支付</span>
-            <select
-              className="km-input w-36"
+            <KmSelect
+              className="w-36"
               value={orderDraft.payStatus}
-              onChange={(event) =>
+              placeholder="全部支付"
+              options={[
+                { value: "", label: "全部支付" },
+                ...STORE_ORDER_PAY_FILTERS.map((item) => ({
+                  value: item,
+                  label: adminStatusLabel(item, "pay"),
+                })),
+              ]}
+              onChange={(value) =>
                 setOrderDraft((current) => ({
                   ...current,
-                  payStatus: event.target.value,
+                  payStatus: value,
                 }))
               }
-            >
-              <option value="">全部支付</option>
-              {STORE_ORDER_PAY_FILTERS.map((value) => (
-                <option key={value} value={value}>
-                  {adminStatusLabel(value, "pay")}
-                </option>
-              ))}
-            </select>
+            />
           </label>
           <label className="block space-y-1 text-sm">
             <span>发卡</span>
-            <select
-              className="km-input w-36"
+            <KmSelect
+              className="w-36"
               value={orderDraft.fulfillStatus}
-              onChange={(event) =>
+              placeholder="全部发卡"
+              options={[
+                { value: "", label: "全部发卡" },
+                ...STORE_ORDER_FULFILL_FILTERS.map((item) => ({
+                  value: item,
+                  label: adminStatusLabel(item, "fulfill"),
+                })),
+              ]}
+              onChange={(value) =>
                 setOrderDraft((current) => ({
                   ...current,
-                  fulfillStatus: event.target.value,
+                  fulfillStatus: value,
                 }))
               }
-            >
-              <option value="">全部发卡</option>
-              {STORE_ORDER_FULFILL_FILTERS.map((value) => (
-                <option key={value} value={value}>
-                  {adminStatusLabel(value, "fulfill")}
-                </option>
-              ))}
-            </select>
+            />
           </label>
           <label className="flex items-end gap-2 pb-2 text-sm">
             <input
@@ -1355,22 +1356,17 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
           ) : null}
         </div>
         <div className="grid gap-3 md:grid-cols-4">
-          <select
-            className="km-input"
-            value={settlementForm.agentId}
-            onChange={(event) =>
+          <KmSelect
+            value={String(settlementForm.agentId || "")}
+            placeholder="选择代理"
+            options={agents.map((agent) => ({ value: String(agent.id), label: agent.displayName }))}
+            onChange={(value) =>
               setSettlementForm((current) => ({
                 ...current,
-                agentId: Number(event.target.value),
+                agentId: Number(value),
               }))
             }
-          >
-            {agents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.displayName}
-              </option>
-            ))}
-          </select>
+          />
           <input
             className="km-input"
             type="date"
