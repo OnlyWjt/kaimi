@@ -153,6 +153,7 @@ export function PlanDefaultPricesPanel() {
   const [regionNoteDraft, setRegionNoteDraft] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState("");
   const [open, setOpen] = useState(false);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
   // 已经用过的分类做成候选项，避免同一个分类被打成几种写法
   const knownCategories = useMemo(() => {
@@ -276,42 +277,105 @@ export function PlanDefaultPricesPanel() {
     }
   }
 
+  function buildPlanPayload(source: CatalogPlan[]) {
+    return source.map((item) => {
+      const cents = centsFromYuanText(costDraft[item.planKey] ?? "");
+      if (cents == null || Number.isNaN(cents)) {
+        throw new Error(`${item.name} 的默认成本请填金额`);
+      }
+      const capRaw = capDraft[item.planKey] ?? "";
+      const capCents = centsFromYuanText(capRaw);
+      if (capRaw.trim() && (capCents == null || Number.isNaN(capCents))) {
+        throw new Error(`${item.name} 的零售价上限请填金额`);
+      }
+      const capError = maxRetailPriceError(capCents, cents);
+      if (capError) throw new Error(`${item.name} ${capError}`);
+      const upstreamRaw = upstreamDraft[item.planKey] ?? "";
+      const upstream = centsFromYuanText(upstreamRaw);
+      if (upstreamRaw.trim() && (upstream == null || Number.isNaN(upstream))) {
+        throw new Error(`${item.name} 的上游进价请填金额`);
+      }
+      return {
+        planKey: item.planKey,
+        name: item.name,
+        category: normalizeCategory(categoryDraft[item.planKey] ?? ""),
+        regionLabel: (regionLabelDraft[item.planKey] ?? "").trim(),
+        regionNote: (regionNoteDraft[item.planKey] ?? "").trim(),
+        globalCostPriceCents: cents,
+        upstreamCostCents: upstreamRaw.trim() ? upstream : null,
+        maxRetailPriceCents: capRaw.trim() ? capCents : null,
+        enabled: item.enabled,
+      };
+    });
+  }
+
+  async function enableGroupForAll(plans: CatalogPlan[]) {
+    const ready: CatalogPlan[] = [];
+    const skipped: string[] = [];
+    for (const plan of plans) {
+      const cents = centsFromYuanText(costDraft[plan.planKey] ?? "");
+      const label = plan.paymentCountry
+        ? `${plan.name} · ${regionDisplay(plan.paymentCountry, plan.regionLabel).zh}`
+        : plan.name;
+      if (cents == null || Number.isNaN(cents) || (plan.paymentCountry && cents <= 0)) {
+        skipped.push(label);
+        continue;
+      }
+      ready.push(plan);
+    }
+    if (ready.length === 0) {
+      toast("先填好默认成本。成本为 0 的地区不能启用。", "err");
+      return;
+    }
+    const names = ready
+      .map((plan) =>
+        plan.paymentCountry ? regionDisplay(plan.paymentCountry, plan.regionLabel).zh : plan.name,
+      )
+      .join("、");
+    const answer = await ask({
+      title: "开放给全部代理",
+      message: `启用 ${names}，并让所有在营代理都能卖。${
+        skipped.length ? `未定价的地区会跳过：${skipped.join("、")}。` : ""
+      }`,
+      confirmLabel: "启用并开放",
+      cancelLabel: "取消",
+    });
+    if (!answer) return;
+    setBusy("grant-group");
+    try {
+      const keys = new Set(ready.map((plan) => plan.planKey));
+      const next = catalog.map((item) => (keys.has(item.planKey) ? { ...item, enabled: true } : item));
+      setCatalog(next);
+      const saved = await fetch("/api/admin/plans", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plans: buildPlanPayload(next) }),
+      });
+      const savedData = await saved.json();
+      if (!saved.ok) throw new Error(savedData.error || "默认价格保存失败");
+      const granted = await fetch("/api/admin/plans/grant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ planKeys: [...keys] }),
+      });
+      const grantedData = await granted.json();
+      if (!granted.ok) throw new Error(grantedData.error || "开放失败");
+      toast(typeof grantedData.message === "string" ? grantedData.message : "已开放给全部代理");
+      await load();
+    } catch (reason) {
+      toast(reason instanceof Error ? reason.message : "开放失败", "err");
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function save() {
     setBusy("save");
     try {
-      const plans = catalog.map((item) => {
-        const cents = centsFromYuanText(costDraft[item.planKey] ?? "");
-        if (cents == null || Number.isNaN(cents)) {
-          throw new Error(`${item.name} 的默认成本请填金额`);
-        }
-        const capRaw = capDraft[item.planKey] ?? "";
-        const capCents = centsFromYuanText(capRaw);
-        if (capRaw.trim() && (capCents == null || Number.isNaN(capCents))) {
-          throw new Error(`${item.name} 的零售价上限请填金额`);
-        }
-        const capError = maxRetailPriceError(capCents, cents);
-        if (capError) throw new Error(`${item.name} ${capError}`);
-        const upstreamRaw = upstreamDraft[item.planKey] ?? "";
-        const upstream = centsFromYuanText(upstreamRaw);
-        if (upstreamRaw.trim() && (upstream == null || Number.isNaN(upstream))) {
-          throw new Error(`${item.name} 的上游进价请填金额`);
-        }
-        return {
-          planKey: item.planKey,
-          name: item.name,
-          category: normalizeCategory(categoryDraft[item.planKey] ?? ""),
-          regionLabel: (regionLabelDraft[item.planKey] ?? "").trim(),
-          regionNote: (regionNoteDraft[item.planKey] ?? "").trim(),
-          globalCostPriceCents: cents,
-          upstreamCostCents: upstreamRaw.trim() ? upstream : null,
-          maxRetailPriceCents: capRaw.trim() ? capCents : null,
-          enabled: item.enabled,
-        };
-      });
       const response = await fetch("/api/admin/plans", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plans }),
+        body: JSON.stringify({ plans: buildPlanPayload(catalog) }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "默认价格保存失败");
@@ -396,14 +460,28 @@ export function PlanDefaultPricesPanel() {
                 })),
               ).flatMap((group) => {
                 const grouped = group.plans.length > 1 || group.plans.some((plan) => plan.regionCapable);
+                const expanded = Boolean(openGroups[group.baseKey]);
                 const categoryKey = group.primary.planKey;
                 const rows = [];
                 if (grouped) {
                   rows.push(
                     <tr key={`group-${group.baseKey}`} className="border-b border-[var(--km-border)] bg-[var(--km-bg-muted,transparent)]">
                       <td className="py-2 pr-3">
-                        <div className="font-medium">{group.primary.name}</div>
-                        <div className="font-mono text-xs text-[var(--km-fg-muted)]">{group.baseKey}</div>
+                        <button
+                          type="button"
+                          className="text-left"
+                          onClick={() =>
+                            setOpenGroups((current) => ({
+                              ...current,
+                              [group.baseKey]: !current[group.baseKey],
+                            }))
+                          }
+                        >
+                          <div className="font-medium">
+                            {expanded ? "▾" : "▸"} {group.primary.name}
+                          </div>
+                          <div className="font-mono text-xs text-[var(--km-fg-muted)]">{group.baseKey}</div>
+                        </button>
                       </td>
                       <td className="py-2 pr-3 text-[var(--km-fg-muted)]">
                         {group.plans.length} 个地区
@@ -425,9 +503,19 @@ export function PlanDefaultPricesPanel() {
                           }}
                         />
                       </td>
-                      <td colSpan={5} />
+                      <td className="py-2" colSpan={5}>
+                        <button
+                          type="button"
+                          className="km-btn km-btn-ghost km-btn-sm"
+                          disabled={Boolean(busy)}
+                          onClick={() => void enableGroupForAll(group.plans)}
+                        >
+                          全部启用并开放
+                        </button>
+                      </td>
                     </tr>,
                   );
+                  if (!expanded) return rows;
                 }
                 for (const plan of group.plans) {
                   const unpricedVariant = Boolean(plan.paymentCountry) && plan.globalCostPriceCents <= 0;

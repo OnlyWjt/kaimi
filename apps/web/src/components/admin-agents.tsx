@@ -91,6 +91,8 @@ export function AdminAgents() {
   const [agentPlans, setAgentPlans] = useState<AgentPlanRow[]>([]);
   const [overrideDraft, setOverrideDraft] = useState<Record<string, string>>({});
   const [plansLoading, setPlansLoading] = useState(false);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const [openAgentGroups, setOpenAgentGroups] = useState<Record<string, boolean>>({});
   const [redeemUrl, setRedeemUrl] = useState("");
   const [form, setForm] = useState({
     username: "",
@@ -395,33 +397,36 @@ export function AdminAgents() {
     }
   }
 
+  function pricePayload(source: CatalogPlan[]) {
+    return source.map((item) => {
+      const cents = centsFromYuanText(costDraft[item.planKey] ?? "");
+      if (cents == null || Number.isNaN(cents)) {
+        throw new Error(`${item.name} 的默认成本请填金额`);
+      }
+      const capRaw = capDraft[item.planKey] ?? "";
+      const capCents = centsFromYuanText(capRaw);
+      if (capRaw.trim() && (capCents == null || Number.isNaN(capCents))) {
+        throw new Error(`${item.name} 的零售价上限请填金额`);
+      }
+      const capError = maxRetailPriceError(capCents, cents);
+      if (capError) throw new Error(`${item.name} ${capError}`);
+      return {
+        planKey: item.planKey,
+        name: item.name,
+        globalCostPriceCents: cents,
+        maxRetailPriceCents: capRaw.trim() ? capCents : null,
+        enabled: item.enabled,
+      };
+    });
+  }
+
   async function saveDefaultPrices() {
     setBusy("defaults");
     try {
-      const plans = catalog.map((item) => {
-        const cents = centsFromYuanText(costDraft[item.planKey] ?? "");
-        if (cents == null || Number.isNaN(cents)) {
-          throw new Error(`${item.name} 的默认成本请填金额`);
-        }
-        const capRaw = capDraft[item.planKey] ?? "";
-        const capCents = centsFromYuanText(capRaw);
-        if (capRaw.trim() && (capCents == null || Number.isNaN(capCents))) {
-          throw new Error(`${item.name} 的零售价上限请填金额`);
-        }
-        const capError = maxRetailPriceError(capCents, cents);
-        if (capError) throw new Error(`${item.name} ${capError}`);
-        return {
-          planKey: item.planKey,
-          name: item.name,
-          globalCostPriceCents: cents,
-          maxRetailPriceCents: capRaw.trim() ? capCents : null,
-          enabled: item.enabled,
-        };
-      });
       const response = await fetch("/api/admin/plans", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plans }),
+        body: JSON.stringify({ plans: pricePayload(catalog) }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "默认价格保存失败");
@@ -429,6 +434,66 @@ export function AdminAgents() {
       await load();
     } catch (reason) {
       toast(reason instanceof Error ? reason.message : "默认价格保存失败", "err");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function enableForAllAgents(plans: CatalogPlan[]) {
+    const ready: CatalogPlan[] = [];
+    const skipped: string[] = [];
+    for (const plan of plans) {
+      const cents = centsFromYuanText(costDraft[plan.planKey] ?? "");
+      const label = plan.paymentCountry
+        ? `${plan.name} · ${regionDisplay(plan.paymentCountry, plan.regionLabel).zh}`
+        : plan.name;
+      if (cents == null || Number.isNaN(cents) || (plan.paymentCountry && cents <= 0)) {
+        skipped.push(label);
+        continue;
+      }
+      ready.push(plan);
+    }
+    if (ready.length === 0) {
+      toast("先填好默认成本。成本为 0 的地区不能启用。", "err");
+      return;
+    }
+    const names = ready
+      .map((plan) =>
+        plan.paymentCountry ? regionDisplay(plan.paymentCountry, plan.regionLabel).zh : plan.name,
+      )
+      .join("、");
+    const answer = await ask({
+      title: "开放给全部代理",
+      message: `启用 ${names}，并让所有在营代理都能卖。${
+        skipped.length ? `未定价的地区会跳过：${skipped.join("、")}。` : ""
+      }`,
+      confirmLabel: "启用并开放",
+      cancelLabel: "取消",
+    });
+    if (!answer) return;
+    setBusy("grant-all");
+    try {
+      const keys = new Set(ready.map((plan) => plan.planKey));
+      const next = catalog.map((item) => (keys.has(item.planKey) ? { ...item, enabled: true } : item));
+      setCatalog(next);
+      const saved = await fetch("/api/admin/plans", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plans: pricePayload(next) }),
+      });
+      const savedData = await saved.json();
+      if (!saved.ok) throw new Error(savedData.error || "默认价格保存失败");
+      const granted = await fetch("/api/admin/plans/grant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ planKeys: [...keys] }),
+      });
+      const grantedData = await granted.json();
+      if (!granted.ok) throw new Error(grantedData.error || "开放失败");
+      toast(typeof grantedData.message === "string" ? grantedData.message : "已开放给全部代理");
+      await load();
+    } catch (reason) {
+      toast(reason instanceof Error ? reason.message : "开放失败", "err");
     } finally {
       setBusy("");
     }
@@ -570,18 +635,44 @@ export function AdminAgents() {
                 {groupPlansByBase(withRegion(catalog)).flatMap((group) => {
                   const grouped =
                     group.plans.length > 1 || group.plans.some((plan) => plan.regionCapable);
+                  const expanded = Boolean(openGroups[group.baseKey]);
+                  const enabledInGroup = group.plans.filter((plan) => plan.enabled).length;
                   const rows = [];
                   if (grouped) {
                     rows.push(
                       <tr key={`group-${group.baseKey}`} className="border-b border-[var(--km-border)]">
-                        <td className="py-2 pr-3" colSpan={5}>
-                          <b>{group.primary.name}</b>
-                          <span className="ml-2 text-xs text-[var(--km-fg-muted)]">
-                            {group.plans.length} 个地区
-                          </span>
+                        <td className="py-2 pr-3" colSpan={4}>
+                          <button
+                            type="button"
+                            className="text-left"
+                            onClick={() =>
+                              setOpenGroups((current) => ({
+                                ...current,
+                                [group.baseKey]: !current[group.baseKey],
+                              }))
+                            }
+                          >
+                            <b>
+                              {expanded ? "▾" : "▸"} {group.primary.name}
+                            </b>
+                            <span className="ml-2 text-xs text-[var(--km-fg-muted)]">
+                              {group.plans.length} 个地区 · {enabledInGroup} 个已启用
+                            </span>
+                          </button>
+                        </td>
+                        <td className="py-2">
+                          <button
+                            type="button"
+                            className="km-btn km-btn-ghost km-btn-sm"
+                            disabled={Boolean(busy)}
+                            onClick={() => void enableForAllAgents(group.plans)}
+                          >
+                            全部启用并开放
+                          </button>
                         </td>
                       </tr>,
                     );
+                    if (!expanded) return rows;
                   }
                   for (const plan of group.plans) {
                     rows.push(
@@ -651,6 +742,16 @@ export function AdminAgents() {
                             />
                             启用
                           </label>
+                          {grouped ? null : (
+                            <button
+                              type="button"
+                              className="km-btn km-btn-ghost km-btn-sm mt-2"
+                              disabled={Boolean(busy)}
+                              onClick={() => void enableForAllAgents([plan])}
+                            >
+                              开放给全部代理
+                            </button>
+                          )}
                         </td>
                       </tr>,
                     );
@@ -661,14 +762,24 @@ export function AdminAgents() {
             </table>
           </div>
         )}
-        <button
-          type="button"
-          className="km-btn"
-          disabled={Boolean(busy) || catalog.length === 0}
-          onClick={() => void saveDefaultPrices()}
-        >
-          {busy === "defaults" ? "保存中…" : "保存默认价格"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="km-btn"
+            disabled={Boolean(busy) || catalog.length === 0}
+            onClick={() => void saveDefaultPrices()}
+          >
+            {busy === "defaults" ? "保存中…" : "保存默认价格"}
+          </button>
+          <button
+            type="button"
+            className="km-btn km-btn-ghost"
+            disabled={Boolean(busy) || catalog.every((plan) => !plan.enabled)}
+            onClick={() => void enableForAllAgents(catalog.filter((plan) => plan.enabled))}
+          >
+            {busy === "grant-all" ? "开放中…" : "把已勾选的套餐开放给全部代理"}
+          </button>
+        </div>
       </section>
 
       <section className="km-panel overflow-x-auto">
@@ -842,6 +953,7 @@ export function AdminAgents() {
                     {groupPlansByBase(withRegion(agentPlans)).flatMap((group) => {
                       const grouped =
                         group.plans.length > 1 || group.plans.some((plan) => plan.regionCapable);
+                      const expanded = Boolean(openAgentGroups[group.baseKey]);
                       const openable = group.plans.filter((plan) => plan.platformEnabled);
                       const rows = [];
                       if (grouped) {
@@ -867,11 +979,27 @@ export function AdminAgents() {
                               />
                             </td>
                             <td className="py-2 pr-3" colSpan={5}>
-                              <b>{group.primary.name}</b>
-                              <span className="ml-2 text-xs text-[var(--km-fg-muted)]">整组勾选</span>
+                              <button
+                                type="button"
+                                className="text-left"
+                                onClick={() =>
+                                  setOpenAgentGroups((current) => ({
+                                    ...current,
+                                    [group.baseKey]: !current[group.baseKey],
+                                  }))
+                                }
+                              >
+                                <b>
+                                  {expanded ? "▾" : "▸"} {group.primary.name}
+                                </b>
+                                <span className="ml-2 text-xs text-[var(--km-fg-muted)]">
+                                  整组勾选 · {group.plans.length} 个地区
+                                </span>
+                              </button>
                             </td>
                           </tr>,
                         );
+                        if (!expanded) return rows;
                       }
                       for (const plan of group.plans) {
                         rows.push(
