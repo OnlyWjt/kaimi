@@ -6,11 +6,11 @@ import {
   drawLedgerOverview,
   getDrawBill,
   grantDrawAccess,
-  listDrawBills,
   listDrawLedgerAgents,
   listPendingDrawApplications,
   listStuckDrawOrders,
   listUnsettledDrawItems,
+  manualUseDrawItem,
   markDrawOrderFailed,
   recoverDrawOrder,
   rejectDrawApplication,
@@ -23,6 +23,7 @@ import {
   voidDrawItem,
 } from "@/lib/agent-draw";
 import { bootDb } from "@/lib/config";
+import { normalizePage, normalizePageSize } from "@/lib/pagination-core";
 
 async function admin() {
   try {
@@ -40,22 +41,29 @@ export async function GET(req: Request) {
   const params = new URL(req.url).searchParams;
   const agentId = Number(params.get("agentId") || 0);
   const billId = Number(params.get("billId") || 0);
-  const billAgentId = Number(params.get("billAgentId") || 0);
-  const [overview, agents, applications, items, stuck, bills, bill] = await Promise.all([
+  const itemPage = normalizePage(params.get("itemPage"));
+  const itemPageSize = normalizePageSize(params.get("itemPageSize"));
+  const [overview, agents, applications, itemPageResult, stuck, bill] = await Promise.all([
     drawLedgerOverview(),
     listDrawLedgerAgents(),
     listPendingDrawApplications(),
-    agentId > 0 ? listUnsettledDrawItems(agentId) : Promise.resolve([]),
+    agentId > 0
+      ? listUnsettledDrawItems(agentId, { page: itemPage, pageSize: itemPageSize })
+      : Promise.resolve({ items: [], total: 0, page: 1, pageSize: itemPageSize }),
     agentId > 0 ? listStuckDrawOrders(agentId) : Promise.resolve([]),
-    listDrawBills({
-      agentId: billAgentId,
-      query: params.get("q") || "",
-      paymentMethod: params.get("method") || "",
-      status: params.get("billStatus") || "",
-    }),
     billId > 0 ? getDrawBill(billId).catch(() => null) : Promise.resolve(null),
   ]);
-  return NextResponse.json({ overview, agents, applications, items, stuck, bills, bill });
+  return NextResponse.json({
+    overview,
+    agents,
+    applications,
+    items: itemPageResult.items,
+    itemTotal: itemPageResult.total,
+    itemPage: itemPageResult.page,
+    itemPageSize: itemPageResult.pageSize,
+    stuck,
+    bill,
+  });
 }
 
 const postSchema = z.discriminatedUnion("action", [
@@ -102,6 +110,11 @@ const postSchema = z.discriminatedUnion("action", [
     action: z.literal("mark-failed"),
     orderId: z.number().int().positive(),
     confirmSuffix: z.string().trim().min(4).max(8),
+  }),
+  z.object({
+    action: z.literal("manual-use"),
+    itemId: z.number().int().positive(),
+    reason: z.string().trim().min(1).max(200),
   }),
   z.object({
     action: z.literal("void-item"),
@@ -161,6 +174,10 @@ export async function POST(req: Request) {
     }
     if (body.action === "mark-failed") {
       await markDrawOrderFailed(body.orderId, body.confirmSuffix, session);
+      return NextResponse.json({ ok: true });
+    }
+    if (body.action === "manual-use") {
+      await manualUseDrawItem(body, session);
       return NextResponse.json({ ok: true });
     }
     if (body.action === "void-item") {

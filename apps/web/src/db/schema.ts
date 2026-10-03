@@ -1321,6 +1321,10 @@ export const agentDrawItems = sqliteTable(
     voidReason: text("void_reason").notNull().default(""),
     voidedAt: text("voided_at"),
     voidedBy: integer("voided_by"),
+    /** 管理员手动核销：卡密已禁用，金额仍算未结，直到登记结算。 */
+    manualUsedAt: text("manual_used_at"),
+    manualUsedBy: integer("manual_used_by"),
+    manualNote: text("manual_note").notNull().default(""),
     settledAt: text("settled_at"),
     createdAt: text("created_at")
       .notNull()

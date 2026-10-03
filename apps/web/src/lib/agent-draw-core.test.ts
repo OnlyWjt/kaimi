@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  beijingDateEndExclusiveIso,
+  beijingDateStartIso,
   beijingDayStartIso,
+  drawCodeUseLabel,
   billRevertOpen,
   buildDrawStatementText,
   computeDrawCredit,
@@ -215,6 +218,17 @@ describe("提卡第二版", () => {
     expect(drawSettingsError({ maxPerDraw: 10, dailyLimitCount: 0 })).toBeNull();
     expect(drawSettingsError({ maxPerDraw: 0, dailyLimitCount: 0 })).toContain("单次");
     expect(drawSettingsError({ maxPerDraw: 10, dailyLimitCount: -1 })).toContain("每日");
+  });
+
+  it("手动核销不显示成已作废", () => {
+    expect(drawCodeUseLabel("disabled", true)).toBe("手动核销");
+    expect(drawCodeUseLabel("unused", false)).toBe("未使用");
+  });
+
+  it("归档日期按北京时间切天", () => {
+    expect(beijingDateStartIso("2026-10-03")).toBe("2026-10-02T16:00:00.000Z");
+    expect(beijingDateEndExclusiveIso("2026-10-03")).toBe("2026-10-03T16:00:00.000Z");
+    expect(beijingDateStartIso("10-03")).toBe("");
   });
 
   it("导出 CSV 带 BOM", () => {

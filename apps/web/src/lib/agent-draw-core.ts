@@ -399,6 +399,28 @@ export const CDK_USE_LABEL: Record<string, string> = {
   disabled: "已作废",
 };
 
+/** 手动核销过的卡密已经禁用，但账上仍算未结，不能显示成「已作废」。 */
+export function drawCodeUseLabel(cdkStatus: string, manualUsed: boolean) {
+  if (manualUsed) return "手动核销";
+  return CDK_USE_LABEL[cdkStatus] || cdkStatus;
+}
+
+/** 北京时间某一天的起点，入参是 YYYY-MM-DD。非法日期返回空串。 */
+export function beijingDateStartIso(day: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return "";
+  const [year, month, date] = day.split("-").map(Number);
+  const utcMidnight = Date.UTC(year, month - 1, date);
+  if (Number.isNaN(utcMidnight)) return "";
+  return new Date(utcMidnight - BEIJING_OFFSET_MS).toISOString();
+}
+
+/** 北京时间某一天的结束（不含），用来做「到这一天为止」。 */
+export function beijingDateEndExclusiveIso(day: string) {
+  const start = beijingDateStartIso(day);
+  if (!start) return "";
+  return new Date(Date.parse(start) + 24 * 60 * 60 * 1000).toISOString();
+}
+
 /** 登录回跳只接受站内路径，挡掉 //evil.com 这类协议相对地址。 */
 export function safeNextPath(value: string | null | undefined) {
   const raw = String(value || "").trim();

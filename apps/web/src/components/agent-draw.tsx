@@ -5,12 +5,13 @@ import { toast } from "@/components/toast";
 import { KmSelect } from "@/components/km-select";
 import { RegionBadge } from "@/components/region-badge";
 import {
-  CDK_USE_LABEL,
   DRAW_ORDER_LABEL,
+  drawCodeUseLabel,
   creditHeat,
   formatYuan,
 } from "@/lib/agent-draw-core";
 import { yuanTextFromCents } from "@/lib/money";
+import { hasNextPage, pageLabel } from "@/lib/pagination-core";
 
 type DrawPlan = {
   planKey: string;
@@ -39,6 +40,7 @@ type DrawState = {
   };
   summary?: { count: number; amountCents: number; groups: DrawGroup[] };
   statementText?: string;
+  lifetime?: { count: number; amountCents: number };
   limits?: { maxPerDraw: number; dailyLimit: number; todayCount: number };
   plans?: DrawPlan[];
   application?: { contact: string; status: string; createdAt: string } | null;
@@ -53,6 +55,7 @@ type LedgerItem = {
   paymentCountry: string;
   drawNo: string;
   codeMasked: string;
+  manualUsedAt?: string;
 };
 
 type DrawOrderRow = {
@@ -88,6 +91,8 @@ export function AgentDraw() {
   const [codes, setCodes] = useState<string[]>([]);
   const [tab, setTab] = useState<"open" | "orders" | "bills">("open");
   const [items, setItems] = useState<LedgerItem[]>([]);
+  const [itemPage, setItemPage] = useState(1);
+  const [itemTotal, setItemTotal] = useState(0);
   const [orders, setOrders] = useState<DrawOrderRow[]>([]);
   const [bills, setBills] = useState<BillRow[]>([]);
   const [openCodes, setOpenCodes] = useState<Record<string, string[]>>({});
@@ -111,19 +116,22 @@ export function AgentDraw() {
     if (!state || (state.status !== "approved" && state.status !== "suspended")) return;
     const url =
       tab === "open"
-        ? "/api/agent/draw/items"
+        ? `/api/agent/draw/items?page=${itemPage}`
         : tab === "orders"
           ? "/api/agent/draw/orders"
           : "/api/agent/draw/bills";
     void fetch(url, { cache: "no-store" })
       .then((res) => res.json())
       .then((data) => {
-        if (tab === "open") setItems(data.items || []);
+        if (tab === "open") {
+          setItems(data.items || []);
+          setItemTotal(Number(data.total) || 0);
+        }
         if (tab === "orders") setOrders(data.orders || []);
         if (tab === "bills") setBills(data.bills || []);
       })
       .catch(() => null);
-  }, [tab, state]);
+  }, [tab, state, itemPage]);
 
   async function apply() {
     setBusy(true);
@@ -287,7 +295,10 @@ export function AgentDraw() {
         <div className="h-2 overflow-hidden rounded-full bg-[var(--km-bg-muted)]">
           <div className={`h-full ${barClass}`} style={{ width: `${Math.min(100, ratio * 100)}%` }} />
         </div>
-        <p className="text-xs text-[var(--km-fg-muted)]">结算后恢复。转账后请联系平台登记。</p>
+        <p className="text-xs text-[var(--km-fg-muted)]">
+          结算后恢复。转账后请联系平台登记。
+          {state.lifetime ? ` 累计提卡 ${formatYuan(state.lifetime.amountCents)} · ${state.lifetime.count} 张（不含作废）。` : ""}
+        </p>
         {state.canDraw ? (
           <>
             <label className="block text-sm">
@@ -371,6 +382,22 @@ export function AgentDraw() {
               </button>
             </div>
             <ItemTable items={items} empty="当前没有未结算的卡密。" />
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--km-fg-muted)]">
+              <span>{pageLabel(itemTotal, itemPage, 20)}</span>
+              <div className="flex gap-2">
+                <button type="button" className="km-btn km-btn-ghost km-btn-sm" disabled={itemPage <= 1} onClick={() => setItemPage((page) => page - 1)}>
+                  上一页
+                </button>
+                <button
+                  type="button"
+                  className="km-btn km-btn-ghost km-btn-sm"
+                  disabled={!hasNextPage(itemTotal, itemPage, 20)}
+                  onClick={() => setItemPage((page) => page + 1)}
+                >
+                  下一页
+                </button>
+              </div>
+            </div>
           </>
         ) : null}
         {tab === "orders" ? (
@@ -467,7 +494,7 @@ function ItemTable({ items, empty }: { items: LedgerItem[]; empty: string }) {
                 {item.paymentCountry ? <RegionBadge country={item.paymentCountry} /> : null}
               </td>
               <td className="py-2 pr-3 font-mono text-xs">{item.codeMasked}</td>
-              <td className="py-2 pr-3">{CDK_USE_LABEL[item.cdkStatus] || item.cdkStatus}</td>
+              <td className="py-2 pr-3">{drawCodeUseLabel(item.cdkStatus, Boolean(item.manualUsedAt))}</td>
               <td className="py-2">{formatYuan(item.amountCents)}</td>
             </tr>
           ))}

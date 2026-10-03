@@ -6,12 +6,13 @@ import { yuanTextFromCents, centsFromYuanText } from "@/lib/money";
 import { KmSelect } from "@/components/km-select";
 import { RegionBadge } from "@/components/region-badge";
 import {
-  CDK_USE_LABEL,
   DRAW_PAYMENT_METHODS,
   creditHeat,
+  drawCodeUseLabel,
   formatYuan,
   summarizeDrawItems,
 } from "@/lib/agent-draw-core";
+import { hasNextPage, pageLabel } from "@/lib/pagination-core";
 
 type LedgerAgent = {
   agentId: number;
@@ -20,6 +21,10 @@ type LedgerAgent = {
   creditLimitCents: number;
   unsettledCount: number;
   unsettledCents: number;
+  settledCount?: number;
+  settledCents?: number;
+  lifetimeCount?: number;
+  lifetimeCents?: number;
   maxPerDraw: number;
   dailyLimitCount: number;
   notifyEachDraw: boolean;
@@ -35,6 +40,7 @@ type LedgerItem = {
   paymentCountry: string;
   drawNo: string;
   codeMasked: string;
+  manualUsedAt?: string;
 };
 
 type Application = {
@@ -85,9 +91,11 @@ type BillFilter = {
   query: string;
   method: string;
   status: string;
+  from: string;
+  to: string;
 };
 
-const EMPTY_BILL_FILTER: BillFilter = { agentId: 0, query: "", method: "", status: "" };
+const EMPTY_BILL_FILTER: BillFilter = { agentId: 0, query: "", method: "", status: "", from: "", to: "" };
 
 const STATUS: Record<string, string> = {
   approved: "已开通",
@@ -109,14 +117,45 @@ function heatClass(cents: number, limit: number) {
   return "";
 }
 
-function billSearch(agentId: number, bills: BillFilter) {
+function billSearch(bills: BillFilter, page = 1) {
   const params = new URLSearchParams();
-  if (agentId > 0) params.set("agentId", String(agentId));
   if (bills.agentId > 0) params.set("billAgentId", String(bills.agentId));
   if (bills.query.trim()) params.set("q", bills.query.trim());
   if (bills.method) params.set("method", bills.method);
   if (bills.status) params.set("billStatus", bills.status);
+  if (bills.from) params.set("from", bills.from);
+  if (bills.to) params.set("to", bills.to);
+  params.set("page", String(page));
   return params;
+}
+
+function Pager({
+  page,
+  total,
+  onPage,
+}: {
+  page: number;
+  total: number;
+  onPage: (page: number) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--km-fg-muted)]">
+      <span>{pageLabel(total, page, 20)}</span>
+      <div className="flex gap-2">
+        <button type="button" className="km-btn km-btn-ghost km-btn-sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+          上一页
+        </button>
+        <button
+          type="button"
+          className="km-btn km-btn-ghost km-btn-sm"
+          disabled={!hasNextPage(total, page, 20)}
+          onClick={() => onPage(page + 1)}
+        >
+          下一页
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
@@ -150,6 +189,8 @@ export function AdminAgentDraw() {
   const [payRef, setPayRef] = useState("");
   const [payNotes, setPayNotes] = useState("");
   const [voidTarget, setVoidTarget] = useState<LedgerItem | null>(null);
+  const [manualTarget, setManualTarget] = useState<LedgerItem | null>(null);
+  const [manualReason, setManualReason] = useState("");
   const [voidMode, setVoidMode] = useState<"upstream" | "local">("upstream");
   const [voidReason, setVoidReason] = useState("");
   const [suffixes, setSuffixes] = useState<Record<number, string>>({});
@@ -162,19 +203,35 @@ export function AdminAgentDraw() {
   const [itemQuery, setItemQuery] = useState("");
   const [billDraft, setBillDraft] = useState<BillFilter>(EMPTY_BILL_FILTER);
   const [billFilter, setBillFilter] = useState<BillFilter>(EMPTY_BILL_FILTER);
+  const [billTotal, setBillTotal] = useState(0);
+  const [billPage, setBillPage] = useState(1);
+  const [itemTotal, setItemTotal] = useState(0);
+  const [itemPage, setItemPage] = useState(1);
   const [busy, setBusy] = useState("");
 
-  async function load(agentId = selectedId, bills = billFilter) {
-    const data = await fetch(`/api/admin/draw?${billSearch(agentId, bills)}`, { cache: "no-store" }).then((res) => res.json());
+  async function load(agentId = selectedId, page = itemPage) {
+    const params = new URLSearchParams();
+    if (agentId > 0) params.set("agentId", String(agentId));
+    params.set("itemPage", String(page));
+    const data = await fetch(`/api/admin/draw?${params}`, { cache: "no-store" }).then((res) => res.json());
     if (data.error) throw new Error(data.error);
     setOverview(data.overview);
     setAgents(data.agents || []);
     setApplications(data.applications || []);
     setItems(data.items || []);
+    setItemTotal(Number(data.itemTotal) || 0);
+    setItemPage(Number(data.itemPage) || page);
     setStuck(data.stuck || []);
-    setBills(data.bills || []);
     setChecked((data.items || []).map((item: LedgerItem) => item.id));
     return data;
+  }
+
+  async function loadBills(filter: BillFilter, page: number) {
+    const data = await fetch(`/api/admin/draw/bills?${billSearch(filter, page)}`, { cache: "no-store" }).then((res) => res.json());
+    if (data.error) throw new Error(data.error);
+    setBills(data.list || []);
+    setBillTotal(Number(data.total) || 0);
+    setBillPage(Number(data.page) || page);
   }
 
   useEffect(() => {
@@ -220,7 +277,7 @@ export function AdminAgentDraw() {
     setVoidTarget(null);
     setBusy("load");
     try {
-      const data = await load(agentId);
+      const data = await load(agentId, 1);
       fillSettings((data.agents || []).find((item: LedgerAgent) => item.agentId === agentId));
     } catch (error) {
       toast(error instanceof Error ? error.message : "加载失败", "err");
@@ -253,18 +310,18 @@ export function AdminAgentDraw() {
     }
   }
 
-  function openBills(next: BillFilter) {
+  function openBills(next: BillFilter, page = 1) {
     setBillDraft(next);
     setBillFilter(next);
     setBillDetail(null);
     setView("bills");
     setBusy("load");
-    void load(selectedId, next)
+    void loadBills(next, page)
       .catch((error) => toast(error instanceof Error ? error.message : "查询失败", "err"))
       .finally(() => setBusy(""));
   }
 
-  const billExport = `/api/admin/draw/export?kind=bills&${billSearch(0, billFilter)}`;
+  const billExport = `/api/admin/draw/export?kind=bills&${billSearch(billFilter)}`;
 
   return (
     <div className="space-y-4">
@@ -289,7 +346,7 @@ export function AdminAgentDraw() {
           未结算账本
         </button>
         <button type="button" className={`km-tab ${view === "bills" ? "km-tab-active" : ""}`} onClick={() => setView("bills")}>
-          已结算
+          结算归档
         </button>
         <button type="button" className={`km-tab ${view === "apply" ? "km-tab-active" : ""}`} onClick={() => setView("apply")}>
           申请{applications.length ? ` ${applications.length}` : ""}
@@ -423,9 +480,25 @@ export function AdminAgentDraw() {
                 onChange={(value) => setBillDraft((current) => ({ ...current, status: value }))}
               />
             </Field>
+            <Field label="开始日期">
+              <input
+                className="km-input w-full"
+                type="date"
+                value={billDraft.from}
+                onChange={(event) => setBillDraft((current) => ({ ...current, from: event.target.value }))}
+              />
+            </Field>
+            <Field label="结束日期">
+              <input
+                className="km-input w-full"
+                type="date"
+                value={billDraft.to}
+                onChange={(event) => setBillDraft((current) => ({ ...current, to: event.target.value }))}
+              />
+            </Field>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs text-[var(--km-fg-muted)]">{bills.length} 笔</p>
+            <Pager page={billPage} total={billTotal} onPage={(page) => openBills(billFilter, page)} />
             <div className="flex flex-wrap gap-2">
               <button type="button" className="km-btn km-btn-sm" disabled={Boolean(busy)} onClick={() => openBills(billDraft)}>
                 查询
@@ -520,7 +593,7 @@ export function AdminAgentDraw() {
                         {billDetail.notes ? <p className="mb-1">备注：{billDetail.notes}</p> : null}
                         {billDetail.items.map((item) => (
                           <span key={item.id} className="mr-3 inline-block py-0.5">
-                            {item.codeMasked} · {item.planName} · {yuan(item.amountCents)}
+                            {item.codeMasked} · {item.planName} · {yuan(item.amountCents)} · {drawCodeUseLabel(item.cdkStatus, Boolean(item.manualUsedAt))}
                           </span>
                         ))}
                       </td>
@@ -555,7 +628,10 @@ export function AdminAgentDraw() {
                     </span>
                   </span>
                   <span className={`mt-1 block text-xs ${heatClass(agent.unsettledCents, agent.creditLimitCents)}`}>
-                    未结 {yuan(agent.unsettledCents)}
+                    未结 {yuan(agent.unsettledCents)} · {agent.unsettledCount} 张
+                  </span>
+                  <span className="block text-xs text-[var(--km-fg-muted)]">
+                    历史 {yuan(agent.lifetimeCents || 0)} · {agent.lifetimeCount || 0} 张
                   </span>
                 </button>
               ))
@@ -578,14 +654,17 @@ export function AdminAgentDraw() {
                         <p className={`text-sm font-semibold ${heatClass(selected.unsettledCents, selected.creditLimitCents)}`}>
                           {yuan(selected.unsettledCents)}
                         </p>
+                        <p className="text-[11px] text-[var(--km-fg-muted)]">{selected.unsettledCount} 张</p>
                       </div>
                       <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-2">
-                        <p className="text-[11px] text-[var(--km-fg-muted)]">上限</p>
-                        <p className="text-sm font-semibold">{yuan(selected.creditLimitCents)}</p>
+                        <p className="text-[11px] text-[var(--km-fg-muted)]">已结算</p>
+                        <p className="text-sm font-semibold">{yuan(selected.settledCents || 0)}</p>
+                        <p className="text-[11px] text-[var(--km-fg-muted)]">{selected.settledCount || 0} 张</p>
                       </div>
                       <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-2">
-                        <p className="text-[11px] text-[var(--km-fg-muted)]">未结张数</p>
-                        <p className="text-sm font-semibold">{selected.unsettledCount}</p>
+                        <p className="text-[11px] text-[var(--km-fg-muted)]">历史提卡</p>
+                        <p className="text-sm font-semibold">{yuan(selected.lifetimeCents || 0)}</p>
+                        <p className="text-[11px] text-[var(--km-fg-muted)]">{selected.lifetimeCount || 0} 张</p>
                       </div>
                     </div>
                   </div>
@@ -786,19 +865,58 @@ export function AdminAgentDraw() {
                     ))}
                   </div>
                 ) : null}
+                {manualTarget ? (
+                  <div className="space-y-2 rounded-xl border border-[var(--km-border)] p-3 text-sm">
+                    <p>
+                      手动核销 {manualTarget.codeMasked} · {manualTarget.planName} · {yuan(manualTarget.amountCents)}
+                    </p>
+                    <p className="text-[var(--km-fg-muted)]">
+                      会向卡台退卡。卡密不能再兑换，金额仍算这个代理的未结。
+                    </p>
+                    <input
+                      className="km-input w-full"
+                      placeholder="原因，例如已手动充值"
+                      value={manualReason}
+                      onChange={(event) => setManualReason(event.target.value)}
+                    />
+                    <div className="flex gap-2">
+                      <button type="button" className="km-btn km-btn-ghost" onClick={() => setManualTarget(null)}>
+                        取消
+                      </button>
+                      <button
+                        type="button"
+                        className="km-btn"
+                        disabled={Boolean(busy) || !manualReason.trim()}
+                        onClick={() => {
+                          void post(
+                            { action: "manual-use", itemId: manualTarget.id, reason: manualReason },
+                            "已手动核销，金额仍在未结里",
+                          ).then((ok) => {
+                            if (ok) {
+                              setManualTarget(null);
+                              setManualReason("");
+                            }
+                          });
+                        }}
+                      >
+                        核销并退卡台
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 {voidTarget ? (
                   <div className="space-y-2 rounded-xl border border-[var(--km-border)] p-3 text-sm">
                     <p>
                       作废 {voidTarget.codeMasked} · {voidTarget.planName} · {yuan(voidTarget.amountCents)}
                     </p>
-                    <p className="text-[var(--km-fg-muted)]">作废后不再计入欠款。</p>
+                    <p className="text-[var(--km-fg-muted)]">作废后不再计入欠款。误提、退卡才用这个。</p>
                     <label className="block">
                       <input
                         type="radio"
                         checked={voidMode === "upstream"}
                         onChange={() => setVoidMode("upstream")}
                       />{" "}
-                      同时在卡台删卡退款
+                      退卡台（删卡退款）
                     </label>
                     <label className="block">
                       <input type="radio" checked={voidMode === "local"} onChange={() => setVoidMode("local")} />{" "}
@@ -907,20 +1025,35 @@ export function AdminAgentDraw() {
                             {item.paymentCountry ? <RegionBadge country={item.paymentCountry} /> : null}
                           </td>
                           <td className="py-2 pr-3 font-mono text-xs">{item.codeMasked}</td>
-                          <td className="py-2 pr-3">{CDK_USE_LABEL[item.cdkStatus] || item.cdkStatus}</td>
+                          <td className="py-2 pr-3">{drawCodeUseLabel(item.cdkStatus, Boolean(item.manualUsedAt))}</td>
                           <td className="py-2 pr-3">{yuan(item.amountCents)}</td>
                           <td className="py-2">
-                            {item.cdkStatus === "unused" ? (
-                              <button type="button" className="km-btn km-btn-ghost km-btn-sm" onClick={() => setVoidTarget(item)}>
-                                作废
-                              </button>
-                            ) : null}
+                            <div className="flex flex-wrap gap-1">
+                              {item.cdkStatus === "unused" && !item.manualUsedAt ? (
+                                <button
+                                  type="button"
+                                  className="km-btn km-btn-ghost km-btn-sm"
+                                  onClick={() => {
+                                    setManualTarget(item);
+                                    setManualReason("");
+                                  }}
+                                >
+                                  手动核销
+                                </button>
+                              ) : null}
+                              {item.cdkStatus === "unused" || item.manualUsedAt ? (
+                                <button type="button" className="km-btn km-btn-ghost km-btn-sm" onClick={() => setVoidTarget(item)}>
+                                  作废
+                                </button>
+                              ) : null}
+                            </div>
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
+                <Pager page={itemPage} total={itemTotal} onPage={(page) => void load(selected.agentId, page)} />
               </>
             ) : (
               <p className="text-sm text-[var(--km-fg-muted)]">左边选一个代理，看他提了还没结的卡。</p>

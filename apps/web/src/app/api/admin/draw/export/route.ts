@@ -19,6 +19,8 @@ export async function GET(req: Request) {
     query: params.get("q") || "",
     paymentMethod: params.get("method") || "",
     status: params.get("billStatus") || "",
+    from: params.get("from") || "",
+    to: params.get("to") || "",
   };
   const csv = await drawLedgerCsv(kind, agentId, billQuery);
   const filename = kind === "bills" ? "kaimi-draw-bills.csv" : "kaimi-draw-items.csv";

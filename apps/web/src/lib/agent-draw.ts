@@ -12,18 +12,20 @@ import {
   platformPlans,
 } from "@/db/schema";
 import {
-  CDK_USE_LABEL,
   DRAW_DEFAULT_CREDIT_CENTS,
   DRAW_DEFAULT_MAX_PER_DRAW,
   DRAW_ISSUING_LEASE_MS,
   DRAW_ITEM_LABEL,
   DRAW_MAX_SETTLE_ITEMS,
   DRAW_RECOVER_MAX_ATTEMPTS,
+  beijingDateEndExclusiveIso,
+  beijingDateStartIso,
   beijingDayStartIso,
   billRevertOpen,
   buildDrawStatementText,
   computeDrawCredit,
   creditWarnCrossed,
+  drawCodeUseLabel,
   drawCreditError,
   drawDailyLimitError,
   drawNoTailMatches,
@@ -59,6 +61,7 @@ import { getSetting } from "@/lib/config";
 import { decryptSecret, encryptSecret, hashLookupValue, maskCode } from "@/lib/crypto";
 import { issueIdempotencyKey } from "@/lib/fulfillment/issue-keys";
 import { newOrderNo } from "@/lib/ids";
+import { DEFAULT_PAGE_SIZE, normalizePage, normalizePageSize } from "@/lib/pagination-core";
 import { notifyDrawAlert, notifyDrawApply, notifyDrawCreated } from "@/lib/notify";
 
 export class DrawError extends Error {
@@ -73,6 +76,31 @@ type Actor = { id: number; role: UserRole };
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+async function drawTotalsByAgent(agentId?: number) {
+  const rows = await db
+    .select({
+      agentId: agentDrawItems.agentId,
+      lifetimeCount: sql<number>`coalesce(sum(case when ${agentDrawItems.status} != 'void' then 1 else 0 end), 0)`,
+      lifetimeCents: sql<number>`coalesce(sum(case when ${agentDrawItems.status} != 'void' then ${agentDrawItems.amountCents} else 0 end), 0)`,
+      settledCount: sql<number>`coalesce(sum(case when ${agentDrawItems.status} = 'settled' then 1 else 0 end), 0)`,
+      settledCents: sql<number>`coalesce(sum(case when ${agentDrawItems.status} = 'settled' then ${agentDrawItems.amountCents} else 0 end), 0)`,
+    })
+    .from(agentDrawItems)
+    .where(agentId ? eq(agentDrawItems.agentId, agentId) : undefined)
+    .groupBy(agentDrawItems.agentId);
+  return new Map(
+    rows.map((row) => [
+      row.agentId,
+      {
+        lifetimeCount: Number(row.lifetimeCount) || 0,
+        lifetimeCents: Number(row.lifetimeCents) || 0,
+        settledCount: Number(row.settledCount) || 0,
+        settledCents: Number(row.settledCents) || 0,
+      },
+    ]),
+  );
 }
 
 async function unsettledByAgent() {
@@ -111,9 +139,14 @@ export async function drawLedgerOverview() {
 
 export async function listDrawLedgerAgents() {
   const unsettled = await unsettledByAgent();
+  const totals = await drawTotalsByAgent();
   const accessRows = await db.select().from(agentDrawAccess);
   const agentIds = [
-    ...new Set([...accessRows.map((row) => row.agentId), ...unsettled.keys()]),
+    ...new Set([
+      ...accessRows.map((row) => row.agentId),
+      ...unsettled.keys(),
+      ...totals.keys(),
+    ]),
   ];
   if (agentIds.length === 0) return [];
   const agentRows = await db
@@ -130,6 +163,7 @@ export async function listDrawLedgerAgents() {
     .map((agent) => {
       const access = accessByAgent.get(agent.id);
       const open = unsettled.get(agent.id);
+      const total = totals.get(agent.id);
       return {
         agentId: agent.id,
         name: publicShopName(agent),
@@ -138,6 +172,10 @@ export async function listDrawLedgerAgents() {
         creditLimitCents: access?.creditLimitCents || 0,
         unsettledCount: Number(open?.count) || 0,
         unsettledCents: Number(open?.amountCents) || 0,
+        settledCount: total?.settledCount || 0,
+        settledCents: total?.settledCents || 0,
+        lifetimeCount: total?.lifetimeCount || 0,
+        lifetimeCents: total?.lifetimeCents || 0,
         maxPerDraw: access?.maxPerDraw ?? DRAW_DEFAULT_MAX_PER_DRAW,
         dailyLimitCount: access?.dailyLimitCount ?? 0,
         notifyEachDraw: access?.notifyEachDraw ?? true,
@@ -150,7 +188,17 @@ export async function listDrawLedgerAgents() {
     });
 }
 
-export async function listUnsettledDrawItems(agentId: number) {
+export async function listUnsettledDrawItems(
+  agentId: number,
+  pageInput?: { page?: unknown; pageSize?: unknown },
+) {
+  const page = normalizePage(pageInput?.page);
+  const pageSize = normalizePageSize(pageInput?.pageSize, DEFAULT_PAGE_SIZE);
+  const where = and(eq(agentDrawItems.agentId, agentId), eq(agentDrawItems.status, "unsettled"));
+  const [{ total }] = await db
+    .select({ total: sql<number>`count(*)` })
+    .from(agentDrawItems)
+    .where(where);
   const rows = await db
     .select({
       id: agentDrawItems.id,
@@ -163,25 +211,33 @@ export async function listUnsettledDrawItems(agentId: number) {
       paymentCountry: issuedCdks.paymentCountry,
       drawNo: agentDrawOrders.drawNo,
       planName: agentDrawOrders.planNameSnapshot,
+      manualUsedAt: agentDrawItems.manualUsedAt,
     })
     .from(agentDrawItems)
     .innerJoin(issuedCdks, eq(issuedCdks.id, agentDrawItems.issuedCdkId))
     .innerJoin(agentDrawOrders, eq(agentDrawOrders.id, agentDrawItems.drawOrderId))
-    .where(and(eq(agentDrawItems.agentId, agentId), eq(agentDrawItems.status, "unsettled")))
+    .where(where)
     .orderBy(desc(agentDrawItems.id))
-    .limit(DRAW_MAX_SETTLE_ITEMS);
-  return rows.map((row) => ({
-    id: row.id,
-    createdAt: row.createdAt,
-    planKey: row.planKey,
-    planName: row.planName,
-    amountCents: row.amountCents,
-    upstreamCostCents: row.upstreamCostCents,
-    cdkStatus: row.cdkStatus,
-    paymentCountry: row.paymentCountry,
-    drawNo: row.drawNo,
-    codeMasked: maskCode(decryptSecret(row.codeEncrypted)),
-  }));
+    .limit(pageSize)
+    .offset((page - 1) * pageSize);
+  return {
+    items: rows.map((row) => ({
+      id: row.id,
+      createdAt: row.createdAt,
+      planKey: row.planKey,
+      planName: row.planName,
+      amountCents: row.amountCents,
+      upstreamCostCents: row.upstreamCostCents,
+      cdkStatus: row.cdkStatus,
+      paymentCountry: row.paymentCountry,
+      drawNo: row.drawNo,
+      manualUsedAt: row.manualUsedAt || "",
+      codeMasked: maskCode(decryptSecret(row.codeEncrypted)),
+    })),
+    total: Number(total) || 0,
+    page,
+    pageSize,
+  };
 }
 
 export async function settleDrawItems(
@@ -604,6 +660,8 @@ export async function getAgentDrawState(agentId: number) {
     ];
   });
   const ledger = await agentLedgerSummary(agentId);
+  const totals = await drawTotalsByAgent(agentId);
+  const lifetime = totals.get(agentId);
   return {
     status,
     notice,
@@ -611,6 +669,12 @@ export async function getAgentDrawState(agentId: number) {
     credit,
     summary: ledger.summary,
     statementText: ledger.statementText,
+    lifetime: {
+      count: lifetime?.lifetimeCount || 0,
+      amountCents: lifetime?.lifetimeCents || 0,
+      settledCount: lifetime?.settledCount || 0,
+      settledCents: lifetime?.settledCents || 0,
+    },
     limits: {
       maxPerDraw: access.maxPerDraw,
       dailyLimit: access.dailyLimitCount,
@@ -1088,9 +1152,15 @@ function parseSummary(raw: string): DrawPlanSummary[] {
   }
 }
 
-export async function listAgentUnsettledItems(agentId: number) {
-  const rows = await listUnsettledDrawItems(agentId);
-  return rows.map(({ upstreamCostCents: _cost, ...row }) => row);
+export async function listAgentUnsettledItems(
+  agentId: number,
+  pageInput?: { page?: unknown; pageSize?: unknown },
+) {
+  const result = await listUnsettledDrawItems(agentId, pageInput);
+  return {
+    ...result,
+    items: result.items.map(({ upstreamCostCents: _cost, ...row }) => row),
+  };
 }
 
 export async function listAgentDrawOrders(agentId: number) {
@@ -1142,16 +1212,22 @@ export type DrawBillQuery = {
   query?: string;
   paymentMethod?: string;
   status?: string;
+  from?: string;
+  to?: string;
 };
 
 function billQueryWhere(input: DrawBillQuery) {
   const query = (input.query || "").trim().replace(/[%_]/g, "");
   const status = input.status === "settled" || input.status === "reverted" ? input.status : "";
   const method = normalizeDrawPaymentMethod(input.paymentMethod || "");
+  const fromIso = beijingDateStartIso(input.from || "");
+  const toIso = beijingDateEndExclusiveIso(input.to || "");
   return and(
     input.agentId && input.agentId > 0 ? eq(agentDrawBills.agentId, input.agentId) : undefined,
     method ? eq(agentDrawBills.paymentMethod, method) : undefined,
     status ? eq(agentDrawBills.status, status) : undefined,
+    fromIso ? gte(agentDrawBills.createdAt, fromIso) : undefined,
+    toIso ? lt(agentDrawBills.createdAt, toIso) : undefined,
     query
       ? or(
           like(agentDrawBills.billNo, `%${query}%`),
@@ -1164,8 +1240,19 @@ function billQueryWhere(input: DrawBillQuery) {
   );
 }
 
-export async function listDrawBills(filter: DrawBillQuery | number = {}) {
+export async function listDrawBills(
+  filter: DrawBillQuery | number = {},
+  paging?: { page?: unknown; pageSize?: unknown },
+) {
   const input: DrawBillQuery = typeof filter === "number" ? { agentId: filter } : filter;
+  const where = billQueryWhere(input);
+  const [{ total }] = await db
+    .select({ total: sql<number>`count(*)` })
+    .from(agentDrawBills)
+    .innerJoin(agents, eq(agents.id, agentDrawBills.agentId))
+    .where(where);
+  const page = paging ? normalizePage(paging.page) : 1;
+  const pageSize = paging ? normalizePageSize(paging.pageSize) : Math.max(1, Number(total) || 1);
   const rows = await db
     .select({
       id: agentDrawBills.id,
@@ -1184,10 +1271,11 @@ export async function listDrawBills(filter: DrawBillQuery | number = {}) {
     })
     .from(agentDrawBills)
     .innerJoin(agents, eq(agents.id, agentDrawBills.agentId))
-    .where(billQueryWhere(input))
+    .where(where)
     .orderBy(desc(agentDrawBills.id))
-    .limit(200);
-  return rows.map((row) => ({
+    .limit(pageSize)
+    .offset(paging ? (page - 1) * pageSize : 0);
+  const list = rows.map((row) => ({
     id: row.id,
     billNo: row.billNo,
     agentId: row.agentId,
@@ -1203,6 +1291,7 @@ export async function listDrawBills(filter: DrawBillQuery | number = {}) {
     revertReason: row.revertReason,
     canRevert: row.status === "settled" && billRevertOpen(row.createdAt),
   }));
+  return { list, total: Number(total) || 0, page, pageSize };
 }
 
 async function billItems(billId: number, agentId?: number) {
@@ -1216,6 +1305,7 @@ async function billItems(billId: number, agentId?: number) {
       drawNo: agentDrawOrders.drawNo,
       paymentCountry: issuedCdks.paymentCountry,
       cdkStatus: issuedCdks.status,
+      manualUsedAt: agentDrawItems.manualUsedAt,
       codeEncrypted: issuedCdks.codeEncrypted,
     })
     .from(agentDrawItems)
@@ -1264,14 +1354,15 @@ export async function getDrawBill(billId: number) {
       drawNo: item.drawNo,
       paymentCountry: item.paymentCountry,
       cdkStatus: item.cdkStatus,
+      manualUsedAt: item.manualUsedAt || "",
       codeMasked: maskCode(decryptSecret(item.codeEncrypted)),
     })),
   };
 }
 
 export async function listAgentBills(agentId: number) {
-  const bills = await listDrawBills(agentId);
-  return bills.map(({ notes: _notes, paymentReference: _ref, ...bill }) => bill);
+  const { list } = await listDrawBills(agentId);
+  return list.map(({ notes: _notes, paymentReference: _ref, ...bill }) => bill);
 }
 
 export async function getAgentBill(agentId: number, billNo: string) {
@@ -1296,6 +1387,7 @@ export async function getAgentBill(agentId: number, billNo: string) {
       drawNo: item.drawNo,
       paymentCountry: item.paymentCountry,
       cdkStatus: item.cdkStatus,
+      manualUsedAt: item.manualUsedAt || "",
       codeMasked: maskCode(decryptSecret(item.codeEncrypted)),
     })),
   };
@@ -1390,14 +1482,17 @@ export async function voidDrawItem(
       cdkStatus: issuedCdks.status,
       cardplatformAccountId: issuedCdks.cardplatformAccountId,
       upstreamRef: issuedCdks.upstreamRef,
+      manualUsedAt: agentDrawItems.manualUsedAt,
     })
     .from(agentDrawItems)
     .innerJoin(issuedCdks, eq(issuedCdks.id, agentDrawItems.issuedCdkId))
     .where(eq(agentDrawItems.id, input.itemId))
     .limit(1);
   if (!row || row.status !== "unsettled") throw new DrawError("只有未结算的卡可以作废");
-  if (row.cdkStatus !== "unused") throw new DrawError("这张卡已经使用或正在兑换，不能作废");
-  if (input.mode === "upstream") await refundDrawCardUpstream(row);
+  if (row.cdkStatus !== "unused" && !row.manualUsedAt) {
+    throw new DrawError("这张卡已经使用或正在兑换，不能作废");
+  }
+  if (input.mode === "upstream" && row.cdkStatus === "unused") await refundDrawCardUpstream(row);
   const now = nowIso();
   await db.transaction(async (tx) => {
     const [updated] = await tx
@@ -1423,6 +1518,62 @@ export async function voidDrawItem(
     targetType: "agent_draw_item",
     targetId: row.id,
     metadata: { agentId: row.agentId, mode: input.mode, reason },
+  });
+}
+
+/** 卡已经手工充掉：退卡台并禁用卡密，金额仍留在未结算里。 */
+export async function manualUseDrawItem(input: { itemId: number; reason: string }, actor: Actor) {
+  const reason = input.reason.trim();
+  if (!reason) throw new DrawError("请填写核销原因");
+  const [row] = await db
+    .select({
+      id: agentDrawItems.id,
+      agentId: agentDrawItems.agentId,
+      status: agentDrawItems.status,
+      issuedCdkId: agentDrawItems.issuedCdkId,
+      cdkStatus: issuedCdks.status,
+      cardplatformAccountId: issuedCdks.cardplatformAccountId,
+      upstreamRef: issuedCdks.upstreamRef,
+      manualUsedAt: agentDrawItems.manualUsedAt,
+    })
+    .from(agentDrawItems)
+    .innerJoin(issuedCdks, eq(issuedCdks.id, agentDrawItems.issuedCdkId))
+    .where(eq(agentDrawItems.id, input.itemId))
+    .limit(1);
+  if (!row || row.status !== "unsettled") throw new DrawError("只有未结算的卡可以手动核销");
+  if (row.manualUsedAt) throw new DrawError("这张卡已经手动核销过");
+  if (row.cdkStatus !== "unused") throw new DrawError("这张卡已经使用或正在兑换，不能再核销");
+  await refundDrawCardUpstream(row);
+  const now = nowIso();
+  await db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(agentDrawItems)
+      .set({
+        manualUsedAt: now,
+        manualUsedBy: actor.id,
+        manualNote: reason,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(agentDrawItems.id, row.id),
+          eq(agentDrawItems.status, "unsettled"),
+          isNull(agentDrawItems.manualUsedAt),
+        ),
+      )
+      .returning();
+    if (!updated) throw new DrawError("这张卡状态已变化，请刷新", 409);
+    await tx
+      .update(issuedCdks)
+      .set({ status: "disabled", updatedAt: now })
+      .where(and(eq(issuedCdks.id, row.issuedCdkId), eq(issuedCdks.status, "unused")));
+  });
+  await writeAuditLog({
+    actor,
+    action: "admin.draw.item.manual_use",
+    targetType: "agent_draw_item",
+    targetId: row.id,
+    metadata: { agentId: row.agentId, reason },
   });
 }
 
@@ -1592,7 +1743,7 @@ export async function updateDrawSettings(
 
 export async function drawLedgerCsv(kind: "items" | "bills", agentId = 0, billQuery?: DrawBillQuery) {
   if (kind === "bills") {
-    const bills = await listDrawBills({ ...billQuery, agentId: billQuery?.agentId || agentId });
+    const { list: bills } = await listDrawBills({ ...billQuery, agentId: billQuery?.agentId || agentId });
     return toCsv(
       ["账单号", "代理", "结算时间", "张数", "金额", "方式", "流水号", "状态", "备注"],
       bills.map((bill) => [
@@ -1617,6 +1768,7 @@ export async function drawLedgerCsv(kind: "items" | "bills", agentId = 0, billQu
       drawNo: agentDrawOrders.drawNo,
       paymentCountry: issuedCdks.paymentCountry,
       cdkStatus: issuedCdks.status,
+      manualUsedAt: agentDrawItems.manualUsedAt,
       codeEncrypted: issuedCdks.codeEncrypted,
       billId: agentDrawItems.billId,
       displayName: agents.displayName,
@@ -1646,7 +1798,7 @@ export async function drawLedgerCsv(kind: "items" | "bills", agentId = 0, billQu
       row.planName,
       row.paymentCountry || "菲区",
       maskCode(decryptSecret(row.codeEncrypted)),
-      CDK_USE_LABEL[row.cdkStatus] || row.cdkStatus,
+      drawCodeUseLabel(row.cdkStatus, Boolean(row.manualUsedAt)),
       (row.amountCents / 100).toFixed(2),
       DRAW_ITEM_LABEL[row.status] || row.status,
       row.billId ? billNoById.get(row.billId) || "" : "",

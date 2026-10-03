@@ -832,6 +832,9 @@ CREATE TABLE IF NOT EXISTS agent_draw_items (
   void_reason TEXT NOT NULL DEFAULT '',
   voided_at TEXT,
   voided_by INTEGER,
+  manual_used_at TEXT,
+  manual_used_by INTEGER,
+  manual_note TEXT NOT NULL DEFAULT '',
   settled_at TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
@@ -1275,6 +1278,9 @@ async function ensureOrderLedgerSchema() {
       if (!/duplicate column/i.test(String(error))) throw error;
     }
   };
+  await addColumn("ALTER TABLE agent_draw_items ADD COLUMN manual_used_at TEXT");
+  await addColumn("ALTER TABLE agent_draw_items ADD COLUMN manual_used_by INTEGER");
+  await addColumn("ALTER TABLE agent_draw_items ADD COLUMN manual_note TEXT NOT NULL DEFAULT ''");
   await addColumn("ALTER TABLE platform_plans ADD COLUMN upstream_cost_cents INTEGER");
   await addColumn("ALTER TABLE finished_accounts ADD COLUMN cost_cents INTEGER");
   await addColumn(
