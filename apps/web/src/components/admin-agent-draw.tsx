@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "@/components/toast";
 import { yuanTextFromCents, centsFromYuanText } from "@/lib/money";
+import { DrawCodePeek } from "@/components/draw-code-peek";
 import { KmSelect } from "@/components/km-select";
 import { RegionBadge } from "@/components/region-badge";
 import {
@@ -593,7 +594,13 @@ export function AdminAgentDraw() {
                         {billDetail.notes ? <p className="mb-1">备注：{billDetail.notes}</p> : null}
                         {billDetail.items.map((item) => (
                           <span key={item.id} className="mr-3 inline-block py-0.5">
-                            {item.codeMasked} · {item.planName} · {yuan(item.amountCents)} · {drawCodeUseLabel(item.cdkStatus, Boolean(item.manualUsedAt))}
+                            <DrawCodePeek
+                              itemId={item.id}
+                              masked={item.codeMasked}
+                              href={`/api/admin/draw/items/${item.id}`}
+                            />
+                            {" · "}
+                            {item.planName} · {yuan(item.amountCents)} · {drawCodeUseLabel(item.cdkStatus, Boolean(item.manualUsedAt))}
                           </span>
                         ))}
                       </td>
@@ -1024,7 +1031,13 @@ export function AdminAgentDraw() {
                             {item.planName}
                             {item.paymentCountry ? <RegionBadge country={item.paymentCountry} /> : null}
                           </td>
-                          <td className="py-2 pr-3 font-mono text-xs">{item.codeMasked}</td>
+                          <td className="py-2 pr-3">
+                            <DrawCodePeek
+                              itemId={item.id}
+                              masked={item.codeMasked}
+                              href={`/api/admin/draw/items/${item.id}`}
+                            />
+                          </td>
                           <td className="py-2 pr-3">{drawCodeUseLabel(item.cdkStatus, Boolean(item.manualUsedAt))}</td>
                           <td className="py-2 pr-3">{yuan(item.amountCents)}</td>
                           <td className="py-2">

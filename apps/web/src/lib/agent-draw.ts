@@ -1181,6 +1181,32 @@ export async function listAgentDrawOrders(agentId: number) {
     .limit(100);
 }
 
+export async function revealDrawItemCode(itemId: number, actor: Actor, ownerAgentId?: number) {
+  const [row] = await db
+    .select({
+      id: agentDrawItems.id,
+      agentId: agentDrawItems.agentId,
+      drawNo: agentDrawOrders.drawNo,
+      codeEncrypted: issuedCdks.codeEncrypted,
+    })
+    .from(agentDrawItems)
+    .innerJoin(issuedCdks, eq(issuedCdks.id, agentDrawItems.issuedCdkId))
+    .innerJoin(agentDrawOrders, eq(agentDrawOrders.id, agentDrawItems.drawOrderId))
+    .where(eq(agentDrawItems.id, itemId))
+    .limit(1);
+  if (!row || (ownerAgentId != null && row.agentId !== ownerAgentId)) {
+    throw new DrawError("卡密不存在", 404);
+  }
+  await writeAuditLog({
+    actor,
+    action: ownerAgentId != null ? "agent.draw.codes.view" : "admin.draw.codes.view",
+    targetType: "agent_draw_item",
+    targetId: row.id,
+    metadata: { drawNo: row.drawNo, agentId: row.agentId },
+  });
+  return { id: row.id, code: decryptSecret(row.codeEncrypted) };
+}
+
 export async function getAgentDrawOrderCodes(agentId: number, drawNo: string, actor: Actor) {
   const order = await db.query.agentDrawOrders.findFirst({
     where: and(eq(agentDrawOrders.agentId, agentId), eq(agentDrawOrders.drawNo, drawNo)),

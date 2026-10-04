@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { toast } from "@/components/toast";
+import { DrawCodePeek } from "@/components/draw-code-peek";
 import { KmSelect } from "@/components/km-select";
 import { RegionBadge } from "@/components/region-badge";
 import {
@@ -493,7 +494,17 @@ function ItemTable({ items, empty }: { items: LedgerItem[]; empty: string }) {
                 {item.planName}
                 {item.paymentCountry ? <RegionBadge country={item.paymentCountry} /> : null}
               </td>
-              <td className="py-2 pr-3 font-mono text-xs">{item.codeMasked}</td>
+              <td className="py-2 pr-3">
+                {item.id ? (
+                  <DrawCodePeek
+                    itemId={item.id}
+                    masked={item.codeMasked}
+                    href={`/api/agent/draw/items/${item.id}`}
+                  />
+                ) : (
+                  <span className="font-mono text-xs">{item.codeMasked}</span>
+                )}
+              </td>
               <td className="py-2 pr-3">{drawCodeUseLabel(item.cdkStatus, Boolean(item.manualUsedAt))}</td>
               <td className="py-2">{formatYuan(item.amountCents)}</td>
             </tr>
