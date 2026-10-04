@@ -57,6 +57,15 @@ type AgentPlanRow = {
   retailPriceCents: number;
 } & RegionFields;
 
+const PLAN_SHELVES = ["全部", "会员", "续费", "点数", "成品号"] as const;
+
+function planShelf(plan: { name: string; planKey: string; fulfillmentKind?: string }): Exclude<(typeof PLAN_SHELVES)[number], "全部"> {
+  if (isLocalAccountPlan(plan) || /成品/.test(plan.name)) return "成品号";
+  if (/续费|renew/i.test(`${plan.name} ${plan.planKey}`)) return "续费";
+  if (/点数|credit/i.test(`${plan.name} ${plan.planKey}`)) return "点数";
+  return "会员";
+}
+
 function withRegion<T extends { planKey: string; name: string } & RegionFields>(plans: T[]) {
   return plans.map((plan) => ({
     ...plan,
@@ -78,6 +87,194 @@ function allowedPlanLabels(plans: AgentRow["allowedPlans"]) {
   });
 }
 
+function regionTone(cost: string, enabled: boolean) {
+  const cents = centsFromYuanText(cost);
+  const priced = cents != null && cents > 0;
+  if (!priced) return { text: "待定价", tone: "text-amber-700 bg-amber-50" };
+  if (enabled) return { text: "已启用", tone: "text-emerald-800 bg-emerald-50" };
+  return { text: "未启用", tone: "text-[var(--km-fg-muted)] bg-[var(--km-bg-muted)]" };
+}
+
+function sellableLabel(plan: CatalogPlan) {
+  if (isLocalAccountPlan(plan)) return "本地库存";
+  if (plan.cardplatformSellable) return "可售";
+  return plan.paymentCountry ? "卡台已停售" : "不可售";
+}
+
+function PlanCostCards({
+  catalog,
+  costDraft,
+  capDraft,
+  shelf,
+  openGroups,
+  busy,
+  onShelf,
+  onToggleGroup,
+  onCost,
+  onCap,
+  onEnabled,
+  onGrant,
+}: {
+  catalog: CatalogPlan[];
+  costDraft: Record<string, string>;
+  capDraft: Record<string, string>;
+  shelf: (typeof PLAN_SHELVES)[number];
+  openGroups: Record<string, boolean>;
+  busy: string;
+  onShelf: (shelf: (typeof PLAN_SHELVES)[number]) => void;
+  onToggleGroup: (baseKey: string) => void;
+  onCost: (planKey: string, value: string) => void;
+  onCap: (planKey: string, value: string) => void;
+  onEnabled: (planKey: string, enabled: boolean) => void;
+  onGrant: (plans: CatalogPlan[]) => void;
+}) {
+  const groups = groupPlansByBase(withRegion(catalog)).map((group) => ({
+    ...group,
+    shelf: planShelf(group.primary),
+    multi: group.plans.length > 1 || group.plans.some((plan) => plan.regionCapable),
+  }));
+  const shown = shelf === "全部" ? groups : groups.filter((group) => group.shelf === shelf);
+  const sections = PLAN_SHELVES.filter((name) => name !== "全部").filter((name) =>
+    shown.some((group) => group.shelf === name),
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="km-tabs">
+        {PLAN_SHELVES.map((name) => {
+          const count = name === "全部" ? groups.length : groups.filter((group) => group.shelf === name).length;
+          if (name !== "全部" && count === 0) return null;
+          return (
+            <button
+              key={name}
+              type="button"
+              className={`km-tab ${shelf === name ? "km-tab-active" : ""}`}
+              onClick={() => onShelf(name)}
+            >
+              {name} {count}
+            </button>
+          );
+        })}
+      </div>
+      {sections.map((name) => (
+        <section key={name} className="space-y-2">
+          <h3 className="px-1 text-sm font-medium text-[var(--km-fg-muted)]">{name}</h3>
+          {shown
+            .filter((group) => group.shelf === name)
+            .map((group) => {
+              const open = Boolean(openGroups[group.baseKey]);
+              const enabledCount = group.plans.filter((plan) => {
+                const cents = centsFromYuanText(costDraft[plan.planKey] ?? "");
+                return plan.enabled && cents != null && cents > 0;
+              }).length;
+              return (
+                <article key={group.baseKey} className="overflow-hidden rounded-2xl border border-[var(--km-border)]">
+                  <div className="flex flex-wrap items-center gap-3 px-4 py-3">
+                    <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onToggleGroup(group.baseKey)}>
+                      <div className="flex flex-wrap items-baseline gap-2">
+                        <b>{group.primary.name}</b>
+                        <span className="font-mono text-xs text-[var(--km-fg-muted)]">{group.baseKey}</span>
+                        <span className="text-xs text-[var(--km-fg-muted)]">
+                          {sellableLabel(group.primary)}
+                          {group.multi ? ` · ${enabledCount}/${group.plans.length} 已启用` : ""}
+                        </span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {group.plans.map((plan) => {
+                          const state = regionTone(costDraft[plan.planKey] ?? "", plan.enabled);
+                          const cents = centsFromYuanText(costDraft[plan.planKey] ?? "");
+                          return (
+                            <span
+                              key={plan.planKey}
+                              className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs ${state.tone}`}
+                            >
+                              <RegionBadge country={plan.paymentCountry || ""} regionLabel={plan.regionLabel} compact />
+                              {state.text}
+                              {cents != null && cents > 0 ? ` ¥${costDraft[plan.planKey]}` : ""}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </button>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-[var(--km-fg-muted)]">{open ? "收起" : "编辑"}</span>
+                      {group.multi ? (
+                        <button
+                          type="button"
+                          className="km-btn km-btn-ghost km-btn-sm"
+                          disabled={Boolean(busy)}
+                          onClick={() => onGrant(group.plans)}
+                        >
+                          全部启用并开放
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                  {open ? (
+                    <div className={`grid gap-px border-t border-[var(--km-border)] bg-[var(--km-border)] ${group.multi ? "md:grid-cols-3" : ""}`}>
+                      {group.plans.map((plan) => {
+                        const cents = centsFromYuanText(costDraft[plan.planKey] ?? "");
+                        const unpriced = Boolean(plan.paymentCountry) && (cents == null || cents <= 0);
+                        return (
+                          <div key={plan.planKey} className="space-y-3 bg-[var(--km-bg-elevated)] p-4">
+                            <div className="flex items-center justify-between gap-2">
+                              <RegionBadge country={plan.paymentCountry || ""} regionLabel={plan.regionLabel} size="md" />
+                              <span className="text-xs text-[var(--km-fg-muted)]">{sellableLabel(plan)}</span>
+                            </div>
+                            <label className="block text-xs text-[var(--km-fg-muted)]">
+                              默认成本
+                              <input
+                                className="km-input mt-1"
+                                inputMode="decimal"
+                                value={costDraft[plan.planKey] ?? ""}
+                                onChange={(event) => onCost(plan.planKey, event.target.value)}
+                              />
+                            </label>
+                            <label className="block text-xs text-[var(--km-fg-muted)]">
+                              零售价上限
+                              <input
+                                className="km-input mt-1"
+                                inputMode="decimal"
+                                placeholder="不限价"
+                                value={capDraft[plan.planKey] ?? ""}
+                                onChange={(event) => onCap(plan.planKey, event.target.value)}
+                              />
+                            </label>
+                            <div className="flex items-center justify-between gap-2">
+                              <label className="flex items-center gap-2 text-sm" title={unpriced ? "先填默认成本" : undefined}>
+                                <input
+                                  type="checkbox"
+                                  checked={plan.enabled}
+                                  disabled={unpriced}
+                                  onChange={(event) => onEnabled(plan.planKey, event.target.checked)}
+                                />
+                                启用
+                              </label>
+                              {group.multi ? null : (
+                                <button
+                                  type="button"
+                                  className="text-xs text-[var(--km-fg-muted)] underline disabled:opacity-50"
+                                  disabled={Boolean(busy)}
+                                  onClick={() => onGrant([plan])}
+                                >
+                                  开放给全部代理
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })}
+        </section>
+      ))}
+    </div>
+  );
+}
+
 export function AdminAgents() {
   const { ask, dialog } = useAskDialog();
   const [list, setList] = useState<AgentRow[]>([]);
@@ -92,6 +289,7 @@ export function AdminAgents() {
   const [overrideDraft, setOverrideDraft] = useState<Record<string, string>>({});
   const [plansLoading, setPlansLoading] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const [shelf, setShelf] = useState<(typeof PLAN_SHELVES)[number]>("全部");
   const [openAgentGroups, setOpenAgentGroups] = useState<Record<string, boolean>>({});
   const [redeemUrl, setRedeemUrl] = useState("");
   const [form, setForm] = useState({
@@ -620,147 +818,26 @@ export function AdminAgents() {
             还没有套餐。等自动同步，或到「接入卡台」立刻拉一次。
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-[var(--km-border)]">
-                  <th className="py-2 pr-3">套餐</th>
-                  <th className="py-2 pr-3">卡台</th>
-                  <th className="py-2 pr-3">默认成本（元）</th>
-                  <th className="py-2 pr-3">零售价上限（元）</th>
-                  <th className="py-2">平台可售</th>
-                </tr>
-              </thead>
-              <tbody>
-                {groupPlansByBase(withRegion(catalog)).flatMap((group) => {
-                  const grouped =
-                    group.plans.length > 1 || group.plans.some((plan) => plan.regionCapable);
-                  const expanded = Boolean(openGroups[group.baseKey]);
-                  const enabledInGroup = group.plans.filter((plan) => plan.enabled).length;
-                  const rows = [];
-                  if (grouped) {
-                    rows.push(
-                      <tr key={`group-${group.baseKey}`} className="border-b border-[var(--km-border)]">
-                        <td className="py-2 pr-3" colSpan={4}>
-                          <button
-                            type="button"
-                            className="text-left"
-                            onClick={() =>
-                              setOpenGroups((current) => ({
-                                ...current,
-                                [group.baseKey]: !current[group.baseKey],
-                              }))
-                            }
-                          >
-                            <b>
-                              {expanded ? "▾" : "▸"} {group.primary.name}
-                            </b>
-                            <span className="ml-2 text-xs text-[var(--km-fg-muted)]">
-                              {group.plans.length} 个地区 · {enabledInGroup} 个已启用
-                            </span>
-                          </button>
-                        </td>
-                        <td className="py-2">
-                          <button
-                            type="button"
-                            className="km-btn km-btn-ghost km-btn-sm"
-                            disabled={Boolean(busy)}
-                            onClick={() => void enableForAllAgents(group.plans)}
-                          >
-                            全部启用并开放
-                          </button>
-                        </td>
-                      </tr>,
-                    );
-                    if (!expanded) return rows;
-                  }
-                  for (const plan of group.plans) {
-                    rows.push(
-                      <tr key={plan.planKey} className="border-b border-[var(--km-border)]">
-                        <td className="py-2 pr-3">
-                          {grouped ? (
-                            <RegionBadge country={plan.paymentCountry} regionLabel={plan.regionLabel} />
-                          ) : (
-                            <>
-                              <div className="font-medium">{plan.name}</div>
-                              <div className="font-mono text-xs text-[var(--km-fg-muted)]">
-                                {plan.planKey}
-                              </div>
-                            </>
-                          )}
-                        </td>
-                        <td className="py-2 pr-3">
-                          {plan.cardplatformSellable || isLocalAccountPlan(plan)
-                            ? isLocalAccountPlan(plan)
-                              ? "本地库存"
-                              : "可售"
-                            : plan.paymentCountry
-                              ? "卡台已停售"
-                              : "不可售"}
-                        </td>
-                        <td className="py-2 pr-3">
-                          <input
-                            className="km-input w-28"
-                            inputMode="decimal"
-                            value={costDraft[plan.planKey] ?? ""}
-                            onChange={(event) =>
-                              setCostDraft((current) => ({
-                                ...current,
-                                [plan.planKey]: event.target.value,
-                              }))
-                            }
-                          />
-                        </td>
-                        <td className="py-2 pr-3">
-                          <input
-                            className="km-input w-28"
-                            inputMode="decimal"
-                            placeholder="不限价"
-                            value={capDraft[plan.planKey] ?? ""}
-                            onChange={(event) =>
-                              setCapDraft((current) => ({
-                                ...current,
-                                [plan.planKey]: event.target.value,
-                              }))
-                            }
-                          />
-                        </td>
-                        <td className="py-2">
-                          <label className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={plan.enabled}
-                              onChange={(event) =>
-                                setCatalog((current) =>
-                                  current.map((item) =>
-                                    item.planKey === plan.planKey
-                                      ? { ...item, enabled: event.target.checked }
-                                      : item,
-                                  ),
-                                )
-                              }
-                            />
-                            启用
-                          </label>
-                          {grouped ? null : (
-                            <button
-                              type="button"
-                              className="km-btn km-btn-ghost km-btn-sm mt-2"
-                              disabled={Boolean(busy)}
-                              onClick={() => void enableForAllAgents([plan])}
-                            >
-                              开放给全部代理
-                            </button>
-                          )}
-                        </td>
-                      </tr>,
-                    );
-                  }
-                  return rows;
-                })}
-              </tbody>
-            </table>
-          </div>
+          <PlanCostCards
+            catalog={catalog}
+            costDraft={costDraft}
+            capDraft={capDraft}
+            shelf={shelf}
+            openGroups={openGroups}
+            busy={busy}
+            onShelf={setShelf}
+            onToggleGroup={(baseKey) =>
+              setOpenGroups((current) => ({ ...current, [baseKey]: !current[baseKey] }))
+            }
+            onCost={(planKey, value) => setCostDraft((current) => ({ ...current, [planKey]: value }))}
+            onCap={(planKey, value) => setCapDraft((current) => ({ ...current, [planKey]: value }))}
+            onEnabled={(planKey, enabled) =>
+              setCatalog((current) =>
+                current.map((item) => (item.planKey === planKey ? { ...item, enabled } : item)),
+              )
+            }
+            onGrant={(plans) => void enableForAllAgents(plans)}
+          />
         )}
         <div className="flex flex-wrap gap-2">
           <button
