@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
 import { agentIdentityLabel } from "@/lib/agent-identity-core";
@@ -12,6 +12,8 @@ import {
   isOverMaxRetailPrice,
   maxRetailPriceError,
 } from "@/lib/plan-price-core";
+import { KmSelect } from "@/components/km-select";
+import { hasNextPage, pageLabel } from "@/lib/pagination-core";
 import { groupPlansByBase, regionDisplay } from "@/lib/cardplatform/regions";
 import { RegionBadge } from "@/components/region-badge";
 
@@ -275,6 +277,98 @@ function PlanCostCards({
   );
 }
 
+function AgentActionMenu({
+  open,
+  busy,
+  active,
+  onToggleOpen,
+  onClose,
+  onPlans,
+  onCopy,
+  onReset,
+  onName,
+  onStatus,
+}: {
+  open: boolean;
+  busy: boolean;
+  active: boolean;
+  onToggleOpen: () => void;
+  onClose: () => void;
+  onPlans: () => void;
+  onCopy: () => void;
+  onReset: () => void;
+  onName: () => void;
+  onStatus: () => void;
+}) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState({ top: 0, right: 0, up: false });
+
+  useEffect(() => {
+    if (!open) return;
+    const button = buttonRef.current;
+    if (button) {
+      const rect = button.getBoundingClientRect();
+      const up = window.innerHeight - rect.bottom < 220;
+      setBox({ top: up ? rect.top - 6 : rect.bottom + 6, right: window.innerWidth - rect.right, up });
+    }
+    function onPointer(event: MouseEvent) {
+      const target = event.target as Node;
+      if (buttonRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      onClose();
+    }
+    document.addEventListener("mousedown", onPointer);
+    return () => document.removeEventListener("mousedown", onPointer);
+  }, [open, onClose]);
+
+  function run(action: () => void) {
+    onClose();
+    action();
+  }
+
+  const items = [
+    { label: "套餐", action: onPlans },
+    { label: "复制开户说明", action: onCopy },
+    { label: busy ? "重置中…" : "重置密码", action: onReset, disabled: busy },
+    { label: "真实姓名", action: onName },
+  ];
+
+  return (
+    <>
+      <button ref={buttonRef} type="button" className="km-btn km-btn-ghost km-btn-sm" onClick={onToggleOpen}>
+        操作
+      </button>
+      {open ? (
+        <div
+          ref={menuRef}
+          className="fixed z-40 min-w-36 rounded-xl border border-[var(--km-border)] bg-[var(--km-bg-elevated)] py-1 shadow-lg"
+          style={{ top: box.top, right: box.right, transform: box.up ? "translateY(-100%)" : undefined }}
+        >
+          {items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              className="block w-full px-3 py-2 text-left text-sm hover:bg-[var(--km-bg-muted)] disabled:opacity-50"
+              disabled={item.disabled}
+              onClick={() => run(item.action)}
+            >
+              {item.label}
+            </button>
+          ))}
+          <div className="my-1 border-t border-[var(--km-border)]" />
+          <button
+            type="button"
+            className={`block w-full px-3 py-2 text-left text-sm hover:bg-[var(--km-bg-muted)] ${active ? "text-red-600" : ""}`}
+            onClick={() => run(onStatus)}
+          >
+            {active ? "停用" : "启用"}
+          </button>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 export function AdminAgents() {
   const { ask, dialog } = useAskDialog();
   const [list, setList] = useState<AgentRow[]>([]);
@@ -290,6 +384,15 @@ export function AdminAgents() {
   const [plansLoading, setPlansLoading] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [shelf, setShelf] = useState<(typeof PLAN_SHELVES)[number]>("全部");
+  const [costsOpen, setCostsOpen] = useState(false);
+  const [agentQuery, setAgentQuery] = useState("");
+  const [agentStatus, setAgentStatus] = useState("");
+  const [agentPlan, setAgentPlan] = useState("");
+  const [appliedAgentQuery, setAppliedAgentQuery] = useState("");
+  const [appliedAgentStatus, setAppliedAgentStatus] = useState("");
+  const [appliedAgentPlan, setAppliedAgentPlan] = useState("");
+  const [agentPage, setAgentPage] = useState(1);
+  const [openMenuId, setOpenMenuId] = useState(0);
   const [openAgentGroups, setOpenAgentGroups] = useState<Record<string, boolean>>({});
   const [redeemUrl, setRedeemUrl] = useState("");
   const [form, setForm] = useState({
@@ -742,6 +845,29 @@ export function AdminAgents() {
     }));
   }
 
+  const planNameOptions = useMemo(
+    () => [...new Set(catalog.map((plan) => plan.name))].sort((a, b) => a.localeCompare(b, "zh")),
+    [catalog],
+  );
+  const filteredAgents = useMemo(() => {
+    const query = appliedAgentQuery.trim().toLowerCase();
+    return list.filter((agent) => {
+      if (appliedAgentStatus && agent.status !== appliedAgentStatus) return false;
+      if (appliedAgentPlan && !(agent.allowedPlans || []).some((plan) => plan.name === appliedAgentPlan)) {
+        return false;
+      }
+      if (!query) return true;
+      return [agent.displayName, agent.username, agent.currentSlug, agent.shopName || "", agent.realName || ""]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    });
+  }, [list, appliedAgentQuery, appliedAgentStatus, appliedAgentPlan]);
+  const agentPageSize = 20;
+  const agentPages = Math.max(1, Math.ceil(filteredAgents.length / agentPageSize));
+  const agentPageSafe = Math.min(agentPage, agentPages);
+  const pageAgents = filteredAgents.slice((agentPageSafe - 1) * agentPageSize, agentPageSafe * agentPageSize);
+
   return (
     <div className="space-y-6">
       <section className="km-panel space-y-3">
@@ -806,18 +932,39 @@ export function AdminAgents() {
       </section>
 
       <section className="km-panel space-y-4">
-        <div>
-          <h2 className="text-xl font-semibold">默认成本价</h2>
-          <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-            这是平台给代理的默认成本。代理登录后只能在自己的成本之上加零售价。
-            零售价上限留空表示不限价；填了之后代理改价不能超过它，但已经高于上限的老价格照卖，会在下面的「套餐」弹窗里标出来。
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold">默认成本价</h2>
+            <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
+              {catalog.length === 0
+                ? "还没有套餐。等自动同步，或到「接入卡台」立刻拉一次。"
+                : `${groupPlansByBase(withRegion(catalog)).length} 个套餐 · ${PLAN_SHELVES.filter((name) => name !== "全部")
+                    .map((name) => {
+                      const count = groupPlansByBase(withRegion(catalog)).filter((group) => planShelf(group.primary) === name).length;
+                      return count ? `${name} ${count}` : "";
+                    })
+                    .filter(Boolean)
+                    .join(" · ")}`}
+            </p>
+            {costsOpen ? (
+              <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
+                这是平台给代理的默认成本。代理登录后只能在自己的成本之上加零售价。
+                零售价上限留空表示不限价；填了之后代理改价不能超过它，但已经高于上限的老价格照卖，会在下面的「套餐」弹窗里标出来。
+              </p>
+            ) : (
+              <p className="mt-1 text-sm text-[var(--km-fg-muted)]">点开再改成本和上限。</p>
+            )}
+          </div>
+          <button type="button" className="km-btn km-btn-ghost km-btn-sm" onClick={() => setCostsOpen((current) => !current)}>
+            {costsOpen ? "收起" : "展开"}
+          </button>
         </div>
-        {catalog.length === 0 ? (
+        {costsOpen && catalog.length === 0 ? (
           <p className="text-sm text-[var(--km-fg-muted)]">
             还没有套餐。等自动同步，或到「接入卡台」立刻拉一次。
           </p>
-        ) : (
+        ) : null}
+        {costsOpen && catalog.length > 0 ? (
           <PlanCostCards
             catalog={catalog}
             costDraft={costDraft}
@@ -838,7 +985,8 @@ export function AdminAgents() {
             }
             onGrant={(plans) => void enableForAllAgents(plans)}
           />
-        )}
+        ) : null}
+        {costsOpen ? (
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -857,13 +1005,88 @@ export function AdminAgents() {
             {busy === "grant-all" ? "开放中…" : "把已勾选的套餐开放给全部代理"}
           </button>
         </div>
+        ) : null}
       </section>
 
-      <section className="km-panel overflow-x-auto">
-        <h2 className="mb-4 text-xl font-semibold">代理账号</h2>
+      <section className="km-panel space-y-4">
+        <h2 className="text-xl font-semibold">代理账号</h2>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <label className="block text-xs font-medium text-[var(--km-fg-muted)]">
+            关键词
+            <input
+              className="km-input mt-1 w-full text-sm font-normal text-[var(--km-fg)]"
+              placeholder="代理名、用户名、店铺"
+              value={agentQuery}
+              onChange={(event) => setAgentQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                setAppliedAgentQuery(agentQuery);
+                setAppliedAgentStatus(agentStatus);
+                setAppliedAgentPlan(agentPlan);
+                setAgentPage(1);
+              }}
+            />
+          </label>
+          <label className="block text-xs font-medium text-[var(--km-fg-muted)]">
+            状态
+            <span className="mt-1 block">
+              <KmSelect
+                value={agentStatus}
+                placeholder="全部"
+                options={[
+                  { value: "", label: "全部" },
+                  { value: "active", label: "启用" },
+                  { value: "disabled", label: "停用" },
+                ]}
+                onChange={setAgentStatus}
+              />
+            </span>
+          </label>
+          <label className="block text-xs font-medium text-[var(--km-fg-muted)]">
+            可售套餐
+            <span className="mt-1 block">
+              <KmSelect
+                value={agentPlan}
+                placeholder="不限"
+                options={[{ value: "", label: "不限" }, ...planNameOptions.map((name) => ({ value: name, label: name }))]}
+                onChange={setAgentPlan}
+              />
+            </span>
+          </label>
+          <div className="flex items-end gap-2">
+            <button
+              type="button"
+              className="km-btn km-btn-sm"
+              onClick={() => {
+                setAppliedAgentQuery(agentQuery);
+                setAppliedAgentStatus(agentStatus);
+                setAppliedAgentPlan(agentPlan);
+                setAgentPage(1);
+              }}
+            >
+              查询
+            </button>
+            <button
+              type="button"
+              className="km-btn km-btn-ghost km-btn-sm"
+              onClick={() => {
+                setAgentQuery("");
+                setAgentStatus("");
+                setAgentPlan("");
+                setAppliedAgentQuery("");
+                setAppliedAgentStatus("");
+                setAppliedAgentPlan("");
+                setAgentPage(1);
+              }}
+            >
+              清空
+            </button>
+          </div>
+        </div>
         {loading ? (
           <p className="text-sm text-[var(--km-fg-muted)]">加载中…</p>
         ) : (
+          <div className="overflow-x-auto">
           <table className="w-full min-w-[820px] text-left text-sm">
             <thead>
               <tr className="border-b border-[var(--km-border)]">
@@ -876,14 +1099,14 @@ export function AdminAgents() {
               </tr>
             </thead>
             <tbody>
-              {list.length === 0 ? (
+              {pageAgents.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-8 text-center text-[var(--km-fg-muted)]">
-                    还没有代理，点右上角「新建代理」
+                    {list.length === 0 ? "还没有代理，点右上角「新建代理」" : "没有符合条件的代理。"}
                   </td>
                 </tr>
               ) : null}
-              {list.map((agent) => (
+              {pageAgents.map((agent) => (
                 <tr key={agent.id} className="border-b border-[var(--km-border)]">
                   <td className="py-3 pr-4">
                     <div>{agentIdentityLabel(agent)}</div>
@@ -911,56 +1134,52 @@ export function AdminAgents() {
                     {agent.status === "active" ? "启用" : "停用"}
                   </td>
                   <td className="py-3">
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        className="km-btn km-btn-ghost"
-                        onClick={() => void loadAgentPlans(agent)}
-                      >
-                        套餐
-                      </button>
-                      <button
-                        type="button"
-                        className="km-btn km-btn-ghost"
-                        onClick={() =>
-                          void copyWelcome({
-                            username: agent.username,
-                            displayName: agent.displayName,
-                            ok: "开户说明已复制（不含密码）",
-                          })
-                        }
-                      >
-                        复制开户说明
-                      </button>
-                      <button
-                        type="button"
-                        className="km-btn km-btn-ghost"
-                        disabled={busy === `password-${agent.id}`}
-                        onClick={() => void resetPassword(agent)}
-                      >
-                        {busy === `password-${agent.id}` ? "重置中…" : "重置密码"}
-                      </button>
-                      <button
-                        type="button"
-                        className="km-btn km-btn-ghost"
-                        onClick={() => void editRealName(agent)}
-                      >
-                        真实姓名
-                      </button>
-                      <button
-                        type="button"
-                        className="km-btn km-btn-ghost"
-                        onClick={() => void toggleStatus(agent)}
-                      >
-                        {agent.status === "active" ? "停用" : "启用"}
-                      </button>
-                    </div>
+                    <AgentActionMenu
+                      open={openMenuId === agent.id}
+                      busy={busy === `password-${agent.id}`}
+                      active={agent.status === "active"}
+                      onToggleOpen={() => setOpenMenuId((current) => (current === agent.id ? 0 : agent.id))}
+                      onClose={() => setOpenMenuId(0)}
+                      onPlans={() => void loadAgentPlans(agent)}
+                      onCopy={() =>
+                        void copyWelcome({
+                          username: agent.username,
+                          displayName: agent.displayName,
+                          ok: "开户说明已复制（不含密码）",
+                        })
+                      }
+                      onReset={() => void resetPassword(agent)}
+                      onName={() => void editRealName(agent)}
+                      onStatus={() => void toggleStatus(agent)}
+                    />
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         )}
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--km-fg-muted)]">
+          <span>{pageLabel(filteredAgents.length, agentPageSafe, agentPageSize)}</span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="km-btn km-btn-ghost km-btn-sm"
+              disabled={agentPageSafe <= 1}
+              onClick={() => setAgentPage(agentPageSafe - 1)}
+            >
+              上一页
+            </button>
+            <button
+              type="button"
+              className="km-btn km-btn-ghost km-btn-sm"
+              disabled={!hasNextPage(filteredAgents.length, agentPageSafe, agentPageSize)}
+              onClick={() => setAgentPage(agentPageSafe + 1)}
+            >
+              下一页
+            </button>
+          </div>
+        </div>
       </section>
 
       {selectedAgent ? (

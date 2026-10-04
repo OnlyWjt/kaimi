@@ -590,19 +590,43 @@ export function AdminAgentDraw() {
                   </tr>
                   {billDetail?.id === bill.id ? (
                     <tr>
-                      <td colSpan={9} className="bg-[var(--km-bg-muted)] text-xs">
-                        {billDetail.notes ? <p className="mb-1">备注：{billDetail.notes}</p> : null}
-                        {billDetail.items.map((item) => (
-                          <span key={item.id} className="mr-3 inline-block py-0.5">
-                            <DrawCodePeek
-                              itemId={item.id}
-                              masked={item.codeMasked}
-                              href={`/api/admin/draw/items/${item.id}`}
-                            />
-                            {" · "}
-                            {item.planName} · {yuan(item.amountCents)} · {drawCodeUseLabel(item.cdkStatus, Boolean(item.manualUsedAt))}
-                          </span>
-                        ))}
+                      <td colSpan={9} className="bg-[var(--km-bg-muted)] px-3 py-3">
+                        {billDetail.notes ? (
+                          <p className="mb-2 text-xs text-[var(--km-fg-muted)]">备注：{billDetail.notes}</p>
+                        ) : null}
+                        <table className="w-full min-w-[640px] text-left text-xs">
+                          <thead>
+                            <tr className="text-[var(--km-fg-muted)]">
+                              <th className="py-1 pr-3 font-medium">时间</th>
+                              <th className="py-1 pr-3 font-medium">提卡单</th>
+                              <th className="py-1 pr-3 font-medium">套餐</th>
+                              <th className="py-1 pr-3 font-medium">卡密</th>
+                              <th className="py-1 pr-3 font-medium">使用</th>
+                              <th className="py-1 font-medium">金额</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {billDetail.items.map((item) => (
+                              <tr key={item.id} className="border-t border-[var(--km-border)]">
+                                <td className="py-2 pr-3">{item.createdAt.slice(5, 16).replace("T", " ")}</td>
+                                <td className="py-2 pr-3 font-mono">{item.drawNo}</td>
+                                <td className="py-2 pr-3">
+                                  {item.planName}
+                                  {item.paymentCountry ? <RegionBadge country={item.paymentCountry} /> : null}
+                                </td>
+                                <td className="py-2 pr-3">
+                                  <DrawCodePeek
+                                    itemId={item.id}
+                                    masked={item.codeMasked}
+                                    href={`/api/admin/draw/items/${item.id}`}
+                                  />
+                                </td>
+                                <td className="py-2 pr-3">{drawCodeUseLabel(item.cdkStatus, Boolean(item.manualUsedAt))}</td>
+                                <td className="py-2">{yuan(item.amountCents)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </td>
                     </tr>
                   ) : null}
