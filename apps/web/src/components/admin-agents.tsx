@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
 import { agentIdentityLabel } from "@/lib/agent-identity-core";
@@ -302,16 +303,27 @@ function AgentActionMenu({
 }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const [box, setBox] = useState({ top: 0, right: 0, up: false });
+  const [box, setBox] = useState<{ top: number; left: number; up: boolean } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setBox(null);
+      return;
+    }
+    const button = buttonRef.current;
+    if (!button) return;
+    const rect = button.getBoundingClientRect();
+    const width = 148;
+    const up = window.innerHeight - rect.bottom < 220;
+    setBox({
+      top: up ? rect.top - 6 : rect.bottom + 6,
+      left: Math.max(8, rect.right - width),
+      up,
+    });
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
-    const button = buttonRef.current;
-    if (button) {
-      const rect = button.getBoundingClientRect();
-      const up = window.innerHeight - rect.bottom < 220;
-      setBox({ top: up ? rect.top - 6 : rect.bottom + 6, right: window.innerWidth - rect.right, up });
-    }
     function onPointer(event: MouseEvent) {
       const target = event.target as Node;
       if (buttonRef.current?.contains(target) || menuRef.current?.contains(target)) return;
@@ -338,11 +350,12 @@ function AgentActionMenu({
       <button ref={buttonRef} type="button" className="km-btn km-btn-ghost km-btn-sm" onClick={onToggleOpen}>
         操作
       </button>
-      {open ? (
+      {open && box
+        ? createPortal(
         <div
           ref={menuRef}
-          className="fixed z-40 min-w-36 rounded-xl border border-[var(--km-border)] bg-[var(--km-bg-elevated)] py-1 shadow-lg"
-          style={{ top: box.top, right: box.right, transform: box.up ? "translateY(-100%)" : undefined }}
+          className="fixed z-40 w-36 rounded-xl border border-[var(--km-border)] bg-[var(--km-bg-elevated)] py-1 shadow-lg"
+          style={{ top: box.top, left: box.left, transform: box.up ? "translateY(-100%)" : undefined }}
         >
           {items.map((item) => (
             <button
@@ -363,8 +376,10 @@ function AgentActionMenu({
           >
             {active ? "停用" : "启用"}
           </button>
-        </div>
-      ) : null}
+        </div>,
+          document.body,
+        )
+      : null}
     </>
   );
 }
@@ -932,10 +947,14 @@ export function AdminAgents() {
       </section>
 
       <section className="km-panel space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-semibold">默认成本价</h2>
-            <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-xl font-semibold">默认成本价</h2>
+          <button type="button" className="km-btn km-btn-ghost km-btn-sm shrink-0" onClick={() => setCostsOpen((current) => !current)}>
+            {costsOpen ? "收起" : "展开"}
+          </button>
+        </div>
+        <div>
+            <p className="text-sm text-[var(--km-fg-muted)]">
               {catalog.length === 0
                 ? "还没有套餐。等自动同步，或到「接入卡台」立刻拉一次。"
                 : `${groupPlansByBase(withRegion(catalog)).length} 个套餐 · ${PLAN_SHELVES.filter((name) => name !== "全部")
@@ -954,10 +973,6 @@ export function AdminAgents() {
             ) : (
               <p className="mt-1 text-sm text-[var(--km-fg-muted)]">点开再改成本和上限。</p>
             )}
-          </div>
-          <button type="button" className="km-btn km-btn-ghost km-btn-sm" onClick={() => setCostsOpen((current) => !current)}>
-            {costsOpen ? "收起" : "展开"}
-          </button>
         </div>
         {costsOpen && catalog.length === 0 ? (
           <p className="text-sm text-[var(--km-fg-muted)]">
@@ -1094,8 +1109,8 @@ export function AdminAgents() {
                 <th className="py-3 pr-4">用户名</th>
                 <th className="py-3 pr-4">店铺</th>
                 <th className="py-3 pr-4">可售套餐</th>
-                <th className="py-3 pr-4">状态</th>
-                <th className="py-3">操作</th>
+                <th className="whitespace-nowrap py-3 pr-6">状态</th>
+                <th className="whitespace-nowrap py-3">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -1130,7 +1145,7 @@ export function AdminAgents() {
                       <span className="text-[var(--km-fg-muted)]">未分配</span>
                     )}
                   </td>
-                  <td className="py-3 pr-4">
+                  <td className="whitespace-nowrap py-3 pr-6">
                     {agent.status === "active" ? "启用" : "停用"}
                   </td>
                   <td className="py-3">
