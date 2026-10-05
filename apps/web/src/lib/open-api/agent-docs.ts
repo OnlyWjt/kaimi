@@ -9,15 +9,15 @@ export type DocSection = {
   blocks: DocBlock[];
 };
 
-export function agentApiDocs(origin: string): DocSection[] {
+export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }): DocSection[] {
   const base = `${origin}/api/v1/open`;
-  return [
+  const sections: DocSection[] = [
     {
       id: "auth",
       title: "调用约定",
       blocks: [
         { kind: "p", text: `基础地址 ${base}。每个请求都要带请求头 Authorization: Bearer km_live_你的Key。Key 只在创建时显示一次，丢了只能吊销后重建。` },
-        { kind: "p", text: "代理 Key 只能看到自己店铺的套餐、订单和卡密，也只能兑换自己卖出的卡。金额单位是分，时间是 UTC。" },
+        { kind: "p", text: "代理 Key 只能操作自己的店铺：查套餐和订单、代客下单、看卡密、兑换自己卖出的卡。已开通提卡的代理还能用提卡接口。金额单位是分，时间是 UTC。代客下单的价格是你自己设的零售价。" },
         { kind: "p", text: "成功时 HTTP 200，正文是 { \"data\": ..., \"request_id\": \"req_...\" }。失败时 HTTP 状态码对应错误，正文是 { \"error\": { \"code\", \"message\" }, \"request_id\" }。排错时把 request_id 留着。" },
         {
           kind: "table",
@@ -103,6 +103,29 @@ export function agentApiDocs(origin: string): DocSection[] {
   "request_id": "req_..."
 }`,
         },
+      ],
+    },
+    {
+      id: "create-order",
+      title: "POST /orders  代客下单",
+      blocks: [
+        { kind: "p", text: "权限 orders:write。用本店已分配且在售的套餐建一笔销售订单，并返回易支付链接。金额按你设的零售价乘张数，有券再减，要开票再加开票加价。调用方不能自己传金额。零售价低于成本，或扣完通道费后收益为负，不会生成链接。" },
+        { kind: "p", text: "必须带 Idempotency-Key。同样的 Key 和同样的正文重复提交，返回第一次的支付链接。同一个 Key 配了不同正文返回 409。" },
+        {
+          kind: "table",
+          headers: ["字段", "必填", "说明"],
+          rows: [
+            ["plan_key", "是", "GET /plans 返回的 plan_key，要精确到地区"],
+            ["channel", "是", "alipay 或 wxpay"],
+            ["customer_email", "是", "买家邮箱，发卡和查单用"],
+            ["quantity", "否", "张数，默认 1，不能超过店铺的单笔上限"],
+            ["region_confirmed", "多地区时必填", "同一套餐有两个及以上在售地区时必须为 true"],
+            ["coupon_code", "否", "本店优惠券"],
+          ],
+        },
+        { kind: "code", text: `curl -X POST ${base}/orders \\\n  -H "Authorization: Bearer km_live_你的Key" \\\n  -H "Content-Type: application/json" \\\n  -H "Idempotency-Key: pay-1001" \\\n  -d "{\\"plan_key\\":\\"plus\\",\\"channel\\":\\"alipay\\",\\"customer_email\\":\\"buyer@example.com\\",\\"quantity\\":1}"` },
+        { kind: "code", text: `{ "data": { "order_no": "KS...", "pay_url": "https://...", "gross_cents": 17500, "pay_status": "unpaid" }, "request_id": "req_..." }` },
+        { kind: "p", text: "把 pay_url 交给买家。付完后用 GET /orders/{orderNo} 看 pay_status 和 fulfill_status。卡密仍然默认脱敏。支付通知只打到本站，不会打到调用方。" },
       ],
     },
     {
@@ -202,16 +225,83 @@ Content-Type: application/json
       ],
     },
   ];
+  if (!options?.includeDraw) return sections;
+  return [...sections, ...drawApiDocs(base)];
 }
 
-export function agentApiDocsMarkdown(origin: string) {
+function drawApiDocs(base: string): DocSection[] {
+  return [
+    {
+      id: "draw-account",
+      title: "GET /draws/account  额度和未结",
+      blocks: [
+        { kind: "p", text: "权限 draw:read。查看授信额度、还剩多少可提、未结算欠款，以及单次和每日张数。不用先提卡。金额单位是分。" },
+        {
+          kind: "table",
+          headers: ["字段", "说明"],
+          rows: [
+            ["credit.limit_cents", "授信额度"],
+            ["credit.available_cents", "还能提的金额。额度减去未结和正在出卡的金额"],
+            ["credit.unsettled_cents", "已提出、还没结算的欠款"],
+            ["credit.inflight_cents", "正在出卡、先占着的金额"],
+            ["limits.max_per_draw", "单次最多张数"],
+            ["limits.daily_limit", "每日最多张数，0 表示不限"],
+            ["limits.today_count", "今天已经提出的张数，不含作废"],
+            ["unsettled", "未结张数、金额，以及按套餐分开的明细"],
+            ["lifetime", "历史提卡和已结算"],
+            ["plans", "现在能提的套餐和单价"],
+          ],
+        },
+        { kind: "code", text: `curl -H "Authorization: Bearer km_live_你的Key" \\\n  ${base}/draws/account` },
+        { kind: "p", text: "暂停提卡后仍能查额度和未结，但不能再提。授信由平台在后台调整，这个接口不能改额度。" },
+      ],
+    },
+    {
+      id: "draw",
+      title: "POST /draws  提卡",
+      blocks: [
+        { kind: "p", text: "权限 draw:write。只有已开通提卡的代理可以调用。按你的提卡成本从卡台取卡，记入未结算账本，不走买家支付。调用方不能自己传价格。暂停提卡后这个接口会拒绝。" },
+        { kind: "p", text: "必须带 Idempotency-Key，8 到 80 个字符。同一个 Key 对应同一笔提卡单。如果卡台上次还没返回，用同一个 Key 再提交会去取回这一笔。换成别的套餐或张数会返回 409。" },
+        {
+          kind: "table",
+          headers: ["字段", "必填", "说明"],
+          rows: [
+            ["plan_key", "是", "已分配且可提的套餐，要精确到地区"],
+            ["quantity", "是", "张数，不能超过单次上限和每日剩余"],
+            ["region_confirmed", "多地区时必填", "同一套餐有两个及以上在售地区时必须为 true"],
+          ],
+        },
+        { kind: "code", text: `curl -X POST ${base}/draws \\\n  -H "Authorization: Bearer km_live_你的Key" \\\n  -H "Content-Type: application/json" \\\n  -H "Idempotency-Key: draw-1001" \\\n  -d "{\\"plan_key\\":\\"plus\\",\\"quantity\\":1,\\"region_confirmed\\":true}"` },
+        { kind: "p", text: "成功时 items 里是这次的卡密明文和 id。状态若是 issuing 或 unknown，卡可能还没齐，用查询接口看进度，再用 reveal 取明文。额度、单次和每日上限与网页提卡相同。" },
+      ],
+    },
+    {
+      id: "draw-get",
+      title: "GET /draws/{drawNo}  查提卡单",
+      blocks: [
+        { kind: "p", text: "权限 draw:read。只返回状态、张数和金额，卡密打码不在这里。别人的提卡单返回 404。" },
+        { kind: "code", text: `curl -H "Authorization: Bearer km_live_你的Key" \\\n  ${base}/draws/DR202610050001` },
+      ],
+    },
+    {
+      id: "draw-reveal",
+      title: "POST /draws/items/{id}/reveal  看提卡明文",
+      blocks: [
+        { kind: "p", text: "权限 draw:reveal。id 是提卡成功时 items 里的 id。每次调用都写审计。不能用来结算、作废或核销，那些只在平台后台。" },
+        { kind: "code", text: `curl -X POST -H "Authorization: Bearer km_live_你的Key" \\\n  ${base}/draws/items/18/reveal` },
+      ],
+    },
+  ];
+}
+
+export function agentApiDocsMarkdown(origin: string, options?: { includeDraw?: boolean }) {
   const lines = [
     "# Kaimi 代理开放 API",
     "",
     `基础地址：${origin}/api/v1/open`,
     "",
   ];
-  for (const section of agentApiDocs(origin)) {
+  for (const section of agentApiDocs(origin, options)) {
     lines.push(`## ${section.title}`, "");
     for (const block of section.blocks) {
       if (block.kind === "p") lines.push(block.text, "");

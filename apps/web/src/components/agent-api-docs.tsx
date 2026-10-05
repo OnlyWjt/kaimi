@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { agentApiDocs, agentApiDocsMarkdown } from "@/lib/open-api/agent-docs";
 import { toast } from "@/components/toast";
 
@@ -15,7 +16,21 @@ function downloadText(filename: string, text: string, type: string) {
 
 export function AgentApiDocs() {
   const origin = typeof window === "undefined" ? "" : window.location.origin;
-  const sections = agentApiDocs(origin || "https://你的域名");
+  const [includeDraw, setIncludeDraw] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/agent/draw", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        setIncludeDraw(data.status === "approved" || data.status === "suspended");
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const sections = agentApiDocs(origin || "https://你的域名", { includeDraw });
 
   async function exportOpenApi() {
     const response = await fetch("/api/v1/open/openapi.json");
@@ -35,7 +50,7 @@ export function AgentApiDocs() {
         <div className="flex flex-wrap gap-2">
           <button
             className="km-btn km-btn-ghost"
-            onClick={() => downloadText("kaimi-api.md", agentApiDocsMarkdown(origin || "https://你的域名"), "text/markdown")}
+            onClick={() => downloadText("kaimi-api.md", agentApiDocsMarkdown(origin || "https://你的域名", { includeDraw }), "text/markdown")}
           >
             导出 Markdown
           </button>

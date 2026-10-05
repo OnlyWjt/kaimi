@@ -18,10 +18,14 @@ type KeyRow = {
 const SCOPE_LABEL: Record<string, string> = {
   "plans:read": "查套餐",
   "orders:read": "查订单",
+  "orders:write": "代客下单支付",
   "cdks:read": "查卡密",
   "cdks:reveal": "看卡密明文",
   "redeem:write": "提交兑换",
   "redeem:read": "查兑换结果",
+  "draw:read": "查提卡",
+  "draw:write": "提卡",
+  "draw:reveal": "看提卡明文",
 };
 
 export function AgentApiPanel() {

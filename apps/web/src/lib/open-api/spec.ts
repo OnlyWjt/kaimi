@@ -157,6 +157,52 @@ export const openApiSpec = {
           "401": errorResponse,
         },
       },
+      post: {
+        summary: "代客下单，按代理零售价返回易支付链接",
+        parameters: [{ name: "Idempotency-Key", in: "header", required: true, schema: { type: "string" } }],
+        responses: {
+          "200": ok({
+            type: "object",
+            properties: {
+              order_no: { type: "string" },
+              pay_url: { type: "string" },
+              gross_cents: { type: "integer" },
+              pay_status: { type: "string" },
+            },
+          }),
+          "400": errorResponse,
+          "403": errorResponse,
+          "409": errorResponse,
+        },
+      },
+    },
+    "/draws/account": {
+      get: {
+        summary: "提卡授信、可用额度和未结欠款",
+        responses: { "200": ok({ type: "object" }), "403": errorResponse },
+      },
+    },
+    "/draws": {
+      get: { summary: "提卡单列表，不含卡密明文", responses: { "200": ok({ type: "object" }), "403": errorResponse } },
+      post: {
+        summary: "提卡，按代理成本取卡",
+        parameters: [{ name: "Idempotency-Key", in: "header", required: true, schema: { type: "string" } }],
+        responses: { "200": ok({ type: "object" }), "400": errorResponse, "403": errorResponse, "409": errorResponse },
+      },
+    },
+    "/draws/{drawNo}": {
+      get: {
+        summary: "单笔提卡单，不含卡密明文",
+        parameters: [{ name: "drawNo", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": ok({ type: "object" }), "404": errorResponse },
+      },
+    },
+    "/draws/items/{id}/reveal": {
+      post: {
+        summary: "查看一张提卡卡密明文，并写审计",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
+        responses: { "200": ok({ type: "object" }), "404": errorResponse },
+      },
     },
     "/orders/{orderNo}": {
       get: {

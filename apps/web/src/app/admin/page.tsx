@@ -15,6 +15,7 @@ import { AdminEarningsStats } from "@/components/admin-earnings-stats";
 import { AdminAgentDraw } from "@/components/admin-agent-draw";
 import { KmSelect } from "@/components/km-select";
 import { AdminUsageStats } from "@/components/admin-usage-stats";
+import { AdminWeeklyEarnings } from "@/components/admin-weekly-earnings";
 import { CommerceAdmin } from "@/components/commerce-admin";
 import { FinishedAccountsAdmin } from "@/components/finished-accounts-admin";
 import { toast } from "@/components/toast";
@@ -37,6 +38,7 @@ type Tab =
   | "draw"
   | "earnings"
   | "usage"
+  | "week"
   | "appearance"
   | "guide";
 
@@ -109,6 +111,7 @@ const HASH_TABS: Tab[] = [
   "announcements",
   "draw",
   "earnings",
+  "week",
   "usage",
   "appearance",
   "guide",
@@ -257,28 +260,54 @@ export default function AdminPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boot?.admin, tab, cdkPage]);
 
-  const tabs = useMemo(
+  const groups = useMemo(
     () =>
       [
-        ["overview", "总览"],
-        ["orders", "订单查询"],
-        ["cdks", "卡密查询"],
-        ["integration", "接入卡台"],
-        ["selection", "选卡配置"],
-        ["commerce", "即时发卡"],
-        ["finished", "成品号"],
-        ["agents", "代理管理"],
-        ["guard", "兑换拦截"],
-        ["apikeys", "开放 API"],
-        ["announcements", "公告"],
-        ["draw", "提卡账本"],
-        ["earnings", "收益统计"],
-        ["usage", "用量统计"],
-        ["appearance", "外观"],
-        ["guide", "使用说明"],
+        {
+          id: "daily",
+          name: "日常",
+          items: [
+            ["overview", "总览"],
+            ["orders", "订单"],
+            ["cdks", "卡密"],
+            ["usage", "用量"],
+          ],
+        },
+        {
+          id: "sell",
+          name: "卖卡",
+          items: [
+            ["commerce", "即时发卡"],
+            ["finished", "成品号"],
+            ["selection", "选卡配置"],
+          ],
+        },
+        {
+          id: "agent",
+          name: "代理",
+          items: [
+            ["agents", "代理管理"],
+            ["draw", "提卡账本"],
+            ["week", "每周收益"],
+            ["earnings", "收益统计"],
+          ],
+        },
+        {
+          id: "system",
+          name: "系统",
+          items: [
+            ["integration", "接入卡台"],
+            ["guard", "兑换拦截"],
+            ["apikeys", "开放 API"],
+            ["announcements", "公告"],
+            ["appearance", "外观"],
+            ["guide", "使用说明"],
+          ],
+        },
       ] as const,
     [],
   );
+  const activeGroup = groups.find((group) => group.items.some((item) => item[0] === tab)) || groups[0];
 
   async function login() {
     setMsg("");
@@ -464,8 +493,20 @@ export default function AdminPage() {
               </button>
             </div>
           </div>
+          <div className="flex flex-wrap gap-2">
+            {groups.map((group) => (
+              <button
+                key={group.id}
+                type="button"
+                className={`rounded-full px-3 py-1 text-sm ${activeGroup.id === group.id ? "bg-[var(--km-fg)] text-[var(--km-bg)]" : "bg-[var(--km-bg-muted)]"}`}
+                onClick={() => goTab(group.items[0][0])}
+              >
+                {group.name}
+              </button>
+            ))}
+          </div>
           <nav className="km-tabs" aria-label="后台分区">
-            {tabs.map(([id, label]) => (
+            {activeGroup.items.map(([id, label]) => (
               <button
                 key={id}
                 className={`km-tab ${tab === id ? "km-tab-active" : ""}`}
@@ -1095,6 +1136,7 @@ export default function AdminPage() {
         {tab === "draw" ? <AdminAgentDraw /> : null}
 
         {tab === "earnings" ? <AdminEarningsStats /> : null}
+        {tab === "week" ? <AdminWeeklyEarnings /> : null}
 
         {tab === "usage" ? <AdminUsageStats /> : null}
 

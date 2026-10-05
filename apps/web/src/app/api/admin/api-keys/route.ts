@@ -3,7 +3,8 @@ import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { agents, apiKeys } from "@/db/schema";
-import { AGENT_SCOPES, OPEN_API_SCOPES } from "@/lib/open-api/scopes";
+import { AGENT_SCOPES, isDrawScope, OPEN_API_SCOPES } from "@/lib/open-api/scopes";
+import { agentCanSeeDrawApi } from "@/lib/open-api/draw-access";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
@@ -78,6 +79,9 @@ export async function POST(req: Request) {
     });
     if (!agent || agent.status !== "active") {
       return NextResponse.json({ error: "代理不存在或已停用" }, { status: 400 });
+    }
+    if (parsed.data.scopes.some((scope) => isDrawScope(scope)) && !(await agentCanSeeDrawApi(parsed.data.agentId))) {
+      return NextResponse.json({ error: "这个代理还没开通提卡，不能给提卡权限" }, { status: 400 });
     }
   }
   const token = newKey();

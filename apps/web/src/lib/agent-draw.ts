@@ -752,6 +752,9 @@ export async function createDrawOrder(
     where: and(eq(agentDrawOrders.agentId, agentId), eq(agentDrawOrders.requestId, requestId)),
   });
   if (existing) {
+    if (existing.planKeySnapshot !== input.planKey || existing.quantity !== input.quantity) {
+      throw new DrawError("同一个请求编号不能用于不同的提卡内容", 409);
+    }
     const stale = Date.now() - Date.parse(existing.updatedAt) >= DRAW_ISSUING_LEASE_MS;
     if (existing.status === "unknown" || (existing.status === "issuing" && stale)) {
       await issueDrawOrder(existing.id, "retry");

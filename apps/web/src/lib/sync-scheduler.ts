@@ -11,6 +11,7 @@ import { syncEnabledAccountProducts } from "@/lib/cardplatform/products";
 import { reconcileIssuedCdkStatuses } from "@/lib/cardplatform/reconcile-issued";
 import { pruneRedeemGuard } from "@/lib/redeem-guard";
 import { recoverStuckDrawOrders } from "@/lib/agent-draw";
+import { closePreviousWeekIfDue } from "@/lib/weekly-settlement";
 
 const DEFAULT_MINUTES = 15;
 const TICK_INTERVAL_MS = 30_000;
@@ -94,6 +95,16 @@ async function maybeTick() {
         }
       } catch (err) {
         console.warn("[kaimi-sync] draw recover failed", sanitizeLog(err));
+      }
+      try {
+        const week = await closePreviousWeekIfDue();
+        if (week.failed.length) {
+          console.warn(`[kaimi-sync] weekly settlement ${week.week} incomplete: ${week.failed.join("; ")}`);
+        } else if (!week.already && week.created.length) {
+          console.log(`[kaimi-sync] weekly settlement ${week.week}: ${week.created.join(",")}`);
+        }
+      } catch (err) {
+        console.warn("[kaimi-sync] weekly settlement failed", sanitizeLog(err));
       }
       try {
         const poll = await pollInFlightOrders();

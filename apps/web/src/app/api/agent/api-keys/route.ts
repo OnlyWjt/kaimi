@@ -7,7 +7,8 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAgent } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { hashLookupValue } from "@/lib/crypto";
-import { AGENT_SCOPES } from "@/lib/open-api/scopes";
+import { AGENT_SCOPES, isDrawScope } from "@/lib/open-api/scopes";
+import { agentCanSeeDrawApi } from "@/lib/open-api/draw-access";
 
 const createSchema = z.object({
   name: z.string().trim().min(1).max(64),
@@ -44,7 +45,9 @@ export async function GET() {
     .from(apiKeys)
     .where(eq(apiKeys.agentId, session.agentId))
     .orderBy(desc(apiKeys.id));
-  return NextResponse.json({ list, scopes: AGENT_SCOPES });
+  const canDraw = await agentCanSeeDrawApi(session.agentId);
+  const scopes = canDraw ? AGENT_SCOPES : AGENT_SCOPES.filter((scope) => !isDrawScope(scope));
+  return NextResponse.json({ list, scopes });
 }
 
 export async function POST(req: Request) {
@@ -62,6 +65,9 @@ export async function POST(req: Request) {
       { error: parsed.error.issues[0]?.message || "参数无效" },
       { status: 400 },
     );
+  }
+  if (parsed.data.scopes.some((scope) => isDrawScope(scope)) && !(await agentCanSeeDrawApi(session.agentId))) {
+    return NextResponse.json({ error: "还没有提卡权限，不能勾提卡接口" }, { status: 400 });
   }
   const token = newKey();
   const [created] = await db

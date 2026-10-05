@@ -16,6 +16,9 @@ export type OpenApiScope =
   | "cdks:reveal"
   | "redeem:write"
   | "redeem:read"
+  | "draw:write"
+  | "draw:read"
+  | "draw:reveal"
   | "earnings:read"
   | "agents:read";
 
