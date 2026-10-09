@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lte, ne, sql } from "drizzle-orm";
 import { cache } from "react";
 import { db } from "@/db";
 import {
@@ -13,6 +13,7 @@ import {
 } from "@/lib/agent-console-core";
 import { bootDb } from "@/lib/config";
 import { listAgentCoupons } from "@/lib/coupons";
+import { FINISHED_GPT_PLAN_KEY } from "@/lib/finished-account-core";
 import { periodBoundary } from "@/lib/period";
 
 export const loadAgentOverview = cache(async (
@@ -57,7 +58,14 @@ export const loadAgentOverview = cache(async (
           total: sql<number>`count(*)`,
         })
         .from(issuedCdks)
-        .where(and(eq(issuedCdks.agentId, agentId), eq(issuedCdks.status, "unused")))
+        .where(
+          and(
+            eq(issuedCdks.agentId, agentId),
+            eq(issuedCdks.status, "unused"),
+            ne(issuedCdks.planKey, FINISHED_GPT_PLAN_KEY),
+            sql`${issuedCdks.upstreamRef} NOT LIKE 'finished:%'`,
+          ),
+        )
         .then((rows) => rows[0]),
       db
         .select({

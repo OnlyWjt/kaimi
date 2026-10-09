@@ -9,6 +9,7 @@ import { AdminAnnouncements } from "@/components/admin-announcements";
 import { useAskDialog } from "@/components/ask-dialog";
 import { AdminGuide } from "@/components/admin-guide";
 import { AdminOrderTimeline } from "@/components/admin-order-timeline";
+import { StoreOrderDetail } from "@/components/store-order-detail";
 import { CardIntegration } from "@/components/card-integration";
 import { CardSelectionConfig } from "@/components/card-selection-config";
 import { AdminEarningsStats } from "@/components/admin-earnings-stats";
@@ -82,8 +83,11 @@ const STATUS_LABEL: Record<string, string> = {
   fulfilled: "已完成",
   paid: "已支付",
   unpaid: "未支付",
+  refunded: "已退款",
+  refunding: "退款中",
   pending_pay: "待支付",
   delivered: "已发货",
+  partially_delivered: "部分发货",
   paid_undelivered: "已付未发",
   issuing: "发货中",
   expired: "已过期",
@@ -127,7 +131,26 @@ function tabFromHash(hash: string): Tab | null {
 
 function kindLabel(kind: unknown) {
   const key = String(kind || "");
+  if (key === "finished") return "成品号";
+  if (key === "cdk") return "卡密";
   return KIND_LABEL[key] || key || "—";
+}
+
+function progressLabel(kind: unknown, status: string) {
+  if (kind === "finished") {
+    if (status === "issuing") return "交付中";
+    if (status === "delivered") return "已交付";
+    if (status === "partially_delivered") return "部分交付";
+    if (status === "paid_undelivered") return "待交付";
+    if (status === "pending" || status === "unpaid" || status === "pending_pay") return "待支付";
+  }
+  if (kind === "cdk") {
+    if (status === "issuing") return "履约中";
+    if (status === "delivered") return "已履约";
+    if (status === "partially_delivered") return "部分履约";
+    if (status === "paid_undelivered") return "待履约";
+  }
+  return STATUS_LABEL[status] || status || "—";
 }
 
 function formatWhen(value: unknown) {
@@ -656,6 +679,8 @@ export default function AdminPage() {
                     "pending_pay",
                     "paid_undelivered",
                     "issuing",
+                    "delivered",
+                    "partially_delivered",
                   ] as const).map((item) => ({ value: item, label: STATUS_LABEL[item] || item })),
                 ]}
                 onChange={setOrderStatus}
@@ -734,10 +759,10 @@ export default function AdminPage() {
                   <th>订单</th>
                   <th>类型</th>
                   <th>邮箱</th>
-                  <th>卡密</th>
+                  <th>内容</th>
                   <th>套餐</th>
                   <th>支付</th>
-                  <th>履约</th>
+                  <th>状态</th>
                   <th>时间</th>
                   <th>操作</th>
                 </tr>
@@ -750,16 +775,14 @@ export default function AdminPage() {
                   const plan = String(o.upstreamPlan || "—");
                   const message = o.message ? String(o.message) : "";
                   const expanded = timelineOrderNo === orderNo;
+                  const storeRow = o.rowKind === "store";
                   return (
-                    <Fragment key={String(o.id)}>
+                    <Fragment key={`${o.rowKind || "redeem"}-${o.id}`}>
                     <tr>
                       <td className="km-clip font-mono" title={orderNo}>
                         <div>{orderNo}</div>
-                        {o.storeOrderNo ? (
-                          <div className="text-xs text-[var(--km-fg-muted)]" title={String(o.agentLabel || "")}>
-                            {String(o.storeOrderNo)}
-                            {o.agentLabel ? ` · ${String(o.agentLabel)}` : ""}
-                          </div>
+                        {o.agentLabel ? (
+                          <div className="text-xs text-[var(--km-fg-muted)]">{String(o.agentLabel)}</div>
                         ) : null}
                       </td>
                       <td>{kindLabel(o.kind)}</td>
@@ -774,33 +797,22 @@ export default function AdminPage() {
                       </td>
                       <td>
                         {o.kind === "recharge" && o.payStatus === "manual" ? (
-                          o.storeOrderNo ? (
-                            <span
-                              className="km-badge km-badge-ok"
-                              title={`${String(o.storeOrderNo)} 已在商城支付`}
-                            >
-                              商城已付
-                            </span>
-                          ) : (
-                            <span className="km-badge km-badge-bad" title="这张兑换单没有关联商城订单">
-                              无商城单
-                            </span>
-                          )
+                          <span className="km-badge km-badge-bad" title="这张兑换单没有关联商城订单">
+                            无商城单
+                          </span>
                         ) : (
                           <StatusBadge status={String(o.payStatus || "")} />
                         )}
                       </td>
                       <td>
-                        <span title={message || undefined}>
-                          <StatusBadge status={String(o.fulfillStatus || "")} />
-                        </span>
+                        <span title={message || undefined}>{progressLabel(o.kind, String(o.fulfillStatus || ""))}</span>
                       </td>
                       <td className="km-clip text-[var(--km-fg-muted)]" title={String(o.createdAt || "")}>
                         {formatWhen(o.createdAt)}
                       </td>
                       <td>
-                        {o.kind === "recharge" && o.upstreamRequestId ? (
-                          <div className="flex flex-wrap gap-1">
+                        <div className="flex flex-wrap gap-1">
+                          {!storeRow && o.kind === "recharge" && o.upstreamRequestId ? (
                             <button
                               className="km-btn km-btn-ghost"
                               disabled={busy}
@@ -821,22 +833,20 @@ export default function AdminPage() {
                             >
                               重拉
                             </button>
-                            <button
-                              className="km-btn km-btn-ghost"
-                              onClick={() => setTimelineOrderNo(expanded ? "" : orderNo)}
-                            >
-                              {expanded ? "收起" : "明细"}
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-[var(--km-fg-muted)]">—</span>
-                        )}
+                          ) : null}
+                          <button
+                            className="km-btn km-btn-ghost"
+                            onClick={() => setTimelineOrderNo(expanded ? "" : orderNo)}
+                          >
+                            {expanded ? "收起" : "明细"}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                     {expanded ? (
                       <tr>
                         <td colSpan={9}>
-                          <AdminOrderTimeline orderNo={orderNo} />
+                          {storeRow ? <StoreOrderDetail orderNo={orderNo} /> : <AdminOrderTimeline orderNo={orderNo} />}
                         </td>
                       </tr>
                     ) : null}

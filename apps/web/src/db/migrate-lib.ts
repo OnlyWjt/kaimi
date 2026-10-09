@@ -1308,6 +1308,13 @@ async function ensureOrderLedgerSchema() {
   await addColumn("ALTER TABLE agent_draw_items ADD COLUMN manual_used_at TEXT");
   await addColumn("ALTER TABLE agent_draw_items ADD COLUMN manual_used_by INTEGER");
   await addColumn("ALTER TABLE agent_draw_items ADD COLUMN manual_note TEXT NOT NULL DEFAULT ''");
+  await client.execute(
+    `UPDATE issued_cdks
+        SET status = 'used',
+            used_at = COALESCE(used_at, updated_at)
+      WHERE status = 'unused'
+        AND (plan_key = 'finished_gpt' OR upstream_ref LIKE 'finished:%')`,
+  );
   await addColumn("ALTER TABLE agents ADD COLUMN telegram_chat_id TEXT NOT NULL DEFAULT ''");
   await addColumn("ALTER TABLE agents ADD COLUMN telegram_username TEXT NOT NULL DEFAULT ''");
   await addColumn("ALTER TABLE agents ADD COLUMN telegram_notify_enabled INTEGER NOT NULL DEFAULT 1");

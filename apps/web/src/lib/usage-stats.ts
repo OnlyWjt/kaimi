@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lte, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   agentStoreCouponPlans,
@@ -8,7 +8,7 @@ import {
   storeOrders,
 } from "@/db/schema";
 import { couponRemaining, describeCoupon } from "@/lib/coupon-core";
-import { isLocalAccountPlan } from "@/lib/finished-account-core";
+import { FINISHED_GPT_PLAN_KEY, isLocalAccountPlan } from "@/lib/finished-account-core";
 
 export type UsageOrderCounts = {
   placed: number;
@@ -162,7 +162,14 @@ export async function loadUsageStats(input: {
         total: sql<number>`count(*)`,
       })
       .from(issuedCdks)
-      .where(cdkScope ? and(cdkScope, eq(issuedCdks.status, "unused")) : eq(issuedCdks.status, "unused"))
+      .where(
+        and(
+          eq(issuedCdks.status, "unused"),
+          ne(issuedCdks.planKey, FINISHED_GPT_PLAN_KEY),
+          sql`${issuedCdks.upstreamRef} NOT LIKE 'finished:%'`,
+          ...(cdkScope ? [cdkScope] : []),
+        ),
+      )
       .groupBy(issuedCdks.agentId, issuedCdks.planKey),
     db
       .select({
@@ -172,16 +179,13 @@ export async function loadUsageStats(input: {
       })
       .from(issuedCdks)
       .where(
-        cdkScope
-          ? and(
-              cdkScope,
-              gte(issuedCdks.issuedAt, input.startIso),
-              lte(issuedCdks.issuedAt, input.endIso),
-            )
-          : and(
-              gte(issuedCdks.issuedAt, input.startIso),
-              lte(issuedCdks.issuedAt, input.endIso),
-            ),
+        and(
+          ne(issuedCdks.planKey, FINISHED_GPT_PLAN_KEY),
+          sql`${issuedCdks.upstreamRef} NOT LIKE 'finished:%'`,
+          ...(cdkScope ? [cdkScope] : []),
+          gte(issuedCdks.issuedAt, input.startIso),
+          lte(issuedCdks.issuedAt, input.endIso),
+        ),
       )
       .groupBy(issuedCdks.planKey, issuedCdks.status),
     scopedAgent

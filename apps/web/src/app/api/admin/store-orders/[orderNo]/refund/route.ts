@@ -14,6 +14,18 @@ import { getCardplatformClientById } from "@/lib/cardplatform/config";
 import { CardplatformError } from "@/lib/cardplatform/client";
 import { bootDb } from "@/lib/config";
 import { isLocalAccountPlan } from "@/lib/finished-account-core";
+
+function isFinishedDelivery(cdk: {
+  planKey: string;
+  upstreamRef: string;
+  cardplatformAccountId: number;
+}) {
+  return (
+    isLocalAccountPlan(cdk) ||
+    cdk.cardplatformAccountId === 0 ||
+    cdk.upstreamRef.startsWith("finished:")
+  );
+}
 import { releaseCouponForTransition } from "@/lib/coupons";
 import { recordOpsAlert } from "@/lib/ops-health";
 
@@ -102,7 +114,10 @@ export async function PATCH(
     );
   }
   if (
-    cdks.some((cdk) => ["used", "locked", "redeeming"].includes(cdk.status))
+    cdks.some(
+      (cdk) =>
+        ["used", "locked", "redeeming"].includes(cdk.status) && !isFinishedDelivery(cdk),
+    )
   ) {
     return NextResponse.json(
       { error: "卡密已使用或正在兑换，禁止直接退款，请先人工核对" },
@@ -233,11 +248,17 @@ export async function PATCH(
       // 只有这次条件 update 拿到了行才会走到这里，所以优惠券次数只还一次。
       await releaseCouponForTransition(tx, updated, "paid", "refunded");
       for (const cdk of cdks) {
-        if (cdk.status !== "unused") continue;
+        const deliveredAccount = isFinishedDelivery(cdk) && cdk.status === "used";
+        if (cdk.status !== "unused" && !deliveredAccount) continue;
         const [disabled] = await tx
           .update(issuedCdks)
           .set({ status: "disabled", updatedAt: now })
-          .where(and(eq(issuedCdks.id, cdk.id), eq(issuedCdks.status, "unused")))
+          .where(
+            and(
+              eq(issuedCdks.id, cdk.id),
+              eq(issuedCdks.status, deliveredAccount ? "used" : "unused"),
+            ),
+          )
           .returning({ id: issuedCdks.id });
         if (!disabled) {
           throw new Error("卡密已使用或正在兑换，禁止直接退款");

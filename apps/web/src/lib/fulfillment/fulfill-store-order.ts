@@ -580,8 +580,9 @@ async function fulfillLocalAccountOrder(
               cardplatformAccountId: 0,
               upstreamRef: `finished:${row.id}`,
               upstreamFeeMinor: 0,
-              status: "unused",
+              status: "used",
               issuedAt: now,
+              usedAt: now,
               updatedAt: now,
             };
           }),
