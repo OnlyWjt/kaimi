@@ -6,6 +6,7 @@ import {
   normalizeCouponCode,
   parseCouponDraft,
   previewCouponWarnings,
+  shouldReleaseCoupon,
   quoteCouponTicket,
 } from "./coupon-core";
 
@@ -171,5 +172,20 @@ describe("previewCouponWarnings", () => {
       ],
     });
     expect(unmet.some((item) => item.reason === "threshold_unmet")).toBe(true);
+  });
+});
+
+describe("shouldReleaseCoupon", () => {
+  it("只在占用态迁移到关闭/退款时归还", () => {
+    expect(shouldReleaseCoupon({ couponId: 1, fromPayStatus: "unpaid", toPayStatus: "closed" })).toBe(true);
+    expect(shouldReleaseCoupon({ couponId: 1, fromPayStatus: "paid", toPayStatus: "refunded" })).toBe(true);
+    expect(shouldReleaseCoupon({ couponId: 1, fromPayStatus: "paid", toPayStatus: "paid" })).toBe(false);
+    expect(shouldReleaseCoupon({ couponId: 1, fromPayStatus: "closed", toPayStatus: "refunded" })).toBe(false);
+    expect(shouldReleaseCoupon({ couponId: 1, fromPayStatus: "refunded", toPayStatus: "refunded" })).toBe(false);
+  });
+
+  it("没有用券的订单不归还", () => {
+    expect(shouldReleaseCoupon({ couponId: null, fromPayStatus: "unpaid", toPayStatus: "closed" })).toBe(false);
+    expect(shouldReleaseCoupon({ couponId: 0, fromPayStatus: "paid", toPayStatus: "refunded" })).toBe(false);
   });
 });

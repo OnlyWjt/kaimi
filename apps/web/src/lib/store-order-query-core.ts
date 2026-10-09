@@ -4,6 +4,7 @@ const PAY_STATUSES = [
   "paid",
   "refunded",
   "refunding",
+  "closed",
   "chargeback",
 ] as const;
 

@@ -16,6 +16,7 @@ import { AdminAgentDraw } from "@/components/admin-agent-draw";
 import { KmSelect } from "@/components/km-select";
 import { AdminUsageStats } from "@/components/admin-usage-stats";
 import { AdminWeeklyEarnings } from "@/components/admin-weekly-earnings";
+import { AdminMailSettings, AdminTelegramBindings } from "@/components/admin-mail-settings";
 import { CommerceAdmin } from "@/components/commerce-admin";
 import { FinishedAccountsAdmin } from "@/components/finished-accounts-admin";
 import { toast } from "@/components/toast";
@@ -28,6 +29,7 @@ type Tab =
   | "orders"
   | "cdks"
   | "integration"
+  | "notify"
   | "selection"
   | "commerce"
   | "finished"
@@ -102,6 +104,7 @@ const HASH_TABS: Tab[] = [
   "orders",
   "cdks",
   "integration",
+  "notify",
   "selection",
   "commerce",
   "finished",
@@ -236,7 +239,7 @@ export default function AdminPage() {
         setCdks(data?.list || []);
         setCdkTotal(Number(data?.total) || 0);
       }
-      if (tab === "integration") {
+      if (tab === "integration" || tab === "notify") {
         const data = (await loadSection("integration")) as Integration | null;
         setIntegration(data);
         if (data) {
@@ -297,6 +300,7 @@ export default function AdminPage() {
           name: "系统",
           items: [
             ["integration", "接入卡台"],
+            ["notify", "通知"],
             ["guard", "兑换拦截"],
             ["apikeys", "开放 API"],
             ["announcements", "公告"],
@@ -1047,14 +1051,35 @@ export default function AdminPage() {
         {tab === "integration" && integration ? (
           <div className="space-y-4">
             <CardIntegration publicBaseUrl={integForm.publicBaseUrl} />
+            <div className="km-panel space-y-3">
+              <label className="block space-y-1 text-sm">
+                <span>本站公网地址</span>
+                <input
+                  className="km-input"
+                  placeholder="https://kaimi.example.com"
+                  value={integForm.publicBaseUrl}
+                  onChange={(e) => setIntegForm((s) => ({ ...s, publicBaseUrl: e.target.value }))}
+                />
+                <span className="text-xs text-[var(--km-fg-muted)]">
+                  给易支付和卡台回调用，不能填 localhost。通知页改的是同一项。
+                </span>
+              </label>
+              <button className="km-btn" disabled={busy} onClick={() => void saveIntegration()}>
+                保存公网地址
+              </button>
+            </div>
+          </div>
+        ) : null}
 
+        {tab === "notify" && integration ? (
+          <div className="space-y-4">
             <div className="km-panel space-y-4">
               <div>
                 <h2 className="text-xl font-semibold" style={{ fontFamily: "var(--font-sora)" }}>
                   站点通知
                 </h2>
                 <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-                  兑换开通到终态时，可选推送到 Webhook 或 Telegram。内容含代理、开通账号、套餐、售价和本次收益。和卡台接入无关。
+                  管理员收每一笔付款和每一次兑换成功。代理只收自己店铺的付款，文案不含成本和毛利。Webhook 只发给这里。
                 </p>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -1098,7 +1123,7 @@ export default function AdminPage() {
                     onChange={(e) => setIntegForm((s) => ({ ...s, telegramChatId: e.target.value }))}
                   />
                   <span className="text-xs text-[var(--km-fg-muted)]">
-                    用 getUpdates 里的 chat.id，不要填最外层的 update_id。
+                    填 chat.id，不要填 update_id。本站会轮询这个机器人接收 /bind，不要再给它设置 Webhook。
                   </span>
                 </label>
               </div>
@@ -1115,9 +1140,11 @@ export default function AdminPage() {
                 </button>
               </div>
               <p className="text-xs text-[var(--km-fg-muted)]">
-                测试会按上面填的地址发一条示例（测试代理店 / demo@example.com / Plus / ¥150）。Telegram Token 留空则用已保存的。
+                测试会按上面填的地址发一条示例（测试代理店 / demo@example.com / Plus / ¥150）。Telegram Token 留空则用已保存的。代理在自己的后台生成绑定码，对机器人发送 /bind。
               </p>
             </div>
+            <AdminMailSettings />
+            <AdminTelegramBindings />
           </div>
         ) : null}
 

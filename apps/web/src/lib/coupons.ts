@@ -14,6 +14,7 @@ import {
   parseCouponDraft,
   previewCouponWarnings,
   quoteCouponTicket,
+  shouldReleaseCoupon,
   specFromDraft,
   specFromRecord,
   type CouponDraft,
@@ -416,6 +417,10 @@ export async function reserveCoupon(
   if (!row) throw new Error("优惠券已用完或已停用");
 }
 
+/**
+ * 直接把次数减一，本身不幂等。只能在条件 update 的 returning 确认“这次迁移是我做成的”之后调用，
+ * 优先用 releaseCouponForTransition。
+ */
 export async function releaseCouponReservation(
   tx: Tx,
   couponId: number | null | undefined,
@@ -428,4 +433,22 @@ export async function releaseCouponReservation(
       updatedAt: new Date().toISOString(),
     })
     .where(eq(agentStoreCoupons.id, couponId));
+}
+
+/**
+ * 订单状态迁移后归还优惠券次数（与迁移同一事务内调用）。
+ * `order` 必须来自条件 update 的 returning 行，这样并发/重复调用时只有一方拿到行，只还一次。
+ * 返回是否实际归还。
+ */
+export async function releaseCouponForTransition(
+  tx: Tx,
+  order: { couponId: number | null | undefined },
+  fromPayStatus: string,
+  toPayStatus: string,
+) {
+  if (!shouldReleaseCoupon({ couponId: order.couponId, fromPayStatus, toPayStatus })) {
+    return false;
+  }
+  await releaseCouponReservation(tx, order.couponId);
+  return true;
 }

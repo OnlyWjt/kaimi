@@ -18,3 +18,11 @@ apps/web/.env*.local
 canvases
 *.tsbuildinfo
 
+.openbitfun/
+
+# 本地截图、临时文件与数据库备份
+.shots/
+.tmp-*
+/ref-*.png
+/shot*.png
+kaimi-db-backup-*/

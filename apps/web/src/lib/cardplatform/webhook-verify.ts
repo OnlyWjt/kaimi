@@ -43,11 +43,30 @@ export function webhookTimestamps(headers: Headers) {
   return out;
 }
 
+/**
+ * 时间戳必须是纯数字（秒或毫秒）且落在 ±5 分钟窗口内。
+ * 非数字一律拒绝，否则攻击者塞个 "abc" 就能绕过时间窗做重放。
+ */
 export function webhookTimestampSkewOk(ts: string, now = Date.now()) {
-  let unix = Number(ts.trim());
-  if (!Number.isFinite(unix)) return true;
+  const text = ts.trim();
+  if (!/^\d{1,16}$/.test(text)) return false;
+  let unix = Number(text);
+  if (!Number.isSafeInteger(unix)) return false;
   if (unix > 1_000_000_000_000) unix = Math.floor(unix / 1000);
   return Math.abs(Math.floor(now / 1000) - unix) <= SKEW_SECONDS;
+}
+
+/**
+ * 只对 body 签名（不带时间戳）的兜底默认关闭：这种签名没有时间窗，抓到一次就能无限重放。
+ * 仓库里没有上游文档能确认每次都带时间戳头，所以保留开关给老版本上游用。
+ */
+export function webhookBodyOnlySignatureAllowed(
+  env: Record<string, string | undefined> = process.env,
+) {
+  const value = String(env.CARDPLATFORM_WEBHOOK_ALLOW_BODY_ONLY_SIGNATURE || "")
+    .trim()
+    .toLowerCase();
+  return value === "1" || value === "true" || value === "yes";
 }
 
 function hmacHex(secret: string, message: Buffer) {
@@ -61,13 +80,16 @@ function secretVariants(secret: string) {
   return out.filter(Boolean);
 }
 
-function signedMessages(raw: Buffer, timestamps: string[]) {
+function signedMessages(
+  raw: Buffer,
+  timestamps: string[],
+  allowBodyOnly: boolean,
+) {
   const msgs: Buffer[] = [];
-  if (timestamps.length === 0) msgs.push(raw);
   for (const ts of timestamps) {
     msgs.push(Buffer.concat([Buffer.from(ts, "utf8"), Buffer.from("."), raw]));
   }
-  if (timestamps.length > 0) msgs.push(raw);
+  if (allowBodyOnly) msgs.push(raw);
   return msgs;
 }
 
@@ -76,10 +98,17 @@ export function webhookSignatureMatches(
   raw: Buffer,
   timestamps: string[],
   gots: string[],
+  options: { allowBodyOnly?: boolean } = {},
 ) {
   if (!secret.trim() || gots.length === 0) return false;
+  const messages = signedMessages(
+    raw,
+    timestamps,
+    options.allowBodyOnly === true,
+  );
+  if (messages.length === 0) return false;
   const expects = secretVariants(secret).flatMap((sec) =>
-    signedMessages(raw, timestamps).map((msg) => hmacHex(sec, msg)),
+    messages.map((msg) => hmacHex(sec, msg)),
   );
   for (const got of gots) {
     let value = got.trim().toLowerCase();

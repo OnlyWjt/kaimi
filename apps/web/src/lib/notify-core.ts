@@ -182,6 +182,35 @@ function storePaidLines(payload: StorePaidNotifyPayload) {
   ].filter(Boolean);
 }
 
+export function formatAgentStorePaidText(payload: StorePaidNotifyPayload) {
+  const quantity = payload.quantity && payload.quantity > 1 ? ` ×${payload.quantity}` : "";
+  const channel = notifyPaymentChannelLabel(payload.paymentChannel);
+  const shop = payload.agentName || "店铺";
+  return [
+    `[${shop}] 有人下单  ${payload.orderNo}`,
+    payload.buyerEmail ? `购买人：${payload.buyerEmail}` : "",
+    yuanLine("订单金额", payload.amountCents),
+    channel ? `支付渠道：${channel}` : "",
+    payload.productName ? `套餐：${payload.productName}${quantity}` : "",
+    payload.agentEarningCents == null
+      ? ""
+      : `你的收益：¥${yuanTextFromCents(payload.agentEarningCents)}（已扣手续费 ¥${yuanTextFromCents(payload.agentFeeCents || 0)}）`,
+    payload.invoice ? "这单买家要发票" : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function formatAgentStorePaidTelegramHtml(payload: StorePaidNotifyPayload) {
+  return formatAgentStorePaidText(payload)
+    .split("\n")
+    .map((line, index) => {
+      const escaped = escapeTelegramHtml(line);
+      return index === 0 ? `<b>${escaped}</b>` : escaped;
+    })
+    .join("\n");
+}
+
 export function formatStorePaidText(payload: StorePaidNotifyPayload) {
   return storePaidLines(payload).join("\n");
 }

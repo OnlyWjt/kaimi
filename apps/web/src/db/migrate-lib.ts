@@ -1270,6 +1270,33 @@ export async function ensureSchema() {
   }
 }
 
+/**
+ * 一个 Telegram chat 只能绑定一个代理。telegram_chat_id 是 NOT NULL DEFAULT ''，
+ * 未绑定的代理都是空串，所以部分索引同时排除 NULL 和 ''。
+ * 已有重复数据时只告警并跳过，不让启动失败；清理后下次启动会自动补建。
+ */
+async function ensureAgentTelegramChatUniqueIndex() {
+  const dup = await client.execute(`
+    SELECT telegram_chat_id AS chat_id, COUNT(*) AS n
+    FROM agents
+    WHERE telegram_chat_id IS NOT NULL AND telegram_chat_id <> ''
+    GROUP BY telegram_chat_id
+    HAVING COUNT(*) > 1
+    LIMIT 5
+  `);
+  if (dup.rows.length > 0) {
+    console.warn(
+      `[kaimi-migrate] agents.telegram_chat_id has ${dup.rows.length}+ duplicated value(s); ` +
+        "skip creating agents_telegram_chat_id_uq until duplicates are cleaned up",
+    );
+    return;
+  }
+  await client.execute(
+    "CREATE UNIQUE INDEX IF NOT EXISTS agents_telegram_chat_id_uq ON agents(telegram_chat_id) " +
+      "WHERE telegram_chat_id IS NOT NULL AND telegram_chat_id <> ''",
+  );
+}
+
 async function ensureOrderLedgerSchema() {
   const addColumn = async (sqlText: string) => {
     try {
@@ -1281,6 +1308,30 @@ async function ensureOrderLedgerSchema() {
   await addColumn("ALTER TABLE agent_draw_items ADD COLUMN manual_used_at TEXT");
   await addColumn("ALTER TABLE agent_draw_items ADD COLUMN manual_used_by INTEGER");
   await addColumn("ALTER TABLE agent_draw_items ADD COLUMN manual_note TEXT NOT NULL DEFAULT ''");
+  await addColumn("ALTER TABLE agents ADD COLUMN telegram_chat_id TEXT NOT NULL DEFAULT ''");
+  await addColumn("ALTER TABLE agents ADD COLUMN telegram_username TEXT NOT NULL DEFAULT ''");
+  await addColumn("ALTER TABLE agents ADD COLUMN telegram_notify_enabled INTEGER NOT NULL DEFAULT 1");
+  await addColumn("ALTER TABLE agents ADD COLUMN mail_delivery_enabled INTEGER NOT NULL DEFAULT 1");
+  await addColumn("ALTER TABLE agents ADD COLUMN mail_from_name TEXT NOT NULL DEFAULT ''");
+  await addColumn("ALTER TABLE agents ADD COLUMN mail_reply_to TEXT NOT NULL DEFAULT ''");
+  await addColumn("ALTER TABLE store_orders ADD COLUMN agent_notify_status TEXT NOT NULL DEFAULT ''");
+  await addColumn("ALTER TABLE store_orders ADD COLUMN agent_notify_error TEXT NOT NULL DEFAULT ''");
+  await addColumn("ALTER TABLE store_orders ADD COLUMN agent_notified_at TEXT");
+  await addColumn("ALTER TABLE store_orders ADD COLUMN agent_notify_attempts INTEGER NOT NULL DEFAULT 0");
+  await addColumn("ALTER TABLE store_orders ADD COLUMN delivery_mail_status TEXT NOT NULL DEFAULT ''");
+  await addColumn("ALTER TABLE store_orders ADD COLUMN delivery_mail_error TEXT NOT NULL DEFAULT ''");
+  await addColumn("ALTER TABLE store_orders ADD COLUMN delivery_mail_attempts INTEGER NOT NULL DEFAULT 0");
+  await client.executeMultiple(`
+    CREATE TABLE IF NOT EXISTS agent_telegram_bind_codes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id INTEGER NOT NULL,
+      code TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS agent_telegram_bind_codes_code_uq ON agent_telegram_bind_codes(code);
+  `);
+  await ensureAgentTelegramChatUniqueIndex();
   await addColumn("ALTER TABLE platform_plans ADD COLUMN upstream_cost_cents INTEGER");
   await addColumn("ALTER TABLE finished_accounts ADD COLUMN cost_cents INTEGER");
   await addColumn(

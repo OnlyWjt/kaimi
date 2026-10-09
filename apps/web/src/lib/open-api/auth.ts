@@ -33,7 +33,9 @@ export type ApiKeyContext = {
 export async function requireApiKey(req: Request, scope: OpenApiScope) {
   await bootDb();
   const header = req.headers.get("authorization") || "";
-  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  // RFC 7235：认证方案名大小写不敏感
+  const match = /^bearer\s+(.+)$/i.exec(header.trim());
+  const token = match ? match[1].trim() : "";
   if (!token) return openFail("UNAUTHORIZED", "缺少 API Key");
   const row = await db.query.apiKeys.findFirst({
     where: eq(apiKeys.keyHash, hashLookupValue(token)),

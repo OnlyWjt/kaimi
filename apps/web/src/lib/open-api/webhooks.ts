@@ -7,6 +7,7 @@ import {
   orders,
 } from "@/db/schema";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
+import { checkWebhookUrl } from "./webhook-url";
 import {
   signWebhookBody,
   webhookBackoffMs,
@@ -89,7 +90,10 @@ export async function deliverApiWebhook(deliveryId: number) {
   let lastError = "";
   try {
     const secret = decryptSecret(endpoint.secretEncrypted);
-    const response = await fetch(endpoint.url, {
+    // 每次投递都重新校验：登记后 DNS 可能被改指向内网
+    const check = await checkWebhookUrl(endpoint.url);
+    if (!check.ok) throw new Error(check.error);
+    const response = await fetch(check.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -101,10 +105,16 @@ export async function deliverApiWebhook(deliveryId: number) {
         ),
       },
       body: delivery.payloadJson,
+      // 不跟随跳转，防止公网地址 302 到内网；3xx 记为投递失败
+      redirect: "manual",
       signal: AbortSignal.timeout(10_000),
     });
     lastStatus = response.status;
-    if (!response.ok) lastError = `HTTP ${response.status}`;
+    if (response.status >= 300 && response.status < 400) {
+      lastError = `HTTP ${response.status}（不跟随重定向）`;
+    } else if (!response.ok) {
+      lastError = `HTTP ${response.status}`;
+    }
   } catch (error) {
     lastError = error instanceof Error ? error.message : "投递失败";
   }

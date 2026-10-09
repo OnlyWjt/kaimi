@@ -61,7 +61,7 @@ export async function POST(req: Request) {
     throw error;
   }
   await bootDb();
-  const parsed = createSchema.safeParse(await req.json());
+  const parsed = createSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message || "参数无效" }, { status: 400 });
   }

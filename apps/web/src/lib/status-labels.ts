@@ -24,7 +24,8 @@ const PAY_STATUS: Record<string, string> = {
   unpaid: "未支付",
   pending_pay: "待支付",
   refunded: "已退款",
-  refunding: "退款中",
+  refunding: "退款中（需人工核对）",
+  closed: "已关闭",
   chargeback: "已拒付",
   manual: "手工登记",
 };

@@ -16,6 +16,7 @@ import {
   drawOrderStatusFromIssued,
   drawQuantityError,
   drawSettingsError,
+  drawTodayUsedCount,
   normalizeDrawPaymentMethod,
   toCsv,
   formatYuan,
@@ -234,5 +235,31 @@ describe("提卡第二版", () => {
   it("导出 CSV 带 BOM", () => {
     expect(toCsv(["卡密"], [["=cmd"]]).startsWith("\uFEFF")).toBe(true);
     expect(toCsv(["卡密"], [["=cmd"]])).toContain(`"'=cmd"`);
+  });
+});
+
+describe("drawTodayUsedCount", () => {
+  it("今日已出卡数加上在途单未出的张数", () => {
+    expect(
+      drawTodayUsedCount({
+        todayItemCount: 3,
+        inflight: [
+          { quantity: 5, issuedCount: 2 },
+          { quantity: 4, issuedCount: 0 },
+        ],
+      }),
+    ).toBe(10);
+  });
+
+  it("已出满或超出的在途单不重复计数，负数今日数按 0", () => {
+    expect(
+      drawTodayUsedCount({
+        todayItemCount: -1,
+        inflight: [
+          { quantity: 2, issuedCount: 2 },
+          { quantity: 1, issuedCount: 3 },
+        ],
+      }),
+    ).toBe(0);
   });
 });

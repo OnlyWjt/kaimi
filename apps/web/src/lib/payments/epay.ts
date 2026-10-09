@@ -68,7 +68,9 @@ export function verifyEpayNotify(
   ) {
     return { ok: false as const, error: "invalid sign" };
   }
-  if (params.pid && params.pid.trim() !== config.pid.trim()) {
+  // pid 缺失也拒绝：否则别的商户号签出来的通知只要去掉 pid 就能过校验。
+  const pid = params.pid?.trim() ?? "";
+  if (!pid || pid !== config.pid.trim()) {
     return { ok: false as const, error: "invalid pid" };
   }
   if (params.trade_status && params.trade_status !== "TRADE_SUCCESS") {

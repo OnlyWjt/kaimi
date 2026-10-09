@@ -17,7 +17,14 @@ import {
 } from "@/lib/cardplatform/issue-target";
 import { issuePrefFromAccount } from "@/lib/cardplatform/policy";
 import { decryptSecret, encryptSecret, hashLookupValue } from "@/lib/crypto";
+import { writeAuditLog } from "@/lib/audit";
 import { issueIdempotencyKey } from "@/lib/fulfillment/issue-keys";
+import {
+  LOCAL_WRITE_CONFLICT,
+  LeaseLostError,
+  newLeaseToken,
+  upstreamRefsSummary,
+} from "@/lib/fulfillment/lease-core";
 import {
   FULFILLMENT_FAILED_RESULTS,
   fulfillmentRetryDelayMs,
@@ -64,12 +71,14 @@ export async function fulfillStoreOrder(orderId: number) {
     throw new Error("订单未绑定卡台账户");
   }
   const staleBefore = new Date(Date.now() - ISSUING_LEASE_MS).toISOString();
+  // 占用 token：后续所有写入都以 lastErrorCode = leaseToken 为条件，丢了租约就放弃。
+  const leaseToken = newLeaseToken();
 
   const [claimed] = await db
     .update(storeOrders)
     .set({
       fulfillStatus: "issuing",
-      lastErrorCode: "",
+      lastErrorCode: leaseToken,
       lastErrorMessage: "",
       updatedAt: new Date().toISOString(),
     })
@@ -94,7 +103,7 @@ export async function fulfillStoreOrder(orderId: number) {
   }
 
   if (localAccount) {
-    return await fulfillLocalAccountOrder(claimed);
+    return await fulfillLocalAccountOrder(claimed, leaseToken);
   }
   const boundAccountId = claimed.cardplatformAccountId;
   if (!boundAccountId) {
@@ -104,6 +113,13 @@ export async function fulfillStoreOrder(orderId: number) {
   let attempt: typeof fulfillmentAttempts.$inferSelect | undefined;
   const quantity = Math.max(1, claimed.quantity);
   let alreadyIssued = 0;
+  // 上游已经返回卡密之后，本地写库失败就不能当成普通失败重试：卡已经出了，要留引用等人工处理。
+  let upstreamReturned = false;
+  let upstreamItems: Array<{
+    upstreamRef: string;
+    codePrefix: string;
+    codeEncrypted: string;
+  }> = [];
   try {
     const existing = await db.query.issuedCdks.findMany({
       where: eq(issuedCdks.orderId, order.id),
@@ -174,6 +190,10 @@ export async function fulfillStoreOrder(orderId: number) {
         });
       }
       const pref = await issuePrefFromAccount(account.id);
+      // 调上游前续租：租约已经被别的 worker 接手就别再出卡。
+      if (!(await renewStoreLease(order.id, leaseToken))) {
+        throw new LeaseLostError();
+      }
       const cdks = await client.issueMany(target.plan, remaining, idempotencyKey, {
         ...(pref
           ? {
@@ -214,9 +234,21 @@ export async function fulfillStoreOrder(orderId: number) {
           upstreamFeeMinor: cdk.feeAmountMinor,
         });
       }
+      upstreamReturned = true;
+      // 卡密只以密文留档，本地入库失败时供人工找回。
+      upstreamItems = fresh.map((item) => ({
+        upstreamRef: item.upstreamRef,
+        codePrefix: item.codePrefix,
+        codeEncrypted: encryptSecret(item.code),
+      }));
+      // 调上游后续租；失败说明租约已丢，走本地冲突处理，不能当普通失败重发。
+      if (!(await renewStoreLease(order.id, leaseToken))) {
+        throw new LeaseLostError();
+      }
     }
 
     const now = new Date().toISOString();
+    let mailDelivered = false;
     await db.transaction(async (tx) => {
       const freshOrder = await tx.query.storeOrders.findFirst({
         where: eq(storeOrders.id, order.id),
@@ -224,9 +256,10 @@ export async function fulfillStoreOrder(orderId: number) {
       if (!freshOrder) throw new Error("订单在履约过程中被删除");
       if (
         freshOrder.payStatus !== "paid" ||
-        freshOrder.fulfillStatus !== "issuing"
+        freshOrder.fulfillStatus !== "issuing" ||
+        freshOrder.lastErrorCode !== leaseToken
       ) {
-        throw new Error("订单状态已变化，已阻止写入发卡和收益记录");
+        throw new LeaseLostError("订单状态已变化，已阻止写入发卡和收益记录");
       }
       if (fresh.length > 0) {
         await tx
@@ -277,13 +310,16 @@ export async function fulfillStoreOrder(orderId: number) {
             updatedAt: now,
           })
           .onConflictDoNothing({ target: agentEarnings.orderId });
+        mailDelivered = true;
       }
 
-      await tx
+      const updatedOrder = await tx
         .update(storeOrders)
         .set({
           fulfillStatus: complete ? "delivered" : "partially_delivered",
           deliveredAt: complete ? now : freshOrder.deliveredAt,
+          deliveryMailStatus:
+            complete && !freshOrder.deliveryMailStatus ? "pending" : freshOrder.deliveryMailStatus,
           lastErrorCode: complete ? "" : "CARDPLATFORM_PARTIAL_ISSUE",
           lastErrorMessage: complete
             ? ""
@@ -294,8 +330,12 @@ export async function fulfillStoreOrder(orderId: number) {
           and(
             eq(storeOrders.id, order.id),
             eq(storeOrders.fulfillStatus, "issuing"),
+            eq(storeOrders.lastErrorCode, leaseToken),
           ),
-        );
+        )
+        .returning({ id: storeOrders.id });
+      // 0 行：事务内租约被抢占，整体回滚，交给外层按本地冲突处理。
+      if (updatedOrder.length === 0) throw new LeaseLostError();
 
       if (attempt) {
         await tx
@@ -313,6 +353,7 @@ export async function fulfillStoreOrder(orderId: number) {
           .where(eq(fulfillmentAttempts.id, attempt.id));
       }
     });
+    if (mailDelivered) queueDeliveryMail(order.id);
   } catch (error) {
     const cardError =
       error instanceof CardplatformError
@@ -320,30 +361,98 @@ export async function fulfillStoreOrder(orderId: number) {
         : new CardplatformError({
             message: error instanceof Error ? error.message : "发卡失败",
           });
-    const unknown = cardError.outcomeUnknown && !cardError.retryable;
-    const regionError = isRegionIssueError(cardError);
+    // 上游已经出卡、本地却写不进去（租约丢失或订单状态变化）：卡已经在上游消耗，
+    // 记成 unknown 等人工处理，绝不能记 failed 让重试再出一次卡。
+    const localConflict =
+      upstreamReturned &&
+      upstreamItems.length > 0 &&
+      !(error instanceof CardplatformError);
+    const unknown =
+      localConflict || (cardError.outcomeUnknown && !cardError.retryable);
+    const regionError = !localConflict && isRegionIssueError(cardError);
+    const errorCode = localConflict
+      ? LOCAL_WRITE_CONFLICT
+      : regionError
+        ? "CARDPLATFORM_REGION_UNAVAILABLE"
+        : cardError.errorCode ||
+          (unknown ? "CARDPLATFORM_OUTCOME_UNKNOWN" : "CARDPLATFORM_FAILED");
+    const errorMessage = (
+      localConflict
+        ? `卡台已出卡 ${upstreamItems.length} 张，但本地写库失败：${cardError.message}，需人工处理`
+        : cardError.message
+    ).slice(0, 500);
     // 已经发出去几张的订单退回 partially_delivered，别把买家手上的卡当成一张都没发。
     const retryStatus =
       alreadyIssued > 0 ? "partially_delivered" : "paid_undelivered";
     const now = new Date().toISOString();
+    let orderReleased = false;
     await db.transaction(async (tx) => {
-      await tx
+      // 只有仍持有租约时才改订单；租约已被别人接手（或管理员已处理）就不覆盖。
+      const released = await tx
         .update(storeOrders)
         .set({
           fulfillStatus: unknown ? "unknown" : retryStatus,
-          lastErrorCode: regionError
-            ? "CARDPLATFORM_REGION_UNAVAILABLE"
-            : cardError.errorCode ||
-              (unknown ? "CARDPLATFORM_OUTCOME_UNKNOWN" : "CARDPLATFORM_FAILED"),
-          lastErrorMessage: cardError.message.slice(0, 500),
+          lastErrorCode: errorCode,
+          lastErrorMessage: errorMessage,
           updatedAt: now,
         })
-          .where(
+        .where(
           and(
             eq(storeOrders.id, order.id),
             eq(storeOrders.fulfillStatus, "issuing"),
+            eq(storeOrders.lastErrorCode, leaseToken),
           ),
+        )
+        .returning({ id: storeOrders.id });
+      orderReleased = released.length > 0;
+      if (attempt) {
+        await tx
+          .update(fulfillmentAttempts)
+          .set({
+            result: unknown ? "unknown" : "failed",
+            errorCode: localConflict
+              ? LOCAL_WRITE_CONFLICT
+              : error instanceof LeaseLostError
+                ? "LEASE_LOST"
+                : cardError.errorCode,
+            errorMessage,
+            ...(localConflict
+              ? {
+                  responseSummaryJson: JSON.stringify({
+                    issued: 0,
+                    quantity,
+                    upstreamReturned: upstreamItems.length,
+                    ...upstreamRefsSummary(upstreamItems),
+                    // 密文留档，人工核对后可解密补录。
+                    codesEncrypted: upstreamItems.map((item) => item.codeEncrypted),
+                  }),
+                }
+              : {}),
+            finishedAt: now,
+          })
+          .where(eq(fulfillmentAttempts.id, attempt.id));
+      }
+    });
+    if (localConflict) {
+      await writeAuditLog({
+        action: "store.order.local_write_conflict",
+        targetType: "store_order",
+        targetId: String(order.id),
+        metadata: {
+          orderNo: order.orderNo,
+          attemptId: attempt?.id ?? null,
+          orderMarkedUnknown: orderReleased,
+          reason: cardError.message.slice(0, 200),
+          ...upstreamRefsSummary(upstreamItems),
+        },
+      }).catch((auditError) => {
+        console.warn(
+          `[fulfill] 本地写库冲突审计失败：${auditError instanceof Error ? auditError.message : auditError}`,
         );
+      });
+    }
+    // 通知和套餐同步放到事务提交之后，回滚时不会误发。
+    {
       if (regionError) {
         const planLabel = order.productNameSnapshot || order.planKeySnapshot;
         void import("@/lib/notify")
@@ -368,18 +477,7 @@ export async function fulfillStoreOrder(orderId: number) {
             );
           });
       }
-      if (attempt) {
-        await tx
-          .update(fulfillmentAttempts)
-          .set({
-            result: unknown ? "unknown" : "failed",
-            errorCode: cardError.errorCode,
-            errorMessage: cardError.message.slice(0, 500),
-            finishedAt: now,
-          })
-          .where(eq(fulfillmentAttempts.id, attempt.id));
-      }
-    });
+    }
   }
 
   return await db.query.storeOrders.findFirst({
@@ -387,8 +485,28 @@ export async function fulfillStoreOrder(orderId: number) {
   });
 }
 
+/**
+ * 续租：只有仍持有 leaseToken 的 worker 才能把 updatedAt 往后推。
+ * 返回 false 表示租约已被别人接手或订单已被管理员处理，调用方必须放弃后续写入。
+ */
+async function renewStoreLease(orderId: number, leaseToken: string) {
+  const rows = await db
+    .update(storeOrders)
+    .set({ updatedAt: new Date().toISOString() })
+    .where(
+      and(
+        eq(storeOrders.id, orderId),
+        eq(storeOrders.fulfillStatus, "issuing"),
+        eq(storeOrders.lastErrorCode, leaseToken),
+      ),
+    )
+    .returning({ id: storeOrders.id });
+  return rows.length > 0;
+}
+
 async function fulfillLocalAccountOrder(
   order: typeof storeOrders.$inferSelect,
+  leaseToken: string,
 ) {
   const quantity = Math.max(1, order.quantity);
   const existing = await db.query.issuedCdks.findMany({
@@ -418,6 +536,7 @@ async function fulfillLocalAccountOrder(
     })
     .returning();
 
+  let mailDelivered = false;
   try {
     await db.transaction(async (tx) => {
       const freshOrder = await tx.query.storeOrders.findFirst({
@@ -430,6 +549,9 @@ async function fulfillLocalAccountOrder(
       ) {
         throw new Error("订单状态已变化，已阻止写入成品号和收益记录");
       }
+      if (freshOrder.lastErrorCode !== leaseToken) {
+        throw new LeaseLostError("发货租约已被其他任务接手，放弃本次成品号写入");
+      }
 
       const allocated =
         remaining > 0
@@ -439,8 +561,12 @@ async function fulfillLocalAccountOrder(
               quantity: remaining,
             })
           : [];
+      // 成品号的 codeHash 来自邮箱；管理员可能已经手工把同一邮箱补录到别的订单。
+      // 冲突时跳过这一行（不让整个事务回滚后反复失败），并把这个号停用、解绑，
+      // 剩余数量由下面 count(*) 重算，订单走 partially_delivered 等待下次补发。
+      const conflictedAccountIds: number[] = [];
       if (allocated.length > 0) {
-        await tx.insert(issuedCdks).values(
+        const inserted = await tx.insert(issuedCdks).values(
           allocated.map((row) => {
             const parts = decryptFinishedAccount(row, decryptSecret);
             const line = formatFinishedAccountLine(parts);
@@ -459,7 +585,23 @@ async function fulfillLocalAccountOrder(
               updatedAt: now,
             };
           }),
-        );
+        )
+          .onConflictDoNothing({ target: issuedCdks.codeHash })
+          .returning({ upstreamRef: issuedCdks.upstreamRef });
+        const insertedRefs = new Set(inserted.map((row) => row.upstreamRef));
+        for (const row of allocated) {
+          if (insertedRefs.has(`finished:${row.id}`)) continue;
+          conflictedAccountIds.push(row.id);
+          await tx
+            .update(finishedAccounts)
+            .set({ status: "disabled", storeOrderId: null, updatedAt: now })
+            .where(
+              and(
+                eq(finishedAccounts.id, row.id),
+                eq(finishedAccounts.storeOrderId, order.id),
+              ),
+            );
+        }
       }
 
       const [{ issuedTotal }] = await tx
@@ -468,7 +610,8 @@ async function fulfillLocalAccountOrder(
         .where(eq(issuedCdks.orderId, order.id));
       const delivered = Number(issuedTotal || 0);
       const complete = delivered >= quantity;
-      const short = remaining > 0 && allocated.length < remaining;
+      const issuedNow = allocated.length - conflictedAccountIds.length;
+      const short = remaining > 0 && issuedNow < remaining;
 
       if (complete) {
         const accounts = await tx.query.finishedAccounts.findMany({
@@ -517,9 +660,10 @@ async function fulfillLocalAccountOrder(
             updatedAt: now,
           })
           .onConflictDoNothing({ target: agentEarnings.orderId });
+        mailDelivered = true;
       }
 
-      await tx
+      const released = await tx
         .update(storeOrders)
         .set({
           fulfillStatus: complete
@@ -528,6 +672,8 @@ async function fulfillLocalAccountOrder(
               ? "partially_delivered"
               : "paid_undelivered",
           deliveredAt: complete ? now : freshOrder.deliveredAt,
+          deliveryMailStatus:
+            complete && !freshOrder.deliveryMailStatus ? "pending" : freshOrder.deliveryMailStatus,
           lastErrorCode: complete
             ? ""
             : short
@@ -542,8 +688,14 @@ async function fulfillLocalAccountOrder(
           and(
             eq(storeOrders.id, order.id),
             eq(storeOrders.fulfillStatus, "issuing"),
+            eq(storeOrders.lastErrorCode, leaseToken),
           ),
-        );
+        )
+        .returning({ id: storeOrders.id });
+      if (released.length === 0) {
+        // 事务内已校验过租约，这里只是兜底；抛出让成品号分配和收益一起回滚。
+        throw new LeaseLostError("发货租约已失效，成品号分配已回滚");
+      }
 
       await tx
         .update(fulfillmentAttempts)
@@ -551,10 +703,15 @@ async function fulfillLocalAccountOrder(
           // 缺货不是故障：补货后还要继续发。打成 failed 会吃掉重试预算，最后卡成 unknown。
           result: complete ? "success" : "partial",
           responseSummaryJson: JSON.stringify({
-            issued: allocated.length,
+            issued: issuedNow,
             deliveredTotal: delivered,
             quantity,
-            accountIds: allocated.map((row) => row.id),
+            accountIds: allocated
+              .map((row) => row.id)
+              .filter((id) => !conflictedAccountIds.includes(id)),
+            ...(conflictedAccountIds.length > 0
+              ? { conflictedAccountIds }
+              : {}),
           }),
           errorCode: complete
             ? ""
@@ -568,29 +725,36 @@ async function fulfillLocalAccountOrder(
         })
         .where(eq(fulfillmentAttempts.id, createdAttempt.id));
     });
+    if (mailDelivered) queueDeliveryMail(order.id);
   } catch (error) {
     const message = error instanceof Error ? error.message : "成品号发放失败";
+    const leaseLost = error instanceof LeaseLostError;
     await db.transaction(async (tx) => {
-      await tx
-        .update(storeOrders)
-        .set({
-          fulfillStatus:
-            existing.length > 0 ? "partially_delivered" : "paid_undelivered",
-          lastErrorCode: "LOCAL_ACCOUNT_FAILED",
-          lastErrorMessage: message.slice(0, 500),
-          updatedAt: new Date().toISOString(),
-        })
-        .where(
-          and(
-            eq(storeOrders.id, order.id),
-            eq(storeOrders.fulfillStatus, "issuing"),
-          ),
-        );
+      // 本地成品号在同一个事务里分配，失败就整体回滚，库存不会丢；
+      // 只有仍持有租约时才把订单放回可重试状态，租约丢了就不碰订单。
+      if (!leaseLost) {
+        await tx
+          .update(storeOrders)
+          .set({
+            fulfillStatus:
+              existing.length > 0 ? "partially_delivered" : "paid_undelivered",
+            lastErrorCode: "LOCAL_ACCOUNT_FAILED",
+            lastErrorMessage: message.slice(0, 500),
+            updatedAt: new Date().toISOString(),
+          })
+          .where(
+            and(
+              eq(storeOrders.id, order.id),
+              eq(storeOrders.fulfillStatus, "issuing"),
+              eq(storeOrders.lastErrorCode, leaseToken),
+            ),
+          );
+      }
       await tx
         .update(fulfillmentAttempts)
         .set({
           result: "failed",
-          errorCode: "LOCAL_ACCOUNT_FAILED",
+          errorCode: leaseLost ? "LEASE_LOST" : "LOCAL_ACCOUNT_FAILED",
           errorMessage: message.slice(0, 500),
           finishedAt: new Date().toISOString(),
         })
@@ -662,4 +826,14 @@ export async function retryPendingStoreOrders(limit = 10) {
     if (result?.fulfillStatus === "delivered") delivered += 1;
   }
   return { checked, delivered };
+}
+
+function queueDeliveryMail(orderId: number) {
+  void import("@/lib/mail")
+    .then(({ sendDeliveryMail }) => sendDeliveryMail(orderId))
+    .catch((error) => {
+      console.warn(
+        `[fulfill] 发货邮件失败：${error instanceof Error ? error.message : error}`,
+      );
+    });
 }

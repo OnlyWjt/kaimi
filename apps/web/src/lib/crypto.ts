@@ -20,7 +20,14 @@ function secretMaterial() {
       "生产环境必须配置至少 32 字节的独立 KAIMI_SECRET_KEY，禁止复用卡台 API Key",
     );
   }
-  return configured || DEVELOPMENT_SECRET;
+  if (configured) return configured;
+  // 只有明确的开发/测试环境才允许回退到内置开发密钥；NODE_ENV 未设置或其他取值
+  // （staging 等）一律视为需要真实密钥，避免用公开的默认值加密真实数据。
+  const env = process.env.NODE_ENV;
+  if (env === "development" || env === "test") return DEVELOPMENT_SECRET;
+  throw new Error(
+    `未配置 KAIMI_SECRET_KEY（NODE_ENV=${env || "未设置"}），仅 development/test 环境允许使用开发默认密钥`,
+  );
 }
 
 export function assertRuntimeSecrets() {

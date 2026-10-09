@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, lt } from "drizzle-orm";
 import { db } from "@/db";
 import {
   agentPlanPrices,
@@ -36,6 +36,7 @@ import { countUnusedFinishedAccounts } from "@/lib/finished-accounts";
 import {
   applyCheckoutCoupon,
   loadCheckoutCoupon,
+  releaseCouponForTransition,
   reserveCoupon,
 } from "@/lib/coupons";
 import { specFromRecord } from "@/lib/coupon-core";
@@ -382,19 +383,28 @@ export async function createStoreOrder(input: {
     return created;
   });
 
-  const payment = await createEpayPayment(epay, {
-    outTradeNo: orderNo,
-    name: quantity > 1
-      ? `${localAccount ? "账号" : "CDK"} ${displayName} ×${quantity}`
-      : `${localAccount ? "账号" : "CDK"} ${displayName}`,
-    moneyCents: invoiceQuote.payCents,
-    notifyUrl: `${base}/api/webhooks/epay`,
-    returnUrl: `${base}/shop/order/${orderNo}?qt=${encodeURIComponent(queryToken)}`,
-    channel: input.channel,
-    clientIp:
-      input.request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      undefined,
-  });
+  let payment: Awaited<ReturnType<typeof createEpayPayment>>;
+  try {
+    payment = await createEpayPayment(epay, {
+      outTradeNo: orderNo,
+      name: quantity > 1
+        ? `${localAccount ? "账号" : "CDK"} ${displayName} ×${quantity}`
+        : `${localAccount ? "账号" : "CDK"} ${displayName}`,
+      moneyCents: invoiceQuote.payCents,
+      notifyUrl: `${base}/api/webhooks/epay`,
+      returnUrl: `${base}/shop/order/${orderNo}?qt=${encodeURIComponent(queryToken)}`,
+      channel: input.channel,
+      clientIp:
+        input.request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+        undefined,
+    });
+  } catch (error) {
+    // 支付单都没建成，买家付不了款：关掉订单并归还优惠券次数。
+    await closeStoreOrder(orderNo).catch((closeError) => {
+      console.error(`[store-order] 下单失败后关闭订单 ${orderNo} 也失败`, closeError);
+    });
+    throw error;
+  }
   if (payment.tradeNo) {
     await db
       .update(storeOrders)
@@ -411,6 +421,81 @@ export async function createStoreOrder(input: {
     payUrl: payment.payUrl,
     gatewayTradeNo: payment.tradeNo,
   };
+}
+
+/** 未付款订单关闭后的付款状态。 */
+export const STORE_ORDER_CLOSED_PAY_STATUS = "closed";
+/** 默认未付款订单 30 分钟后关闭。 */
+export const STORE_ORDER_UNPAID_TTL_MS = 30 * 60 * 1000;
+
+/**
+ * 关闭一笔未付款订单并归还优惠券次数。
+ * 条件 update（payStatus=unpaid）+ returning 保证：已付款/已关闭的不动，重复调用只还一次。
+ * 返回是否由本次调用关闭。
+ */
+export async function closeStoreOrder(orderNo: string) {
+  return db.transaction(async (tx) => {
+    const now = new Date().toISOString();
+    const closed = await tx
+      .update(storeOrders)
+      .set({
+        payStatus: STORE_ORDER_CLOSED_PAY_STATUS,
+        fulfillStatus: "cancelled",
+        updatedAt: now,
+      })
+      .where(and(eq(storeOrders.orderNo, orderNo), eq(storeOrders.payStatus, "unpaid")))
+      .returning({ id: storeOrders.id, couponId: storeOrders.couponId });
+    for (const row of closed) {
+      await releaseCouponForTransition(tx, row, "unpaid", STORE_ORDER_CLOSED_PAY_STATUS);
+    }
+    return closed.length > 0;
+  });
+}
+
+/**
+ * 批量关闭超时未付款订单并归还优惠券次数。
+ * 由 sync-scheduler 每 5 分钟调用一次。
+ */
+export async function closeExpiredStoreOrders(options: {
+  olderThanMs?: number;
+  now?: Date;
+  limit?: number;
+} = {}) {
+  const olderThanMs = options.olderThanMs ?? STORE_ORDER_UNPAID_TTL_MS;
+  const now = options.now ?? new Date();
+  const cutoff = new Date(now.getTime() - olderThanMs).toISOString();
+  const limit = Math.max(1, Math.min(options.limit ?? 200, 1000));
+  const candidates = await db
+    .select({ id: storeOrders.id })
+    .from(storeOrders)
+    .where(and(eq(storeOrders.payStatus, "unpaid"), lt(storeOrders.createdAt, cutoff)))
+    .limit(limit);
+  if (!candidates.length) return { closed: 0, couponsReleased: 0 };
+  return db.transaction(async (tx) => {
+    const closed = await tx
+      .update(storeOrders)
+      .set({
+        payStatus: STORE_ORDER_CLOSED_PAY_STATUS,
+        fulfillStatus: "cancelled",
+        updatedAt: now.toISOString(),
+      })
+      .where(
+        and(
+          inArray(storeOrders.id, candidates.map((row) => row.id)),
+          // 再判一次：查完到这里之间可能已经付款
+          eq(storeOrders.payStatus, "unpaid"),
+          lt(storeOrders.createdAt, cutoff),
+        ),
+      )
+      .returning({ id: storeOrders.id, couponId: storeOrders.couponId });
+    let couponsReleased = 0;
+    for (const row of closed) {
+      if (await releaseCouponForTransition(tx, row, "unpaid", STORE_ORDER_CLOSED_PAY_STATUS)) {
+        couponsReleased += 1;
+      }
+    }
+    return { closed: closed.length, couponsReleased };
+  });
 }
 
 export async function listStoreOrdersByEmail(input: {

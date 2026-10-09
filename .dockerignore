@@ -1,0 +1,22 @@
+# 构建上下文是仓库根（deploy/docker-compose.yml: context: ..）
+
+# 依赖与构建产物（镜像内重新安装/构建）
+**/node_modules
+**/.next
+.git
+
+# 密钥与本地环境
+**/.env*
+!**/.env.example
+
+# 本地数据库与备份
+**/*.db
+**/*.db-*
+**/data
+**/kaimi-db-backup-*
+
+# 根目录截图与临时文件（只匹配根目录，不影响 apps/web/public 下的图片）
+.shots
+/*.png
+/*.jpg
+.tmp-*

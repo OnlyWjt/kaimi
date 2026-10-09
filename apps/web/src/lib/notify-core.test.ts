@@ -6,6 +6,7 @@ import {
   formatDrawApplyTelegramHtml,
   formatDrawApplyText,
   formatDrawCreatedText,
+  formatAgentStorePaidText,
   formatNotifyText,
   formatStorePaidTelegramHtml,
   formatStorePaidText,
@@ -220,6 +221,45 @@ describe("自助提卡通知", () => {
         adminUrl: "",
       }),
     ).toContain("需人工核对：DR9");
+  });
+});
+
+describe("formatAgentStorePaidText", () => {
+  it("只写店铺自己的单，不含平台毛利和上游", () => {
+    const text = formatAgentStorePaidText({
+      orderNo: "KS1",
+      agentName: "For-Vibe-Coding",
+      buyerEmail: "buyer@example.com",
+      amountCents: 500,
+      paymentChannel: "wxpay",
+      productName: "GPT 成品号",
+      agentEarningCents: 196,
+      agentFeeCents: 4,
+      platformProfitCents: 80,
+      upstreamCostTotalCents: 200,
+      invoice: {
+        title: "某某公司",
+        taxNo: "91310000",
+        note: "",
+        amountCents: 500,
+        email: "finance@example.com",
+      },
+    });
+    expect(text).toBe(
+      [
+        "[For-Vibe-Coding] 有人下单  KS1",
+        "购买人：buyer@example.com",
+        "订单金额：¥5.00",
+        "支付渠道：微信",
+        "套餐：GPT 成品号",
+        "你的收益：¥1.96（已扣手续费 ¥0.04）",
+        "这单买家要发票",
+      ].join("\n"),
+    );
+    expect(text).not.toContain("平台毛利");
+    expect(text).not.toContain("上游");
+    expect(text).not.toContain("税号");
+    expect(text).not.toContain("代理：");
   });
 });
 

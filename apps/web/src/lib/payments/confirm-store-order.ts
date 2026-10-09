@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import { db } from "@/db";
 import {
   backgroundJobs,
@@ -124,7 +124,27 @@ export async function confirmStoreOrderPaid(input: {
     }
   }
 
-  await db.transaction(async (tx) => {
+  type TxOutcome =
+    | { kind: "paid"; order: typeof storeOrders.$inferSelect }
+    | { kind: "already_paid" }
+    | { kind: "trade_mismatch"; current: typeof storeOrders.$inferSelect }
+    | { kind: "unexpected_state"; current: typeof storeOrders.$inferSelect | undefined };
+
+  const outcome: TxOutcome = await db.transaction(async (tx): Promise<TxOutcome> => {
+    // 事务内重读，避免用事务外的旧快照判断 tradeNo / 状态。
+    const current = await tx.query.storeOrders.findFirst({
+      where: eq(storeOrders.id, order.id),
+    });
+    if (current?.paymentTradeNo && current.paymentTradeNo !== tradeNo) {
+      return { kind: "trade_mismatch", current };
+    }
+    if (current?.payStatus === "paid" && current.paymentTradeNo === tradeNo) {
+      // 同一流水的重复通知：幂等成功，不重复入队/通知。
+      return { kind: "already_paid" };
+    }
+    if (current?.payStatus !== "unpaid") {
+      return { kind: "unexpected_state", current };
+    }
     if (input.recordWebhookEvent !== false) {
       await tx
         .insert(paymentWebhookEvents)
@@ -142,17 +162,35 @@ export async function confirmStoreOrderPaid(input: {
           target: [paymentWebhookEvents.provider, paymentWebhookEvents.eventKey],
         });
     }
-    await tx
+    const [updated] = await tx
       .update(storeOrders)
       .set({
         payStatus: "paid",
-        paymentTradeNo: tradeNo || order.paymentTradeNo,
+        paymentTradeNo: tradeNo,
         paidAt: now,
         updatedAt: now,
       })
       .where(
-        and(eq(storeOrders.id, order.id), eq(storeOrders.payStatus, "unpaid")),
-      );
+        and(
+          eq(storeOrders.id, order.id),
+          eq(storeOrders.payStatus, "unpaid"),
+          or(
+            isNull(storeOrders.paymentTradeNo),
+            eq(storeOrders.paymentTradeNo, ""),
+            eq(storeOrders.paymentTradeNo, tradeNo),
+          ),
+        ),
+      )
+      .returning();
+    if (!updated) {
+      const after = await tx.query.storeOrders.findFirst({
+        where: eq(storeOrders.id, order.id),
+      });
+      if (after?.payStatus === "paid" && after.paymentTradeNo === tradeNo) {
+        return { kind: "already_paid" };
+      }
+      return { kind: "unexpected_state", current: after };
+    }
     await tx
       .insert(backgroundJobs)
       .values([
@@ -174,13 +212,52 @@ export async function confirmStoreOrderPaid(input: {
         },
       ])
       .onConflictDoNothing({ target: backgroundJobs.dedupeKey });
+    return { kind: "paid", order: updated };
   });
 
+  if (outcome.kind === "trade_mismatch") {
+    await writeAuditLog({
+      action: "payment.notify.trade_mismatch",
+      targetType: "store_order",
+      targetId: order.id,
+      metadata: { orderNo, receivedTradeNo: tradeNo },
+    });
+    return { kind: "rejected", status: 400, error: "支付流水号与订单不符" };
+  }
+  if (outcome.kind === "unexpected_state") {
+    // 已关闭/已退款/退款中的订单又收到付款，或并发写入了别的流水：可能重复收款，转人工。
+    const currentStatus = outcome.current?.payStatus ?? "missing";
+    await writeAuditLog({
+      action: "payment.notify.unexpected_state",
+      targetType: "store_order",
+      targetId: order.id,
+      metadata: {
+        orderNo,
+        tradeNo,
+        paidCents,
+        payStatus: currentStatus,
+        currentTradeNo: outcome.current?.paymentTradeNo ?? null,
+      },
+    });
+    await recordOpsAlert({
+      level: "critical",
+      code: `payment.notify.unexpected_state:${orderNo}`,
+      message: `订单 ${orderNo} 在状态 ${currentStatus} 下收到付款（流水 ${tradeNo}），可能重复收款或已关闭订单收款，需人工处理`,
+    }).catch((err) => {
+      console.warn("[kaimi-pay] ops alert failed", sanitizeLog(err));
+    });
+    return {
+      kind: "rejected",
+      status: 409,
+      error: "订单状态不允许确认收款，需人工处理",
+    };
+  }
+
+  const newlyPaid = outcome.kind === "paid";
   const latest = await db.query.storeOrders.findFirst({
     where: eq(storeOrders.id, order.id),
   });
-  const paid = latest || order;
-  const newlyPaid = order.payStatus === "unpaid";
+  const paid = latest || (outcome.kind === "paid" ? outcome.order : order);
   if (newlyPaid && paid.invoiceNotifyStatus !== "sent") {
     void notifyStoreInvoicePaid(paid).catch((err) => {
       console.warn("[kaimi-notify] invoice paid skipped", sanitizeLog(err));
@@ -201,6 +278,19 @@ export async function confirmStoreOrderPaidFromGateway(orderNo: string) {
   const gateway = await queryEpayOrder(config, { outTradeNo: orderNo });
   if (!gateway.paid) {
     return { kind: "unpaid" as const };
+  }
+  if (gateway.outTradeNo !== orderNo) {
+    await writeAuditLog({
+      action: "payment.query.order_mismatch",
+      targetType: "store_order",
+      targetId: orderNo,
+      metadata: { orderNo, gatewayOutTradeNo: gateway.outTradeNo },
+    });
+    return {
+      kind: "rejected" as const,
+      status: 502,
+      error: "支付网关返回的订单号与查询不符",
+    };
   }
   return confirmStoreOrderPaid({
     orderNo,

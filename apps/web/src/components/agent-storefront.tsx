@@ -59,7 +59,7 @@ function productAvailabilityLabel(
 const QUERY_PREVIEW = 5;
 const PAID_PAY = new Set(["paid", "success"]);
 const ISSUED_FULFILL = new Set(["delivered", "fulfilled", "success", "issued"]);
-const BAD_PAY = new Set(["refunded", "refunding", "chargeback"]);
+const BAD_PAY = new Set(["refunded", "refunding", "chargeback", "closed"]);
 const BAD_FULFILL = new Set(["failed", "expired", "cancelled"]);
 
 function isPaidOrder(order: EmailOrder) {

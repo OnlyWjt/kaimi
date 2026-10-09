@@ -7,6 +7,11 @@ import { users } from "@/db/schema";
 import { getSession, loginUser, logoutUser, reissueSession } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import {
+  clearLoginFailures,
+  guardLoginAttempt,
+  recordLoginFailure,
+} from "@/lib/login-lockout";
 
 const loginSchema = z.object({
   action: z.literal("login"),
@@ -34,7 +39,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const body: unknown = await req.json();
+  const body: unknown = await req.json().catch(() => null);
   if (
     typeof body === "object" &&
     body !== null &&
@@ -47,12 +52,15 @@ export async function POST(req: Request) {
 
   const login = loginSchema.safeParse(body);
   if (login.success) {
-    const limited = enforceRateLimit(req, "auth-login", 10, 15 * 60_000);
-    if (limited) return limited;
+    // 与 /api/setup 的 action=login 共用限流桶，并按用户名锁定
+    const blocked = guardLoginAttempt(req, login.data.username);
+    if (blocked) return blocked;
     const user = await loginUser(login.data.username, login.data.password);
     if (!user) {
+      recordLoginFailure(login.data.username);
       return NextResponse.json({ error: "用户名或密码错误" }, { status: 401 });
     }
+    clearLoginFailures(login.data.username);
     return NextResponse.json({
       ok: true,
       username: user.username,

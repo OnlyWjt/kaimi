@@ -260,6 +260,20 @@ export function drawDailyLimitError(input: {
     : `今天已达每日上限 ${input.dailyLimitCount} 张，明天再来`;
 }
 
+/**
+ * 当日已占用张数：当天落账的卡 + 还在出卡/结果未知的单里没落账的张数。
+ * 并发的 issuing 单还没写 items，只数 items 会让日限被同时提的几单绕过去。
+ */
+export function drawTodayUsedCount(input: {
+  todayItemCount: number;
+  inflight: Array<Pick<InflightDrawOrder, "quantity" | "issuedCount">>;
+}) {
+  return (
+    Math.max(0, input.todayItemCount) +
+    input.inflight.reduce((sum, order) => sum + inflightRemainingCount(order), 0)
+  );
+}
+
 export function drawQuantityError(quantity: number, maxPerDraw: number): string | null {
   if (!Number.isInteger(quantity) || quantity < 1) return "张数至少 1 张";
   const cap = Math.min(DRAW_MAX_PER_DRAW_CAP, Math.max(1, maxPerDraw));

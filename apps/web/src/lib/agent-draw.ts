@@ -28,6 +28,7 @@ import {
   drawCodeUseLabel,
   drawCreditError,
   drawDailyLimitError,
+  drawTodayUsedCount,
   drawNoTailMatches,
   drawPaymentMethodLabel,
   drawOrderStatusFromIssued,
@@ -60,6 +61,12 @@ import { planNameWithRegion } from "@/lib/cardplatform/regions";
 import { getSetting } from "@/lib/config";
 import { decryptSecret, encryptSecret, hashLookupValue, maskCode } from "@/lib/crypto";
 import { issueIdempotencyKey } from "@/lib/fulfillment/issue-keys";
+import {
+  LOCAL_WRITE_CONFLICT,
+  LeaseLostError,
+  newLeaseToken,
+  upstreamRefsSummary,
+} from "@/lib/fulfillment/lease-core";
 import { newOrderNo } from "@/lib/ids";
 import { DEFAULT_PAGE_SIZE, normalizePage, normalizePageSize } from "@/lib/pagination-core";
 import { notifyDrawAlert, notifyDrawApply, notifyDrawCreated } from "@/lib/notify";
@@ -553,18 +560,24 @@ export async function listPendingDrawApplications() {
   }));
 }
 
-async function exposureFor(agentId: number) {
-  const [{ unsettledCents }] = await db
+type DrawTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** 传 tx 时在同一个写事务里读，配合插单保证额度检查和占用是原子的。 */
+async function exposureFor(agentId: number, executor: typeof db | DrawTx = db) {
+  const [{ unsettledCents }] = await executor
     .select({
       unsettledCents: sql<number>`coalesce(sum(${agentDrawItems.amountCents}), 0)`,
     })
     .from(agentDrawItems)
     .where(and(eq(agentDrawItems.agentId, agentId), eq(agentDrawItems.status, "unsettled")));
-  const inflight = await db
+  const inflight = await executor
     .select({
       quantity: agentDrawOrders.quantity,
       issuedCount: agentDrawOrders.issuedCount,
       unitPriceCents: agentDrawOrders.unitPriceCents,
+      status: agentDrawOrders.status,
+      createdAt: agentDrawOrders.createdAt,
+      updatedAt: agentDrawOrders.updatedAt,
     })
     .from(agentDrawOrders)
     .where(
@@ -811,43 +824,52 @@ export async function createDrawOrder(
     throw new DrawError("当前卡台不支持这个付款地区，请先提菲区", 409);
   }
 
-  const { unsettledCents, inflight } = await exposureFor(agentId);
-  const freshIssuing = await db.query.agentDrawOrders.findFirst({
-    where: and(eq(agentDrawOrders.agentId, agentId), eq(agentDrawOrders.status, "issuing")),
-  });
-  if (freshIssuing && Date.now() - Date.parse(freshIssuing.updatedAt) < DRAW_ISSUING_LEASE_MS) {
-    throw new DrawError("上一笔还在出卡，请稍候", 409);
-  }
-  const credit = computeDrawCredit({
-    limitCents: access.creditLimitCents,
-    unsettledCents,
-    inflight,
-  });
-  const amount = price.unitPriceCents * input.quantity;
-  const creditError = drawCreditError(credit, amount);
-  if (creditError) throw new DrawError(creditError, 409);
-  const todayStart = beijingDayStartIso(new Date());
-  const [{ todayCount }] = await db
-    .select({ todayCount: sql<number>`count(*)` })
-    .from(agentDrawItems)
-    .where(
-      and(
-        eq(agentDrawItems.agentId, agentId),
-        gte(agentDrawItems.createdAt, todayStart),
-        ne(agentDrawItems.status, "void"),
-      ),
+  // 额度、在途单、日限的检查和插单放进同一个写事务（libsql 默认 BEGIN IMMEDIATE），
+  // 同一代理换 requestId 并发提卡时后进来的会读到前一单的 issuing 占用。
+  const created = await db.transaction(async (tx) => {
+    const dup = await tx.query.agentDrawOrders.findFirst({
+      where: and(eq(agentDrawOrders.agentId, agentId), eq(agentDrawOrders.requestId, requestId)),
+    });
+    if (dup) return { order: dup, fresh: false };
+    const { unsettledCents, inflight } = await exposureFor(agentId, tx);
+    const freshIssuing = inflight.find(
+      (row) =>
+        row.status === "issuing" && Date.now() - Date.parse(row.updatedAt) < DRAW_ISSUING_LEASE_MS,
     );
-  const dailyError = drawDailyLimitError({
-    dailyLimitCount: access.dailyLimitCount,
-    todayCount: Number(todayCount) || 0,
-    quantity: input.quantity,
-  });
-  if (dailyError) throw new DrawError(dailyError, 409);
+    if (freshIssuing) throw new DrawError("上一笔还在出卡，请稍候", 409);
+    const credit = computeDrawCredit({
+      limitCents: access.creditLimitCents,
+      unsettledCents,
+      inflight,
+    });
+    const amount = price.unitPriceCents * input.quantity;
+    const creditError = drawCreditError(credit, amount);
+    if (creditError) throw new DrawError(creditError, 409);
+    const todayStart = beijingDayStartIso(new Date());
+    const [{ todayCount }] = await tx
+      .select({ todayCount: sql<number>`count(*)` })
+      .from(agentDrawItems)
+      .where(
+        and(
+          eq(agentDrawItems.agentId, agentId),
+          gte(agentDrawItems.createdAt, todayStart),
+          ne(agentDrawItems.status, "void"),
+        ),
+      );
+    const dailyError = drawDailyLimitError({
+      dailyLimitCount: access.dailyLimitCount,
+      todayCount: drawTodayUsedCount({
+        todayItemCount: Number(todayCount) || 0,
+        inflight: inflight.filter((row) => row.createdAt >= todayStart),
+      }),
+      quantity: input.quantity,
+    });
+    if (dailyError) throw new DrawError(dailyError, 409);
 
-  const now = nowIso();
-  const drawNo = newOrderNo("DR");
-  const [order] = await db
-    .insert(agentDrawOrders)
+    const now = nowIso();
+    const drawNo = newOrderNo("DR");
+    const [inserted] = await tx
+      .insert(agentDrawOrders)
     .values({
       drawNo,
       agentId,
@@ -871,7 +893,17 @@ export async function createDrawOrder(
       updatedAt: now,
     })
     .returning();
-  if (!order) throw new DrawError("提卡单创建失败");
+    if (!inserted) throw new DrawError("提卡单创建失败");
+    return { order: inserted, fresh: true };
+  });
+  const order = created.order;
+  if (!created.fresh) {
+    // 同一 requestId 的并发请求：交给已建的单，不重复出卡
+    if (order.planKeySnapshot !== input.planKey || order.quantity !== input.quantity) {
+      throw new DrawError("同一个请求编号不能用于不同的提卡内容", 409);
+    }
+    return presentDrawOrder(order.id);
+  }
   await issueDrawOrder(order.id, "initial");
   return presentDrawOrder(order.id);
 }
@@ -893,16 +925,35 @@ async function issueDrawOrder(orderId: number, mode: "initial" | "retry" | "job"
             and(eq(agentDrawOrders.status, "issuing"), stale),
           )
         : and(inArray(agentDrawOrders.status, ["issuing", "unknown"]), stale);
+  // 占用 token：写进 lastErrorCode，后续所有写入都以它为条件，影响 0 行即租约已被别的 worker 接走。
+  const leaseToken = newLeaseToken();
   const [order] = await db
     .update(agentDrawOrders)
     .set({
       status: "issuing",
+      lastErrorCode: leaseToken,
       updatedAt: now,
       attempts: sql`${agentDrawOrders.attempts} + 1`,
     })
     .where(and(eq(agentDrawOrders.id, orderId), claimable))
     .returning();
   if (!order) return false;
+  const leaseHeld = and(
+    eq(agentDrawOrders.id, order.id),
+    eq(agentDrawOrders.status, "issuing"),
+    eq(agentDrawOrders.lastErrorCode, leaseToken),
+  );
+  const renewLease = async () => {
+    const renewed = await db
+      .update(agentDrawOrders)
+      .set({ updatedAt: nowIso() })
+      .where(leaseHeld)
+      .returning({ id: agentDrawOrders.id });
+    if (renewed.length === 0) throw new LeaseLostError();
+  };
+  let upstreamCdks: Array<{ code: string; codePrefix: string; upstreamRef: string }> = [];
+  // 入库事务已提交后的异常（通知/敞口统计）不影响卡密，不能再按失败或冲突改写订单。
+  let committed = false;
   const plan = await db.query.platformPlans.findFirst({
     where: eq(platformPlans.id, order.planId),
   });
@@ -920,6 +971,8 @@ async function issueDrawOrder(orderId: number, mode: "initial" | "retry" | "job"
       });
     }
     const pref = await issuePrefFromAccount(account.id);
+    // 调上游前续租，确认租约仍归自己，避免和接手的 worker 重复打卡台。
+    await renewLease();
     const cdks = await client.issueMany(
       target.plan,
       order.quantity,
@@ -931,6 +984,13 @@ async function issueDrawOrder(orderId: number, mode: "initial" | "retry" | "job"
         ...(target.paymentCountry ? { paymentCountry: target.paymentCountry } : {}),
       },
     );
+    upstreamCdks = cdks.map((cdk) => ({
+      code: cdk.code,
+      codePrefix: cdk.codePrefix || (cdk.code.length >= 14 ? cdk.code.slice(0, 14) : ""),
+      upstreamRef: String(cdk.id || ""),
+    }));
+    // 上游返回后再续租一次；失败说明租约已丢，交给 catch 按本地写库冲突留档。
+    await renewLease();
     const writtenAt = nowIso();
     let inserted = 0;
     await db.transaction(async (tx) => {
@@ -976,7 +1036,7 @@ async function issueDrawOrder(orderId: number, mode: "initial" | "retry" | "job"
         .where(eq(agentDrawItems.drawOrderId, order.id));
       const issuedCount = Number(total) || 0;
       const status = drawOrderStatusFromIssued(issuedCount, order.quantity);
-      await tx
+      const updated = await tx
         .update(agentDrawOrders)
         .set({
           status,
@@ -986,8 +1046,12 @@ async function issueDrawOrder(orderId: number, mode: "initial" | "retry" | "job"
           lastErrorMessage: "",
           updatedAt: writtenAt,
         })
-        .where(eq(agentDrawOrders.id, order.id));
+        .where(leaseHeld)
+        .returning({ id: agentDrawOrders.id });
+      // 0 行：租约在事务前被抢占，整体回滚（含已插入的卡），交给 catch 留档。
+      if (updated.length === 0) throw new LeaseLostError();
     });
+    committed = true;
     if (inserted > 0) {
       const agent = await db.query.agents.findFirst({ where: eq(agents.id, order.agentId) });
       const access = await db.query.agentDrawAccess.findFirst({
@@ -1017,6 +1081,38 @@ async function issueDrawOrder(orderId: number, mode: "initial" | "retry" | "job"
     }
     return true;
   } catch (error) {
+    // 上游已出卡但本地写库失败（租约丢失 / 订单状态变化 / 入库异常）：卡密不能丢，记 unknown
+    // 交人工处理（恢复任务只认 issuing/unknown 的过期单，重领会用同一幂等键向卡台取回），并写审计留档。
+    if (committed) return true;
+    if (upstreamCdks.length > 0 && !(error instanceof CardplatformError)) {
+      const summary = upstreamRefsSummary(upstreamCdks);
+      await db
+        .update(agentDrawOrders)
+        .set({
+          status: "unknown",
+          lastErrorCode: LOCAL_WRITE_CONFLICT,
+          lastErrorMessage: `卡台已出 ${upstreamCdks.length} 张，本地入库失败，需人工核对：${
+            error instanceof Error ? error.message : "未知错误"
+          }`.slice(0, 500),
+          updatedAt: nowIso(),
+        })
+        .where(leaseHeld);
+      await writeAuditLog({
+        action: "draw.order.local_write_conflict",
+        targetType: "agent_draw_order",
+        targetId: String(order.id),
+        metadata: {
+          drawNo: order.drawNo,
+          agentId: order.agentId,
+          leaseLost: error instanceof LeaseLostError,
+          ...summary,
+          // 没有 attempt 表可留档，卡密以服务端密钥加密后保存，供人工找回。
+          codesEncrypted: upstreamCdks.map((cdk) => encryptSecret(cdk.code)),
+        },
+      }).catch(() => null);
+      return true;
+    }
+    if (error instanceof LeaseLostError) return true;
     const cardError =
       error instanceof CardplatformError
         ? error
@@ -1032,12 +1128,7 @@ async function issueDrawOrder(orderId: number, mode: "initial" | "retry" | "job"
         lastErrorMessage: cardError.message.slice(0, 500),
         updatedAt: nowIso(),
       })
-      .where(
-        and(
-          eq(agentDrawOrders.id, order.id),
-          inArray(agentDrawOrders.status, ["issuing", "unknown"]),
-        ),
-      );
+      .where(leaseHeld);
     return true;
   }
 }
@@ -1658,6 +1749,8 @@ export async function recoverStuckDrawOrders(limit = 10) {
         inArray(agentDrawOrders.status, ["issuing", "unknown"]),
         gte(agentDrawOrders.attempts, DRAW_RECOVER_MAX_ATTEMPTS),
         ne(agentDrawOrders.lastErrorCode, "DRAW_RECOVER_NOTIFIED"),
+        // 仍在租约内的 issuing 单不碰：改写 lastErrorCode 会挤掉正在出卡的 worker。
+        or(eq(agentDrawOrders.status, "unknown"), lte(agentDrawOrders.updatedAt, staleBefore)),
       ),
     )
     .limit(10);
@@ -1671,6 +1764,7 @@ export async function recoverStuckDrawOrders(limit = 10) {
           eq(agentDrawOrders.id, order.id),
           inArray(agentDrawOrders.status, ["issuing", "unknown"]),
           ne(agentDrawOrders.lastErrorCode, "DRAW_RECOVER_NOTIFIED"),
+          or(eq(agentDrawOrders.status, "unknown"), lte(agentDrawOrders.updatedAt, staleBefore)),
         ),
       )
       .returning();

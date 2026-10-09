@@ -348,6 +348,28 @@ export function previewCouponWarnings(input: {
   return warnings;
 }
 
+/** 占着优惠券次数的付款状态：下单即占用，直到付款成功（转为真正使用）或关闭/退款。 */
+const COUPON_HOLDING_PAY_STATUSES = new Set(["unpaid", "pending_pay", "paid"]);
+/** 迁移到这些状态时把次数还回去。 */
+const COUPON_RELEASING_PAY_STATUSES = new Set(["closed", "refunded"]);
+
+/**
+ * 订单状态迁移时要不要归还优惠券次数。
+ * 只在“占用态 → 归还态”的那一次迁移返回 true；调用方必须用条件 update 的 returning
+ * 确认这次迁移确实是自己做成的，才能保证只还一次。
+ */
+export function shouldReleaseCoupon(input: {
+  couponId: number | null | undefined;
+  fromPayStatus: string;
+  toPayStatus: string;
+}) {
+  if (!input.couponId || input.couponId <= 0) return false;
+  return (
+    COUPON_HOLDING_PAY_STATUSES.has(input.fromPayStatus) &&
+    COUPON_RELEASING_PAY_STATUSES.has(input.toPayStatus)
+  );
+}
+
 function thresholdQuantities(
   retailPriceCents: number,
   thresholdCents: number,

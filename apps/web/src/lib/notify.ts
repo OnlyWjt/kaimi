@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lt, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { agents, storeOrders } from "@/db/schema";
 import { publicShopName } from "@/lib/agent-names";
@@ -7,6 +7,15 @@ import { decryptSecret } from "@/lib/crypto";
 import { maskRequestId, sanitizeLog } from "@/lib/log";
 import { loadRedeemNotifyContext } from "@/lib/notify-commerce";
 import {
+  AGENT_NOTIFY_ATTEMPTS,
+  AGENT_NOTIFY_CLAIMABLE,
+  AGENT_NOTIFY_RETRYABLE,
+  agentNotifyRetryWindow,
+  agentNotifyStaleBefore,
+} from "@/lib/notify-retry";
+import {
+  formatAgentStorePaidTelegramHtml,
+  formatAgentStorePaidText,
   formatDrawAlertTelegramHtml,
   formatDrawAlertText,
   formatDrawApplyTelegramHtml,
@@ -195,14 +204,9 @@ export async function notifyStoreInvoicePaid(order: {
   invoiceAmountCents: number;
   grossCents: number;
   invoiceNotifyStatus?: string | null;
-}, options?: { force?: boolean }) {
-  if (!options?.force && order.invoiceNotifyStatus === "sent") {
-    return {
-      text: "",
-      webhook: { attempted: false, ok: false, error: "" },
-      telegram: { attempted: false, ok: false, error: "" },
-    };
-  }
+}, options?: { force?: boolean; agentOnly?: boolean }) {
+  const adminAlreadySent =
+    Boolean(options?.agentOnly) || (!options?.force && order.invoiceNotifyStatus === "sent");
   const agent = await db.query.agents.findFirst({
     where: eq(agents.id, order.agentId),
     columns: { displayName: true, shopName: true, currentSlug: true },
@@ -236,38 +240,159 @@ export async function notifyStoreInvoicePaid(order: {
       : null,
   };
   const text = formatStorePaidText(payload);
-  const result = await dispatchNotifyText(
-    text,
-    { ...payload, invoiceRequested: true },
-    order.invoiceRequested ? "invoice.paid" : "store.paid",
-    {},
-    formatStorePaidTelegramHtml(payload),
-  );
-  const status =
-    result.telegram.ok || result.webhook.ok
-      ? "sent"
-      : result.telegram.attempted || result.webhook.attempted
-        ? "failed"
-        : "unsent";
-  const error =
-    result.telegram.error ||
-    result.webhook.error ||
-    (status === "unsent" ? "未配置 Telegram 或 Webhook" : "");
-  const now = new Date().toISOString();
+  const emptyResult: NotifyDispatchResult = {
+    text: "",
+    webhook: { attempted: false, ok: false, error: "" },
+    telegram: { attempted: false, ok: false, error: "" },
+  };
+  let result = emptyResult;
+  if (!adminAlreadySent) {
+    result = await dispatchNotifyText(
+      text,
+      { ...payload, invoiceRequested: true },
+      order.invoiceRequested ? "invoice.paid" : "store.paid",
+      {},
+      formatStorePaidTelegramHtml(payload),
+    );
+    const status =
+      result.telegram.ok || result.webhook.ok
+        ? "sent"
+        : result.telegram.attempted || result.webhook.attempted
+          ? "failed"
+          : "unsent";
+    const error =
+      result.telegram.error ||
+      result.webhook.error ||
+      (status === "unsent" ? "未配置 Telegram 或 Webhook" : "");
+    const now = new Date().toISOString();
+    await db
+      .update(storeOrders)
+      .set({
+        invoiceNotifyStatus: status,
+        invoiceNotifyError: error,
+        invoiceNotifiedAt: now,
+        updatedAt: now,
+      })
+      .where(
+        order.id
+          ? eq(storeOrders.id, order.id)
+          : eq(storeOrders.orderNo, order.orderNo),
+      );
+  }
+  await deliverAgentStorePaid(order.agentId, payload, {
+    id: order.id,
+    orderNo: order.orderNo,
+    force: Boolean(options?.force),
+  });
+  return result;
+}
+
+async function deliverAgentStorePaid(
+  agentId: number,
+  payload: StorePaidNotifyPayload,
+  orderRef: { id?: number; orderNo: string; force?: boolean },
+) {
+  const where = orderRef.id ? eq(storeOrders.id, orderRef.id) : eq(storeOrders.orderNo, orderRef.orderNo);
+  const row = await db.query.storeOrders.findFirst({ where, columns: { id: true } });
+  if (!row) return;
+
+  // 原子占位：条件 UPDATE 置 sending，与支付回调/调度器并发时只有一方拿到这一行。
+  // 语义与 notify-retry.ts 的 canClaimAgentNotify 一致。
+  const nowMs = Date.now();
+  const now = new Date(nowMs).toISOString();
+  const stale = agentNotifyStaleBefore(nowMs);
+  const staleSending = and(eq(storeOrders.agentNotifyStatus, "sending"), lt(storeOrders.updatedAt, stale));
+  const claimable = orderRef.force
+    ? or(ne(storeOrders.agentNotifyStatus, "sending"), staleSending)
+    : and(
+        or(inArray(storeOrders.agentNotifyStatus, [...AGENT_NOTIFY_CLAIMABLE]), staleSending),
+        lt(storeOrders.agentNotifyAttempts, AGENT_NOTIFY_ATTEMPTS),
+      );
+  const [claimed] = await db
+    .update(storeOrders)
+    .set({ agentNotifyStatus: "sending", updatedAt: now })
+    .where(and(eq(storeOrders.id, row.id), claimable))
+    .returning({ id: storeOrders.id, agentNotifiedAt: storeOrders.agentNotifiedAt });
+  if (!claimed) return;
+
+  const agent = await db.query.agents.findFirst({
+    where: eq(agents.id, agentId),
+    columns: { telegramChatId: true, telegramNotifyEnabled: true },
+  });
+  if (!agent?.telegramChatId || agent.telegramNotifyEnabled === false) {
+    const paused = Boolean(agent?.telegramChatId) && agent?.telegramNotifyEnabled === false;
+    // 未绑定/已关闭都写 skipped：调度器不再反复取出；需要补发可走 force
+    await db
+      .update(storeOrders)
+      .set({
+        agentNotifyStatus: "skipped",
+        agentNotifyError: paused ? "代理关闭了下单通知" : "代理还没绑定 Telegram",
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(storeOrders.id, row.id));
+    return;
+  }
+
+  let result: NotifyDispatchResult;
+  try {
+    result = await dispatchNotifyText(
+      formatAgentStorePaidText(payload),
+      { audience: "agent", orderNo: payload.orderNo },
+      "store.paid.agent",
+      { telegramChatId: agent.telegramChatId, webhookUrl: "" },
+      formatAgentStorePaidTelegramHtml(payload),
+    );
+  } catch (error) {
+    // 不让行卡在 sending：记为 failed 并计一次尝试
+    await db
+      .update(storeOrders)
+      .set({
+        agentNotifyStatus: "failed",
+        agentNotifyError: (error instanceof Error ? error.message : "发送失败").slice(0, 300),
+        agentNotifyAttempts: sql`${storeOrders.agentNotifyAttempts} + 1`,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(storeOrders.id, row.id));
+    throw error;
+  }
+  const ok = result.telegram.ok;
+  const doneAt = new Date().toISOString();
   await db
     .update(storeOrders)
     .set({
-      invoiceNotifyStatus: status,
-      invoiceNotifyError: error,
-      invoiceNotifiedAt: now,
-      updatedAt: now,
+      agentNotifyStatus: ok ? "sent" : "failed",
+      agentNotifyError: ok ? "" : result.telegram.error || "未配置 Telegram 机器人",
+      agentNotifiedAt: ok ? doneAt : claimed.agentNotifiedAt,
+      ...(ok || !result.telegram.attempted
+        ? {}
+        : { agentNotifyAttempts: sql`${storeOrders.agentNotifyAttempts} + 1` }),
+      updatedAt: doneAt,
     })
-    .where(
-      order.id
-        ? eq(storeOrders.id, order.id)
-        : eq(storeOrders.orderNo, order.orderNo),
-    );
-  return result;
+    .where(eq(storeOrders.id, row.id));
+}
+
+export async function retryAgentStorePaidNotifies(limit = 10) {
+  const { paidSince, updatedBefore } = agentNotifyRetryWindow(Date.now());
+  const rows = await db.query.storeOrders.findMany({
+    where: and(
+      eq(storeOrders.payStatus, "paid"),
+      inArray(storeOrders.agentNotifyStatus, [...AGENT_NOTIFY_RETRYABLE]),
+      lt(storeOrders.agentNotifyAttempts, AGENT_NOTIFY_ATTEMPTS),
+      gte(storeOrders.paidAt, paidSince),
+      // 退避：刚处理过的行至少隔一段时间再取，避免每个调度周期都打 Telegram
+      lt(storeOrders.updatedAt, updatedBefore),
+    ),
+    orderBy: [asc(storeOrders.updatedAt)],
+    limit,
+  });
+  for (const row of rows) {
+    try {
+      await notifyStoreInvoicePaid(row, { agentOnly: true });
+    } catch (error) {
+      console.warn("[kaimi-notify] agent retry failed", sanitizeLog(error));
+    }
+  }
+  return { checked: rows.length };
 }
 
 function notifyOutcome(result: NotifyDispatchResult) {

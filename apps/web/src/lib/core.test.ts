@@ -733,12 +733,15 @@ describe("card-platform ops", () => {
     ).toThrow(/cardplatform/);
   });
 
-  it("accepts both HMAC(body) and HMAC(ts.body) webhook signatures", () => {
+  it("accepts HMAC(ts.body); HMAC(body) only when explicitly allowed", () => {
     const secret = "whsec_test";
     const raw = Buffer.from('{"event":"gpt_direct.completed"}', "utf8");
     const bodySig = createHmac("sha256", secret).update(raw).digest("hex");
     expect(
       webhookSignatureMatches(secret, raw, [], [bodySig]),
+    ).toBe(false);
+    expect(
+      webhookSignatureMatches(secret, raw, [], [bodySig], { allowBodyOnly: true }),
     ).toBe(true);
     const tsSig = createHmac("sha256", secret)
       .update(Buffer.concat([Buffer.from("1710000000."), raw]))

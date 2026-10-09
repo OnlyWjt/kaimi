@@ -68,6 +68,7 @@ pnpm dev
 | `KAIMI_DATABASE_URL` | 默认 `file:./data/kaimi.db`（SQLite） |
 | `KAIMI_ADMIN_USER` / `KAIMI_ADMIN_PASSWORD` | 后台登录 |
 | `CARD_API_BASE` / `CARD_API_KEY` | 可选。没有后台卡台账户时的环境变量兜底，和 danew_card_cdk 同名 |
+| `KAIMI_TRUSTED_PROXY_HOPS` | 前面可信反向代理的层数，默认 `1`（对应 Caddy 反代部署）。应用直接暴露公网、前面没有反代时须设为 `0`，否则客户端可伪造 `X-Forwarded-For` 绕过限流 |
 
 卡台地址、协议、OpenAPI Key 和 Webhook Secret 在后台「接入卡台」填写，会加密写入数据库。回调路径为 `/api/v1/webhooks/cardplatform/{账户ID}`。
 

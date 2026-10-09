@@ -12,9 +12,7 @@ import { newOrderNo } from "@/lib/ids";
 import {
   findCdkByCode,
   markCodeUsed,
-  markCodesSold,
   releaseLockedCode,
-  reserveCodes,
 } from "@/lib/inventory";
 import { RedeemRejectedError } from "@/lib/redeem-guard-core";
 
@@ -153,6 +151,8 @@ export async function createCodeOrder(input: {
   return created;
 }
 
+class AlreadyFulfilledError extends Error {}
+
 export async function fulfillCodeOrder(orderId: number) {
   await bootDb();
   const order = await db.query.orders.findFirst({
@@ -162,25 +162,55 @@ export async function fulfillCodeOrder(orderId: number) {
   if (order.kind !== "code") throw new Error("非售码订单");
   if (order.fulfillStatus === "fulfilled") return order;
 
-  const reserved = await reserveCodes(order.upstreamPlan, order.quantity, order.id);
-  await markCodesSold(reserved.map((r) => r.id));
-  const codes = reserved.map((r) => r.code);
+  // 抢码、标记售出、订单置 fulfilled 放在同一个写事务（libsql 默认 BEGIN IMMEDIATE）。
+  // 订单以「尚未 fulfilled」为条件更新：并发的第二个调用影响 0 行，整体回滚，
+  // 抢到的码随之释放，不会出现一单两次扣库存或卡停在 locked。
+  const result = await db.transaction(async (tx) => {
+    const rows = await tx
+      .select()
+      .from(cdkPool)
+      .where(and(eq(cdkPool.status, "unused"), eq(cdkPool.planKey, order.upstreamPlan)))
+      .orderBy(asc(cdkPool.id))
+      .limit(order.quantity);
+    if (rows.length < order.quantity) {
+      throw new Error(`库存不足：需要 ${order.quantity}，可用 ${rows.length}`);
+    }
+    const now = new Date().toISOString();
+    for (const row of rows) {
+      const sold = await tx
+        .update(cdkPool)
+        .set({ status: "sold", orderId: order.id, lockedAt: now, soldAt: now, updatedAt: now })
+        .where(and(eq(cdkPool.id, row.id), eq(cdkPool.status, "unused")))
+        .returning({ id: cdkPool.id });
+      if (!sold.length) throw new Error("库存抢占失败，请重试");
+    }
+    const [updated] = await tx
+      .update(orders)
+      .set({
+        payStatus: order.payStatus === "unpaid" ? "paid" : order.payStatus,
+        fulfillStatus: "fulfilled",
+        deliveredCodesJson: JSON.stringify(rows.map((r) => r.code)),
+        paidAt: order.paidAt || now,
+        updatedAt: now,
+        message: "已发码",
+      })
+      .where(and(eq(orders.id, order.id), sql`${orders.fulfillStatus} <> 'fulfilled'`))
+      .returning();
+    // 0 行：另一路已发码。抛哨兵让事务回滚，释放本次抢到的码。
+    if (!updated) throw new AlreadyFulfilledError();
+    return updated;
+  }).catch((error) => {
+    if (error instanceof AlreadyFulfilledError) return null;
+    throw error;
+  });
 
-  const [updated] = await db
-    .update(orders)
-    .set({
-      payStatus: order.payStatus === "unpaid" ? "paid" : order.payStatus,
-      fulfillStatus: "fulfilled",
-      deliveredCodesJson: JSON.stringify(codes),
-      paidAt: order.paidAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      message: "已发码",
-    })
-    .where(eq(orders.id, order.id))
-    .returning();
-
+  if (!result) {
+    const current = await db.query.orders.findFirst({ where: eq(orders.id, order.id) });
+    if (!current) throw new Error("订单不存在");
+    return current;
+  }
   await appendStatusHistory(order.id, "fulfilled", "已发码", "shop");
-  return updated;
+  return result;
 }
 
 export type OpenedRechargeOrder = {
@@ -373,7 +403,8 @@ export async function driveRechargeOrder(input: {
             usedAt: terminalSuccess ? now : null,
             updatedAt: now,
           })
-          .where(eq(issuedCdks.id, opened.issuedId));
+          // 只回写自己还持有的锁：期间被管理员禁用/别处核销的卡不能被覆盖回去。
+          .where(and(eq(issuedCdks.id, opened.issuedId), eq(issuedCdks.status, "locked")));
       }
       return tx
         .update(orders)
@@ -407,7 +438,7 @@ export async function driveRechargeOrder(input: {
       await db
         .update(issuedCdks)
         .set({ status: unknown ? "redeeming" : "unused", updatedAt: now })
-        .where(eq(issuedCdks.id, opened.issuedId));
+        .where(and(eq(issuedCdks.id, opened.issuedId), eq(issuedCdks.status, "locked")));
     }
     const message = error instanceof Error ? error.message : "卡台兑换失败";
     const [updated] = await db

@@ -11,6 +11,7 @@ import {
   storeWebhookSecret,
 } from "@/lib/open-api/webhooks";
 import { WEBHOOK_EVENTS } from "@/lib/open-api/webhooks-core";
+import { checkWebhookUrl } from "@/lib/open-api/webhook-url";
 
 const createSchema = z.object({
   url: z.string().url().max(300),
@@ -49,12 +50,13 @@ export async function POST(req: Request) {
     throw error;
   }
   await bootDb();
-  const parsed = createSchema.safeParse(await req.json());
+  const parsed = createSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "请填写 https 回调地址和事件" }, { status: 400 });
   }
-  if (!parsed.data.url.startsWith("https://")) {
-    return NextResponse.json({ error: "回调地址必须是 https" }, { status: 400 });
+  const urlCheck = await checkWebhookUrl(parsed.data.url);
+  if (!urlCheck.ok) {
+    return NextResponse.json({ error: urlCheck.error }, { status: 400 });
   }
   const events = parseWebhookEvents(parsed.data.events);
   const secret = newWebhookSecret();

@@ -303,6 +303,8 @@ export async function POST(req: Request) {
     }
     if (body.telegramBotToken) {
       await setSetting("telegram_bot_token", encryptSecret(String(body.telegramBotToken).trim()));
+      await setSetting("telegram_bot_username", "");
+      await setSetting("telegram_bot_username_token_hash", "");
     }
     if (body.telegramChatId !== undefined) {
       await setSetting("telegram_chat_id", String(body.telegramChatId || "").trim());

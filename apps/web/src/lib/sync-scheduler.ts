@@ -12,6 +12,10 @@ import { reconcileIssuedCdkStatuses } from "@/lib/cardplatform/reconcile-issued"
 import { pruneRedeemGuard } from "@/lib/redeem-guard";
 import { recoverStuckDrawOrders } from "@/lib/agent-draw";
 import { closePreviousWeekIfDue } from "@/lib/weekly-settlement";
+import { pollTelegramBinds } from "@/lib/telegram-bind";
+import { retryPendingDeliveryMails } from "@/lib/mail";
+import { retryAgentStorePaidNotifies } from "@/lib/notify";
+import { closeExpiredStoreOrders } from "@/lib/store-orders";
 
 const DEFAULT_MINUTES = 15;
 const TICK_INTERVAL_MS = 30_000;
@@ -25,10 +29,13 @@ type SchedulerState = {
   lastPayloadPruneMs?: number;
   lastGuardPruneMs?: number;
   lastDrawRecoverMs?: number;
+  lastStoreOrderCloseMs?: number;
 };
 
 const ISSUED_RECONCILE_INTERVAL_MS = 120_000;
 const DRAW_RECOVER_INTERVAL_MS = 5 * 60_000;
+/** 超时未付款商城订单关闭频率。 */
+const STORE_ORDER_CLOSE_INTERVAL_MS = 5 * 60_000;
 /** 报文清理一天一次就够。 */
 const PAYLOAD_PRUNE_INTERVAL_MS = 24 * 60 * 60_000;
 
@@ -66,6 +73,11 @@ async function maybeTick() {
   state.tickRunning = true;
   try {
     const now = Date.now();
+    try {
+      await pollTelegramBinds();
+    } catch (err) {
+      console.warn("[kaimi-sync] telegram bind poll failed", sanitizeLog(err));
+    }
     if (now - state.lastInflightMs >= 60_000 || state.lastInflightMs === 0) {
       state.lastInflightMs = now;
       try {
@@ -97,6 +109,19 @@ async function maybeTick() {
         console.warn("[kaimi-sync] draw recover failed", sanitizeLog(err));
       }
       try {
+        if (now - (state.lastStoreOrderCloseMs || 0) >= STORE_ORDER_CLOSE_INTERVAL_MS) {
+          state.lastStoreOrderCloseMs = now;
+          const expired = await closeExpiredStoreOrders();
+          if (expired.closed > 0) {
+            console.log(
+              `[kaimi-sync] expired store orders: closed=${expired.closed} couponsReleased=${expired.couponsReleased}`,
+            );
+          }
+        }
+      } catch (err) {
+        console.warn("[kaimi-sync] expired store order close failed", sanitizeLog(err));
+      }
+      try {
         const week = await closePreviousWeekIfDue();
         if (week.failed.length) {
           console.warn(`[kaimi-sync] weekly settlement ${week.week} incomplete: ${week.failed.join("; ")}`);
@@ -105,6 +130,16 @@ async function maybeTick() {
         }
       } catch (err) {
         console.warn("[kaimi-sync] weekly settlement failed", sanitizeLog(err));
+      }
+      try {
+        await retryAgentStorePaidNotifies();
+      } catch (err) {
+        console.warn("[kaimi-sync] agent notify retry failed", sanitizeLog(err));
+      }
+      try {
+        await retryPendingDeliveryMails();
+      } catch (err) {
+        console.warn("[kaimi-sync] delivery mail retry failed", sanitizeLog(err));
       }
       try {
         const poll = await pollInFlightOrders();

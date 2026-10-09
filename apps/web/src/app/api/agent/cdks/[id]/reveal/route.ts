@@ -6,6 +6,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAgent } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { decryptSecret } from "@/lib/crypto";
+import { clientIp } from "@/lib/rate-limit";
 
 export async function POST(
   req: Request,
@@ -35,7 +36,7 @@ export async function POST(
     action: "agent.cdk.reveal",
     targetType: "issued_cdk",
     targetId: cdk.id,
-    ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
+    ip: clientIp(req),
   });
   return NextResponse.json({ code: decryptSecret(cdk.codeEncrypted) });
 }

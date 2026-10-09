@@ -16,6 +16,7 @@ import "./agent-console.css";
 const NAV = [
   { href: "/agent", label: "概览", hint: "店况", group: "每天看" },
   { href: "/agent/notices", label: "公告", hint: "平台", group: "每天看" },
+  { href: "/agent/notify", label: "通知", hint: "绑定", group: "每天看" },
   { href: "/agent/sell", label: "售价与优惠", hint: "定价", group: "怎么卖" },
   { href: "/agent/storefront", label: "店铺", hint: "装修", group: "怎么卖" },
   { href: "/agent/books", label: "账本", hint: "收益", group: "钱和量" },

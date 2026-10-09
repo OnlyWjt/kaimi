@@ -8,7 +8,11 @@ import {
   requireAdmin,
 } from "@/lib/auth";
 import { z } from "zod";
-import { enforceRateLimit } from "@/lib/rate-limit";
+import {
+  clearLoginFailures,
+  guardLoginAttempt,
+  recordLoginFailure,
+} from "@/lib/login-lockout";
 
 export async function GET() {
   await bootDb();
@@ -25,20 +29,29 @@ export async function GET() {
 
 const setupSchema = z.object({
   paymentMode: z.enum(["manual"]).optional().default("manual"),
-  adminUser: z.string().min(3).optional(),
-  adminPassword: z.string().min(6).optional(),
 });
 
 export async function POST(req: Request) {
   await bootDb();
-  const body = await req.json();
-  const action = body?.action as string;
+  const body: Record<string, unknown> | null = await req
+    .json()
+    .then((v: unknown) => (v && typeof v === "object" ? (v as Record<string, unknown>) : null))
+    .catch(() => null);
+  if (!body) return NextResponse.json({ error: "请求参数错误" }, { status: 400 });
+  const action = typeof body.action === "string" ? body.action : "";
 
   if (action === "login") {
-    const limited = enforceRateLimit(req, "legacy-admin-login", 10, 15 * 60_000);
-    if (limited) return limited;
-    const user = await loginAdmin(String(body.username || ""), String(body.password || ""));
-    if (!user) return NextResponse.json({ error: "用户名或密码错误" }, { status: 401 });
+    // admin 页面仍走这个入口；与 /api/auth 共用限流桶和用户名锁定
+    const username = typeof body.username === "string" ? body.username : "";
+    const password = typeof body.password === "string" ? body.password : "";
+    const blocked = guardLoginAttempt(req, username);
+    if (blocked) return blocked;
+    const user = await loginAdmin(username, password);
+    if (!user) {
+      recordLoginFailure(username);
+      return NextResponse.json({ error: "用户名或密码错误" }, { status: 401 });
+    }
+    clearLoginFailures(username);
     return NextResponse.json({ ok: true, username: user.username });
   }
 

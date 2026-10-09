@@ -59,6 +59,12 @@ export const agents = sqliteTable(
     settlementMethod: text("settlement_method").notNull().default(""),
     settlementAccountEncrypted: text("settlement_account_encrypted").notNull().default(""),
     notes: text("notes").notNull().default(""),
+    telegramChatId: text("telegram_chat_id").notNull().default(""),
+    telegramUsername: text("telegram_username").notNull().default(""),
+    telegramNotifyEnabled: integer("telegram_notify_enabled", { mode: "boolean" }).notNull().default(true),
+    mailDeliveryEnabled: integer("mail_delivery_enabled", { mode: "boolean" }).notNull().default(true),
+    mailFromName: text("mail_from_name").notNull().default(""),
+    mailReplyTo: text("mail_reply_to").notNull().default(""),
     createdAt: text("created_at")
       .notNull()
       .default(sql`(datetime('now'))`),
@@ -69,6 +75,26 @@ export const agents = sqliteTable(
   (t) => ({
     slugIdx: uniqueIndex("agents_current_slug_uq").on(t.currentSlug),
     statusIdx: index("agents_status_idx").on(t.status),
+    // 未绑定时是空串，部分索引只约束已绑定的 chat id（迁移见 migrate-lib.ts）
+    telegramChatIdx: uniqueIndex("agents_telegram_chat_id_uq")
+      .on(t.telegramChatId)
+      .where(sql`${t.telegramChatId} IS NOT NULL AND ${t.telegramChatId} <> ''`),
+  }),
+);
+
+export const agentTelegramBindCodes = sqliteTable(
+  "agent_telegram_bind_codes",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    agentId: integer("agent_id").notNull(),
+    code: text("code").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+  },
+  (t) => ({
+    codeIdx: uniqueIndex("agent_telegram_bind_codes_code_uq").on(t.code),
   }),
 );
 
@@ -396,6 +422,15 @@ export const storeOrders = sqliteTable(
     invoiceNotifyStatus: text("invoice_notify_status").notNull().default(""),
     invoiceNotifyError: text("invoice_notify_error").notNull().default(""),
     invoiceNotifiedAt: text("invoice_notified_at"),
+    /** pending | sending | sent | failed | skipped。空表示这单还没进入代理通知。 */
+    agentNotifyStatus: text("agent_notify_status").notNull().default(""),
+    agentNotifyError: text("agent_notify_error").notNull().default(""),
+    agentNotifiedAt: text("agent_notified_at"),
+    agentNotifyAttempts: integer("agent_notify_attempts").notNull().default(0),
+    /** pending | sending | sent | failed | skipped。空表示未发货或这单不寄邮件。 */
+    deliveryMailStatus: text("delivery_mail_status").notNull().default(""),
+    deliveryMailError: text("delivery_mail_error").notNull().default(""),
+    deliveryMailAttempts: integer("delivery_mail_attempts").notNull().default(0),
     paymentChannel: text("payment_channel").notNull(),
     feeRatePpm: integer("fee_rate_ppm").notNull(),
     /** 每笔支付固定费。一单就是一笔支付，不随 quantity 翻倍。 */

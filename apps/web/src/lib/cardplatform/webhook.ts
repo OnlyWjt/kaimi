@@ -9,6 +9,7 @@ import {
   webhookPathForSlug,
 } from "./urls";
 import {
+  webhookBodyOnlySignatureAllowed,
   webhookSignatureCandidates,
   webhookSignatureMatches,
   webhookTimestamps,
@@ -113,15 +114,24 @@ export async function ingestCardplatformWebhook(input: {
   const rawBuf = Buffer.from(input.raw, "utf8");
   const gots = webhookSignatureCandidates(input.headers);
   if (gots.length === 0) return { status: 401 as const };
-  const timestamps = webhookTimestamps(input.headers);
-  const avanfinityTs = (input.headers.get("x-avanfinity-webhook-timestamp") || "").trim();
-  if (avanfinityTs && !webhookTimestampSkewOk(avanfinityTs)) {
+  // 只有数字且在时间窗内的时间戳才参与验签；带了时间戳头却全部不合格直接拒绝。
+  const rawTimestamps = webhookTimestamps(input.headers);
+  const timestamps = rawTimestamps.filter((ts) => webhookTimestampSkewOk(ts));
+  if (rawTimestamps.length > 0 && timestamps.length === 0) {
+    return { status: 401 as const };
+  }
+  const allowBodyOnly = webhookBodyOnlySignatureAllowed();
+  if (timestamps.length === 0 && !allowBodyOnly) {
     return { status: 401 as const };
   }
 
   let matchedAccountId = 0;
   for (const credential of credentials) {
-    if (webhookSignatureMatches(credential.secret, rawBuf, timestamps, gots)) {
+    if (
+      webhookSignatureMatches(credential.secret, rawBuf, timestamps, gots, {
+        allowBodyOnly,
+      })
+    ) {
       matchedAccountId = credential.accountId;
       break;
     }
@@ -148,7 +158,13 @@ export async function ingestCardplatformWebhook(input: {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (!/UNIQUE|unique/i.test(message)) throw error;
+    const cause =
+      error instanceof Error && error.cause instanceof Error
+        ? error.cause.message
+        : "";
+    if (!/UNIQUE|unique/i.test(`${message} ${cause}`)) throw error;
+    // 同一事件已经处理过：直接 200，别再重复 apply / observe。
+    return { status: 200 as const, duplicate: true as const };
   }
   if (eventType.toLowerCase().startsWith("gpt_direct.")) {
     await applyIssuedStatusFromWebhook(payload, eventType, matchedAccountId);

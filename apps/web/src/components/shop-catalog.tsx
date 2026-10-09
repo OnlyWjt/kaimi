@@ -40,7 +40,15 @@ export function ShopCatalog() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ productId, email, quantity: qty }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401 || res.status === 403) {
+        // 内部发卡接口仅供管理员调试；店铺关闭时的 403 自带说明，优先展示它
+        throw new Error(
+          data.error && data.error !== "unauthorized" && data.error !== "forbidden"
+            ? data.error
+            : "内部发卡仅限管理员调试，请先以管理员身份登录",
+        );
+      }
       if (!res.ok) throw new Error(data.error || "下单失败");
       setResult({ orderNo: data.orderNo, codes: data.codes || [] });
     } catch (e) {
