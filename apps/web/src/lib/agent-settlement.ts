@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, isNull, lte, ne } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   agentEarningAdjustments,
@@ -89,12 +89,14 @@ export async function createAgentSettlement(input: CreateSettlementInput): Promi
         amountCents: agentEarningAdjustments.amountCents,
       })
       .from(agentEarningAdjustments)
+      .innerJoin(storeOrders, eq(storeOrders.id, agentEarningAdjustments.orderId))
       .where(
         and(
           eq(agentEarningAdjustments.agentId, input.agentId),
           eq(agentEarningAdjustments.status, "pending"),
           isNull(agentEarningAdjustments.settlementId),
           lte(agentEarningAdjustments.createdAt, input.periodEnd),
+          ne(storeOrders.payStatus, "refunding"),
         ),
       );
     const skippedManualReview = earningRows
@@ -215,6 +217,11 @@ export async function createAgentSettlement(input: CreateSettlementInput): Promi
             ),
             eq(agentEarnings.status, "pending"),
             isNull(agentEarnings.settlementId),
+            sql`EXISTS (
+              SELECT 1 FROM store_orders
+              WHERE store_orders.id = ${agentEarnings.orderId}
+                AND store_orders.pay_status = 'paid'
+            )`,
           ),
         )
         .returning({ id: agentEarnings.id });
@@ -238,6 +245,11 @@ export async function createAgentSettlement(input: CreateSettlementInput): Promi
             ),
             eq(agentEarningAdjustments.status, "pending"),
             isNull(agentEarningAdjustments.settlementId),
+            sql`EXISTS (
+              SELECT 1 FROM store_orders
+              WHERE store_orders.id = ${agentEarningAdjustments.orderId}
+                AND store_orders.pay_status != 'refunding'
+            )`,
           ),
         )
         .returning({ id: agentEarningAdjustments.id });

@@ -694,6 +694,281 @@ button.km-acp-row {
   line-height: 1.65;
 }
 
+/* ---------- 代理账本 ---------- */
+
+.km-books-equation {
+  margin: 0 0 0.85rem;
+  font-size: 0.92rem;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.km-books-note {
+  margin-top: 0.75rem;
+  color: var(--km-fg-muted);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+.km-books-note summary {
+  cursor: pointer;
+}
+
+.km-books-link,
+.km-books-retry {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--km-primary, var(--km-fg));
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.km-books-retry {
+  color: var(--km-danger);
+  font-size: 0.875rem;
+}
+
+.km-books-more {
+  justify-self: center;
+  margin-top: 0.25rem;
+}
+
+.km-books-skipped,
+.km-books-items {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.km-books-skipped li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  gap: 0.6rem;
+  overflow-wrap: anywhere;
+}
+
+.km-books-batch {
+  border: 1px solid color-mix(in oklab, var(--km-border) 90%, transparent);
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--km-bg-muted) 45%, var(--km-bg-elevated));
+  scroll-margin-top: 1rem;
+}
+
+.km-books-batch-head {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.75rem 0.9rem;
+}
+
+.km-books-batch-toggle {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.km-books-batch-main,
+.km-books-batch-amount,
+.km-books-item-main,
+.km-books-card-head > span {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.km-books-batch-amount {
+  text-align: right;
+}
+
+.km-books-batch-main b,
+.km-books-batch-amount b {
+  font-weight: 600;
+}
+
+.km-books-batch-main span,
+.km-books-batch-amount span,
+.km-books-item-main span,
+.km-books-card-head span span {
+  color: var(--km-fg-muted);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.km-books-batch-side {
+  display: grid;
+  justify-items: end;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+}
+
+.km-books-batch-body {
+  border-top: 1px solid var(--km-border);
+  padding: 0.75rem 0.9rem 0.9rem;
+}
+
+.km-books-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.45rem 1rem;
+  margin: 0 0 0.6rem;
+  font-size: 0.8rem;
+}
+
+.km-books-meta dt {
+  color: var(--km-fg-muted);
+  font-size: 0.72rem;
+}
+
+.km-books-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.km-books-items li {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
+  border-bottom: 1px dashed var(--km-border);
+  padding: 0.4rem 0;
+  font-size: 0.85rem;
+}
+
+.km-books-item-type {
+  color: var(--km-fg-muted);
+  font-size: 0.75rem;
+}
+
+.km-books-item-amount {
+  white-space: nowrap;
+}
+
+.km-books-legacy summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.km-books-reversed td:not(:nth-child(3)),
+.km-books-reversed .km-books-card-earning b {
+  color: var(--km-fg-muted);
+}
+
+.km-books-reversed .km-books-card-earning b,
+.km-books-reversed td:nth-child(3) b {
+  text-decoration: line-through;
+}
+
+.km-books-reversed td:nth-child(3) .km-acp-pill {
+  margin-left: 0.35rem;
+}
+
+.km-books-cards {
+  display: none;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.km-books-cards li {
+  border: 1px solid var(--km-border);
+  border-radius: 14px;
+  padding: 0.7rem 0.85rem;
+}
+
+.km-books-cards li + li {
+  margin-top: 0.5rem;
+}
+
+.km-books-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.km-books-card-earning {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.km-books-cards details {
+  margin-top: 0.45rem;
+  font-size: 0.8rem;
+}
+
+.km-books-cards summary {
+  color: var(--km-fg-muted);
+  cursor: pointer;
+}
+
+.km-books-cards .km-books-meta {
+  margin-top: 0.45rem;
+}
+
+@media (max-width: 767px) {
+  .km-books-period-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .km-books-table {
+    display: none;
+  }
+
+  .km-books-cards {
+    display: block;
+  }
+
+  .km-books-batch-head,
+  .km-books-batch-toggle {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .km-books-batch-amount,
+  .km-books-batch-side {
+    justify-items: start;
+    text-align: left;
+  }
+
+  .km-books-batch-side {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .km-books-skipped li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .km-books-skipped li span:nth-child(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .km-books-items li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .km-books-item-type {
+    grid-column: 1 / -1;
+  }
+}
+
 @media (max-width: 960px) {
   .km-acp-frame {
     grid-template-columns: 1fr;

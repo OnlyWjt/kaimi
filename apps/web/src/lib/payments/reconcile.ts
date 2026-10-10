@@ -14,6 +14,8 @@ import {
   isGatewayFeeAnomalous,
   ledgerInputFromOrder,
 } from "@/lib/order-ledger-core";
+import { LOCKED_EARNING_FEE_MESSAGE } from "./fee-lock-core";
+import { writeOrderFee } from "./fee-lock-db";
 
 /** 算出来是负收益：重试多少次都还是负的，直接转人工，不进退避阶梯。 */
 class NegativeEarningError extends Error {}
@@ -164,29 +166,22 @@ export async function reconcilePaymentFee(
     }
     const status = gateway.feeSupported ? "confirmed" : "unsupported";
     const now = new Date().toISOString();
+    let lockedForReview = false;
     await db.transaction(async (tx) => {
-      const [updatedOrder] = await tx
-        .update(storeOrders)
-        .set({
-          actualPaymentFeeCents: actualFee,
-          finalPaymentFeeCents: ledger.finalPaymentFeeCents,
-          agentFeeCents: ledger.agentFeeCents,
-          platformFeeCents: ledger.platformFeeCents,
-          agentEarningCents: ledger.agentEarningCents,
-          platformProfitCents: ledger.platformProfitCents,
-          feeReconcileStatus: status,
-          feeReconcileAttempts: attemptNo,
-          feeReconcileLastError: "",
-          feeReconciledAt: now,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(storeOrders.id, order.id),
-            inArray(storeOrders.feeReconcileStatus, reconcilableStatuses),
-          ),
-        )
-        .returning();
+      // 收益未锁定（无收益行，或 pending 且未挂结算单）时才改订单金额；条件写在同一条
+      // UPDATE 里，判断和写入不会被对账抢占拆开。
+      const outcome = await writeOrderFee(tx, {
+        orderId: order.id,
+        reconcilableStatuses,
+        actualFee,
+        attemptNo,
+        now,
+        finalStatus: status,
+        ledger,
+      });
+      const updatedOrder = outcome.kind === "applied";
+      const lockedOrder = outcome.kind === "locked" ? outcome.status : undefined;
+      lockedForReview = lockedOrder === "manual_review";
       await tx
         .update(paymentFeeReconciliations)
         .set({
@@ -196,7 +191,8 @@ export async function reconcilePaymentFee(
             actualFee === null
               ? null
               : actualFee - order.estimatedPaymentFeeCents,
-          status: updatedOrder ? status : "skipped",
+          status: updatedOrder ? status : lockedOrder ?? "skipped",
+          errorMessage: lockedForReview ? LOCKED_EARNING_FEE_MESSAGE : "",
           responseSummaryJson: JSON.stringify({
             paid: gateway.paid,
             tradeNo: gateway.tradeNo,
@@ -232,6 +228,11 @@ export async function reconcilePaymentFee(
           );
       }
     });
+    if (lockedForReview) {
+      await notifyOpsAlert(
+        `${order.orderNo} 网关手续费 ${actualFee ?? "-"} 分，估算 ${order.estimatedPaymentFeeCents} 分；${LOCKED_EARNING_FEE_MESSAGE}`,
+      );
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : "手续费对账失败";
     if (isGatewayFeeQueryUnsupported(message)) {
@@ -239,30 +240,32 @@ export async function reconcilePaymentFee(
       const fallback = computeOrderLedger(ledgerInputFromOrder(order), {
         gatewayFeeCents: order.estimatedPaymentFeeCents,
       });
+      let fallbackLocked = false;
       await db.transaction(async (tx) => {
-        await tx
-          .update(storeOrders)
-          .set({
-            finalPaymentFeeCents: fallback.finalPaymentFeeCents,
-            agentFeeCents: fallback.agentFeeCents,
-            platformFeeCents: fallback.platformFeeCents,
-            agentEarningCents: fallback.agentEarningCents,
-            platformProfitCents: fallback.platformProfitCents,
-            feeReconcileStatus: "unsupported",
-            feeReconcileAttempts: attemptNo,
-            feeReconcileLastError: "",
-            feeReconciledAt: now,
-            updatedAt: now,
-          })
-          .where(eq(storeOrders.id, order.id));
+        const outcome = await writeOrderFee(tx, {
+          orderId: order.id,
+          reconcilableStatuses,
+          actualFee: null,
+          attemptNo,
+          now,
+          finalStatus: "unsupported",
+          ledger: fallback,
+        });
+        const updatedOrder = outcome.kind === "applied";
+        const lockedOrder = outcome.kind === "locked" ? outcome.status : undefined;
+        fallbackLocked = lockedOrder === "manual_review";
         await tx
           .update(paymentFeeReconciliations)
           .set({
-            status: "unsupported",
-            errorMessage: message.slice(0, 500),
+            status: updatedOrder ? "unsupported" : lockedOrder ?? "skipped",
+            errorMessage: (fallbackLocked
+              ? `${LOCKED_EARNING_FEE_MESSAGE}；${message}`
+              : message
+            ).slice(0, 500),
             finishedAt: now,
           })
           .where(eq(paymentFeeReconciliations.id, attempt.id));
+        if (!updatedOrder) return;
         await tx
           .update(agentEarnings)
           .set({

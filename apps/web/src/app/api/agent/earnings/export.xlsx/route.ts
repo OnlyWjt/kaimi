@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { and, asc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, eq, gte, lt } from "drizzle-orm";
 import { db } from "@/db";
 import {
   agentEarningAdjustments,
@@ -8,13 +8,23 @@ import {
   agentSettlements,
   storeOrders,
 } from "@/db/schema";
+import { beijingPeriodBounds } from "@/lib/agent-console-core";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAgent } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { buildEarningsWorkbook } from "@/lib/earnings-export";
 import { buildEarningsTotals, issuedCdkSummaryLabel } from "@/lib/earnings-rows";
 import { issuedCdkCountsFor } from "@/lib/earnings-sql";
-import { periodBoundary } from "@/lib/period";
+
+/** 北京时间今天的 YYYY-MM-DD，作为未传 end 时的默认结束日（整天都算）。 */
+function beijingToday() {
+  return beijingDate(new Date().toISOString());
+}
+
+/** ISO 时间点 → 北京日期 YYYY-MM-DD（汇总页按日期展示；纯日期串导出时原样落格）。 */
+function beijingDate(iso: string) {
+  return new Date(Date.parse(iso) + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
 
 export async function GET(req: Request) {
   let session;
@@ -29,14 +39,11 @@ export async function GET(req: Request) {
   let start: string;
   let end: string;
   try {
-    start = periodBoundary(
+    // 与 /api/agent/ledger/period 同一口径：北京时间左闭右开 [start, end)。
+    ({ start, end } = beijingPeriodBounds(
       query.get("start")?.trim() || "1970-01-01",
-      false,
-    );
-    end = periodBoundary(
-      query.get("end")?.trim() || new Date().toISOString().slice(0, 10),
-      true,
-    );
+      query.get("end")?.trim() || beijingToday(),
+    ));
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "时间范围格式无效" },
@@ -46,7 +53,7 @@ export async function GET(req: Request) {
   const conditions = [
     eq(agentEarnings.agentId, session.agentId),
     gte(agentEarnings.confirmedAt, start),
-    lte(agentEarnings.confirmedAt, end),
+    lt(agentEarnings.confirmedAt, end),
   ];
 
   const rows = await db
@@ -82,7 +89,7 @@ export async function GET(req: Request) {
     where: and(
       eq(agentSettlements.agentId, session.agentId),
       gte(agentSettlements.createdAt, start),
-      lte(agentSettlements.createdAt, end),
+      lt(agentSettlements.createdAt, end),
     ),
     orderBy: [asc(agentSettlements.createdAt)],
   });
@@ -109,7 +116,7 @@ export async function GET(req: Request) {
       and(
         eq(agentEarningAdjustments.agentId, session.agentId),
         gte(agentEarningAdjustments.createdAt, start),
-        lte(agentEarningAdjustments.createdAt, end),
+        lt(agentEarningAdjustments.createdAt, end),
       ),
     )
     .orderBy(asc(agentEarningAdjustments.createdAt));
@@ -118,8 +125,9 @@ export async function GET(req: Request) {
   });
   const buffer = await buildEarningsWorkbook({
     summary: {
-      periodStart: start,
-      periodEnd: end,
+      periodStart: beijingDate(start),
+      // end 是开区间（次日 0 点），展示最后一个被包含的北京日期。
+      periodEnd: beijingDate(new Date(Date.parse(end) - 1).toISOString()),
       agentName: profile?.displayName || session.username,
       ...buildEarningsTotals(rows, adjustments),
     },

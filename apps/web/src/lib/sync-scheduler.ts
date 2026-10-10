@@ -11,7 +11,6 @@ import { syncEnabledAccountProducts } from "@/lib/cardplatform/products";
 import { reconcileIssuedCdkStatuses } from "@/lib/cardplatform/reconcile-issued";
 import { pruneRedeemGuard } from "@/lib/redeem-guard";
 import { recoverStuckDrawOrders } from "@/lib/agent-draw";
-import { closePreviousWeekIfDue } from "@/lib/weekly-settlement";
 import { pollTelegramBinds } from "@/lib/telegram-bind";
 import { retryPendingDeliveryMails } from "@/lib/mail";
 import { retryAgentStorePaidNotifies } from "@/lib/notify";
@@ -121,16 +120,7 @@ async function maybeTick() {
       } catch (err) {
         console.warn("[kaimi-sync] expired store order close failed", sanitizeLog(err));
       }
-      try {
-        const week = await closePreviousWeekIfDue();
-        if (week.failed.length) {
-          console.warn(`[kaimi-sync] weekly settlement ${week.week} incomplete: ${week.failed.join("; ")}`);
-        } else if (!week.already && week.created.length) {
-          console.log(`[kaimi-sync] weekly settlement ${week.week}: ${week.created.join(",")}`);
-        }
-      } catch (err) {
-        console.warn("[kaimi-sync] weekly settlement failed", sanitizeLog(err));
-      }
+      // 周结已停。对账改走 reconciliation 批次，任务不能再自动占用收益。
       try {
         await retryAgentStorePaidNotifies();
       } catch (err) {

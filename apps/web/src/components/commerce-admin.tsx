@@ -19,24 +19,6 @@ type ChannelRule = {
 };
 
 type AgentOption = { id: number; displayName: string };
-type BlockingSettlement = {
-  id: number;
-  settlementNo: string;
-  amountCents: number;
-};
-type Settlement = {
-  id: number;
-  settlementNo: string;
-  agentName: string;
-  settlementPayee?: string;
-  settlementMethod?: string;
-  settlementAccount?: string;
-  periodStart: string;
-  periodEnd: string;
-  amountCents: number;
-  status: string;
-  paymentReference: string;
-};
 type StoreOrder = {
   id: number;
   orderNo: string;
@@ -93,13 +75,6 @@ function invoiceNotifyLabel(status?: string) {
   return "待推送";
 }
 
-function localIsoDate(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
   const [message, setMessage] = useState("");
   const { ask, dialog } = useAskDialog();
@@ -120,7 +95,6 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
   const [maxOrderQuantity, setMaxOrderQuantity] = useState("5");
   const [batchRedeemLimit, setBatchRedeemLimit] = useState("20");
   const [agents, setAgents] = useState<AgentOption[]>([]);
-  const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [storeOrders, setStoreOrders] = useState<StoreOrder[]>([]);
   const [orderPage, setOrderPage] = useState(1);
   const [orderTotal, setOrderTotal] = useState(0);
@@ -136,30 +110,6 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
   const [orderFilters, setOrderFilters] = useState(emptyOrderFilters);
   const [backgroundJobs, setBackgroundJobs] = useState<BackgroundJob[]>([]);
   const [health, setHealth] = useState<OpsHealth | null>(null);
-  const [audit, setAudit] = useState<{
-    scanned: number;
-    ok: number;
-    issues: Array<{
-      orderNo: string;
-      agent: string;
-      kinds: string[];
-      earningStatus?: string | null;
-      settlementNo?: string | null;
-      expected?: { agentEarningCents?: number };
-      stored?: { agentEarningCents?: number };
-    }>;
-  } | null>(null);
-  const [settlementItems, setSettlementItems] = useState<{
-    id: number;
-    lines: string[];
-  } | null>(null);
-  const [settlementForm, setSettlementForm] = useState({
-    agentId: 0,
-    periodStart: localIsoDate(
-      new Date(new Date().getFullYear(), new Date().getMonth(), 1),
-    ),
-    periodEnd: localIsoDate(),
-  });
 
   function storeOrderQuery(page: number, filters = orderFilters) {
     const qs = new URLSearchParams({
@@ -188,10 +138,9 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
 
   async function load() {
     setLoaded(false);
-    const [paymentRes, agentsRes, settlementsRes, ordersRes, jobsRes, healthRes, rulesRes] = await Promise.all([
+    const [paymentRes, agentsRes, ordersRes, jobsRes, healthRes, rulesRes] = await Promise.all([
       fetch("/api/admin/payment", { cache: "no-store" }),
       fetch("/api/admin/agents", { cache: "no-store" }),
-      fetch("/api/admin/settlements", { cache: "no-store" }),
       fetch(`/api/admin/store-orders?${storeOrderQuery(orderPage)}`, {
         cache: "no-store",
       }),
@@ -199,10 +148,9 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
       fetch("/api/admin/ops-health", { cache: "no-store" }),
       fetch("/api/admin?section=store_rules", { cache: "no-store" }),
     ]);
-    const [paymentData, agentData, settlementData, orderData, jobsData, healthData, rulesData] = await Promise.all([
+    const [paymentData, agentData, orderData, jobsData, healthData, rulesData] = await Promise.all([
       paymentRes.json(),
       agentsRes.json(),
-      settlementsRes.json(),
       ordersRes.json(),
       jobsRes.json(),
       healthRes.json(),
@@ -211,7 +159,6 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
     if (
       !paymentRes.ok ||
       !agentsRes.ok ||
-      !settlementsRes.ok ||
       !ordersRes.ok ||
       !jobsRes.ok ||
       !healthRes.ok ||
@@ -239,15 +186,7 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
         },
       }));
     }
-    if (agentsRes.ok) {
-      const nextAgents = agentData.list || [];
-      setAgents(nextAgents);
-      setSettlementForm((current) => ({
-        ...current,
-        agentId: current.agentId || nextAgents[0]?.id || 0,
-      }));
-    }
-    if (settlementsRes.ok) setSettlements(settlementData.list || []);
+    if (agentsRes.ok) setAgents(agentData.list || []);
     if (ordersRes.ok) {
       setStoreOrders(orderData.list || []);
       setOrderTotal(Number(orderData.total) || 0);
@@ -340,187 +279,6 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
         `买家一次最多可以买 ${data.maxOrderQuantity} 张，批量兑换一次最多 ${data.batchRedeemLimit} 张`,
       );
     }
-  }
-
-  async function recalculateFees(releaseSettlements = false) {
-    const data = await submit("/api/admin/earnings/recalculate", {
-      releaseSettlements,
-    });
-    if (!data) return;
-    const blocking: BlockingSettlement[] = data.blockingSettlements ?? [];
-    if (blocking.length) {
-      const list = blocking
-        .map(
-          (item) =>
-            `${item.settlementNo}（¥${(item.amountCents / 100).toFixed(2)}）`,
-        )
-        .join("、");
-      const ok = await ask({
-        title: "先撤销占用中的结算单？",
-        message: `有 ${blocking.length} 张待返佣结算单占用着要改的收益：\n${list}\n\n撤销它们并按当前费率重算。收益会回到待结算，你可以立刻重新生成结算单。`,
-        confirmLabel: "撤销并重算",
-        danger: true,
-      });
-      if (ok) {
-        await recalculateFees(true);
-        return;
-      }
-    }
-    const notes: string[] = [];
-    if (data.releasedSettlements) {
-      notes.push(`撤销了 ${data.releasedSettlements} 张待返佣结算单，请重新生成`);
-    }
-    if (blocking.length) {
-      notes.push(`${blocking.length} 张结算单仍占用着收益，未改动`);
-    }
-    if (data.skippedPaidSettlement) {
-      notes.push(`${data.skippedPaidSettlement} 笔已返佣，不能改账`);
-    }
-    if (data.skippedGatewayActual) {
-      notes.push(`${data.skippedGatewayActual} 笔用网关真实手续费`);
-    }
-    if (data.skippedNegative) {
-      notes.push(`${data.skippedNegative} 笔按新费率会亏本，请检查零售价`);
-    }
-    setMessage(
-      `已重算 ${data.updated} 笔（扫描 ${data.scanned} 笔，${data.unchanged} 笔本来就是对的）` +
-        (notes.length ? `。${notes.join("；")}` : ""),
-    );
-    await load();
-  }
-
-  async function createSettlement() {
-    const data = await submit("/api/admin/settlements", {
-      agentId: settlementForm.agentId,
-      periodStart: settlementForm.periodStart,
-      periodEnd: settlementForm.periodEnd,
-    });
-    if (data?.settlement) {
-      const skipped = Array.isArray(data.skippedManualReview) ? data.skippedManualReview : [];
-      setMessage(
-        `已生成结算单 ${data.settlement.settlementNo}，金额 ¥${(data.settlement.amountCents / 100).toFixed(2)}` +
-          (skipped.length ? `。跳过 ${skipped.length} 笔手续费待核对：${skipped.join("、")}` : ""),
-      );
-      await load();
-    }
-  }
-
-  async function runAudit() {
-    setBusy(true);
-    setMessage("");
-    try {
-      const response = await fetch("/api/admin/earnings/audit", { cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "核对失败");
-      setAudit(data);
-      setMessage(`核对了 ${data.scanned} 笔已支付订单，${data.issues?.length || 0} 笔需要看`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "核对失败");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function reviewFee(orderNo: string, decision: "accept_gateway" | "keep_estimate") {
-    const data = await submit(`/api/admin/store-orders/${encodeURIComponent(orderNo)}/fee-review`, {
-      decision,
-    });
-    if (data?.ok) {
-      setMessage(
-        decision === "accept_gateway"
-          ? `${orderNo} 已采用网关手续费`
-          : `${orderNo} 已保留估算手续费`,
-      );
-      await runAudit();
-    }
-  }
-
-  async function fixAudit(orderNo: string) {
-    const data = await submit("/api/admin/earnings/audit", { orderNo });
-    if (data?.ok) {
-      setMessage(
-        data.adjustmentCents != null
-          ? `${orderNo} 已返佣，差额 ¥${(data.adjustmentCents / 100).toFixed(2)} 记到下期`
-          : `${orderNo} 已按快照修正`,
-      );
-      await runAudit();
-    }
-  }
-
-  async function showSettlementItems(settlement: Settlement) {
-    setBusy(true);
-    try {
-      const response = await fetch(`/api/admin/settlements/${settlement.id}/items`, {
-        cache: "no-store",
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "明细加载失败");
-      const lines = [
-        ...(data.earnings || []).map(
-          (row: { orderNo: string; earningCents: number; couponCode?: string }) =>
-            `${row.orderNo}  收益 ¥${(row.earningCents / 100).toFixed(2)}${row.couponCode ? `  券 ${row.couponCode}` : ""}`,
-        ),
-        ...(data.adjustments || []).map(
-          (row: { orderNo: string; amountCents: number; type: string }) =>
-            `${row.orderNo}  调整 ${row.type} ¥${(row.amountCents / 100).toFixed(2)}`,
-        ),
-      ];
-      setSettlementItems({ id: settlement.id, lines });
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "明细加载失败");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function cancelSettlement(settlement: Settlement) {
-    const ok = await ask({
-      title: `撤销结算单 ${settlement.settlementNo}？`,
-      message: `单据里的 ¥${(settlement.amountCents / 100).toFixed(2)} 收益会退回待结算，之后可以重算手续费再重新生成。`,
-      confirmLabel: "撤销",
-      danger: true,
-    });
-    if (!ok) return;
-    const data = await submit(
-      `/api/admin/settlements/${settlement.id}`,
-      { action: "cancel" },
-      "PATCH",
-    );
-    if (data) {
-      setMessage(`已撤销 ${settlement.settlementNo}，收益已退回待结算`);
-      await load();
-    }
-  }
-
-  async function markSettlementPaid(settlement: Settlement) {
-    const answer = await ask({
-      title: `标记 ${settlement.settlementNo} 已返佣`,
-      message: [
-        `金额 ¥${(settlement.amountCents / 100).toFixed(2)}，标记后不能再撤销。`,
-        settlement.settlementPayee ? `收款人 ${settlement.settlementPayee}` : "",
-        settlement.settlementMethod ? `收款方式 ${settlement.settlementMethod}` : "",
-        settlement.settlementAccount ? `收款账号 ${settlement.settlementAccount}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      fields: [
-        {
-          name: "paymentMethod",
-          label: "返佣方式",
-          placeholder: "支付宝 / 银行转账",
-          required: true,
-        },
-        { name: "paymentReference", label: "付款流水号", required: true },
-      ],
-      confirmLabel: "标记已返佣",
-    });
-    if (!answer) return;
-    const data = await submit(`/api/admin/settlements/${settlement.id}`, {
-      action: "mark_paid",
-      paymentMethod: answer.paymentMethod,
-      paymentReference: answer.paymentReference,
-    }, "PATCH");
-    if (data) await load();
   }
 
   async function storeOrderAction(
@@ -1227,11 +985,11 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
       <section className="km-panel space-y-3">
         <h2 className="text-xl font-semibold">卡台账户</h2>
         <p className="text-sm text-[var(--km-fg-muted)]">
-          卡台地址和 API Key 在「接入卡台」。套餐价格在「代理管理」。代理收益按周自动出单，在「每周收益」里打款。
+          卡台地址和 API Key 在「接入卡台」。套餐价格在「代理管理」。代理的商店收益和提卡在「对账」里按代理结清，周结已停用。
         </p>
         <div className="flex flex-wrap gap-2">
           <a href="/admin#integration" className="km-btn km-btn-ghost inline-flex">去接入卡台</a>
-          <a href="/admin#week" className="km-btn km-btn-ghost inline-flex">每周收益</a>
+          <a href="/admin#reconcile" className="km-btn km-btn-ghost inline-flex">去对账</a>
         </div>
       </section>
     </div>

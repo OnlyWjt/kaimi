@@ -17,6 +17,7 @@ import { AdminAgentDraw } from "@/components/admin-agent-draw";
 import { KmSelect } from "@/components/km-select";
 import { AdminUsageStats } from "@/components/admin-usage-stats";
 import { AdminWeeklyEarnings } from "@/components/admin-weekly-earnings";
+import { AdminReconciliation } from "@/components/admin-reconciliation";
 import { AdminMailSettings, AdminTelegramBindings } from "@/components/admin-mail-settings";
 import { CommerceAdmin } from "@/components/commerce-admin";
 import { FinishedAccountsAdmin } from "@/components/finished-accounts-admin";
@@ -42,6 +43,7 @@ type Tab =
   | "earnings"
   | "usage"
   | "week"
+  | "reconcile"
   | "appearance"
   | "guide";
 
@@ -119,6 +121,7 @@ const HASH_TABS: Tab[] = [
   "draw",
   "earnings",
   "week",
+  "reconcile",
   "usage",
   "appearance",
   "guide",
@@ -314,7 +317,8 @@ export default function AdminPage() {
           items: [
             ["agents", "代理管理"],
             ["draw", "提卡账本"],
-            ["week", "每周收益"],
+            ["reconcile", "对账"],
+            ["week", "历史周结"],
             ["earnings", "收益统计"],
           ],
         },
@@ -1173,6 +1177,7 @@ export default function AdminPage() {
         {tab === "draw" ? <AdminAgentDraw /> : null}
 
         {tab === "earnings" ? <AdminEarningsStats /> : null}
+        {tab === "reconcile" ? <AdminReconciliation /> : null}
         {tab === "week" ? <AdminWeeklyEarnings /> : null}
 
         {tab === "usage" ? <AdminUsageStats /> : null}

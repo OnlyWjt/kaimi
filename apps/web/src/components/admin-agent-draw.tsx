@@ -11,7 +11,6 @@ import {
   creditHeat,
   drawCodeUseLabel,
   formatYuan,
-  summarizeDrawItems,
 } from "@/lib/agent-draw-core";
 import { hasNextPage, pageLabel } from "@/lib/pagination-core";
 
@@ -98,6 +97,9 @@ type BillFilter = {
 
 const EMPTY_BILL_FILTER: BillFilter = { agentId: 0, query: "", method: "", status: "", from: "", to: "" };
 
+/** 对账在后台「代理 → 对账」tab；对账页目前不读 query，只跳转。 */
+const RECONCILE_HREF = "/admin#reconcile";
+
 const STATUS: Record<string, string> = {
   approved: "已开通",
   pending: "审核中",
@@ -178,17 +180,13 @@ export function AdminAgentDraw() {
   const [selectedId, setSelectedId] = useState(0);
   const [items, setItems] = useState<LedgerItem[]>([]);
   const [stuck, setStuck] = useState<StuckOrder[]>([]);
-  const [checked, setChecked] = useState<number[]>([]);
   const [view, setView] = useState<"ledger" | "bills" | "apply">("ledger");
   const [grantAgentId, setGrantAgentId] = useState(0);
   const [creditYuan, setCreditYuan] = useState("");
   const [maxPerDraw, setMaxPerDraw] = useState("10");
   const [dailyLimit, setDailyLimit] = useState("0");
   const [notifyEach, setNotifyEach] = useState(true);
-  const [settleOpen, setSettleOpen] = useState(false);
-  const [payMethod, setPayMethod] = useState("alipay");
-  const [payRef, setPayRef] = useState("");
-  const [payNotes, setPayNotes] = useState("");
+  const [reconcileError, setReconcileError] = useState("");
   const [voidTarget, setVoidTarget] = useState<LedgerItem | null>(null);
   const [manualTarget, setManualTarget] = useState<LedgerItem | null>(null);
   const [manualReason, setManualReason] = useState("");
@@ -223,7 +221,6 @@ export function AdminAgentDraw() {
     setItemTotal(Number(data.itemTotal) || 0);
     setItemPage(Number(data.itemPage) || page);
     setStuck(data.stuck || []);
-    setChecked((data.items || []).map((item: LedgerItem) => item.id));
     return data;
   }
 
@@ -252,18 +249,7 @@ export function AdminAgentDraw() {
       [item.drawNo, item.codeMasked, item.planName].some((value) => value.toLowerCase().includes(query)),
     );
   }, [items, itemQuery]);
-  const selectedItems = useMemo(
-    () => visibleItems.filter((item) => checked.includes(item.id)),
-    [visibleItems, checked],
-  );
-  const selectedCents = selectedItems.reduce((sum, item) => sum + item.amountCents, 0);
-  const groups = summarizeDrawItems(
-    selectedItems.map((item) => ({
-      planKey: item.planKey,
-      planName: item.planName,
-      amountCents: item.amountCents,
-    })),
-  );
+  const visibleCents = visibleItems.reduce((sum, item) => sum + item.amountCents, 0);
 
   function fillSettings(agent: LedgerAgent | undefined) {
     setCreditYuan(agent ? yuanTextFromCents(agent.creditLimitCents) : "");
@@ -274,7 +260,6 @@ export function AdminAgentDraw() {
 
   async function openAgent(agentId: number) {
     setSelectedId(agentId);
-    setSettleOpen(false);
     setVoidTarget(null);
     setBusy("load");
     try {
@@ -289,6 +274,7 @@ export function AdminAgentDraw() {
 
   async function post(body: unknown, ok: string) {
     setBusy("post");
+    setReconcileError("");
     try {
       const response = await fetch("/api/admin/draw", {
         method: "POST",
@@ -296,7 +282,11 @@ export function AdminAgentDraw() {
         body: JSON.stringify(body),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "操作失败");
+      if (!response.ok) {
+        const error = String(data.error || "操作失败");
+        if (response.status === 409 && error.includes("对账")) setReconcileError(error);
+        throw new Error(error);
+      }
       toast(data.warning ? `${ok}。${data.warning}` : ok, data.warning ? "err" : undefined);
       await load(selectedId);
       if (typeof data.creditLimitCents === "number") {
@@ -326,6 +316,19 @@ export function AdminAgentDraw() {
 
   return (
     <div className="space-y-4">
+      {reconcileError ? (
+        <div className="km-panel flex flex-wrap items-center justify-between gap-3 border-amber-300 text-sm">
+          <p>{reconcileError}</p>
+          <div className="flex gap-2">
+            <a className="km-btn km-btn-sm" href={RECONCILE_HREF}>
+              去对账
+            </a>
+            <button type="button" className="km-btn km-btn-ghost km-btn-sm" onClick={() => setReconcileError("")}>
+              知道了
+            </button>
+          </div>
+        </div>
+      ) : null}
       <section className="grid gap-3 sm:grid-cols-3">
         <div className="km-stat">
           <p className="text-xs text-[var(--km-fg-muted)]">待审批</p>
@@ -578,9 +581,9 @@ export function AdminAgentDraw() {
                           className="km-btn km-btn-ghost km-btn-sm"
                           disabled={Boolean(busy)}
                           onClick={() => {
-                            const reason = window.prompt("撤销原因") || "";
+                            const reason = window.prompt("撤销原因（撤销后这些卡回到未结，会进入新的对账）") || "";
                             if (!reason.trim()) return;
-                            void post({ action: "revert-bill", billId: bill.id, reason }, "已撤销，这些卡回到未结算");
+                            void post({ action: "revert-bill", billId: bill.id, reason }, "已撤销，这些卡回到未结，会进入新的对账");
                           }}
                         >
                           撤销
@@ -710,14 +713,6 @@ export function AdminAgentDraw() {
                     >
                       查结算
                     </button>
-                    <button
-                      type="button"
-                      className="km-btn km-btn-sm"
-                      disabled={!selectedItems.length || Boolean(busy)}
-                      onClick={() => setSettleOpen(true)}
-                    >
-                      登记结算{selectedItems.length ? ` ${yuan(selectedCents)}` : ""}
-                    </button>
                   </div>
                 </div>
                 <div className="rounded-2xl border border-[var(--km-border)] p-4">
@@ -789,65 +784,14 @@ export function AdminAgentDraw() {
                     </div>
                   </div>
                 </div>
-                {settleOpen ? (
-                  <div className="space-y-3 rounded-2xl border border-[var(--km-border)] p-4 text-sm">
-                    <p className="font-medium">
-                      登记结算 · {selected.name} · {selectedItems.length} 张 · {yuan(selectedCents)}
-                    </p>
-                    {groups.map((group) => (
-                      <p key={`${group.planKey}-${group.unitPriceCents}`} className="text-[var(--km-fg-muted)]">
-                        {group.planName} × {group.count} = {yuan(group.amountCents)}
-                      </p>
-                    ))}
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      <Field label="收款方式">
-                        <KmSelect
-                          value={payMethod}
-                          options={DRAW_PAYMENT_METHODS.map((method) => ({ value: method.value, label: method.label }))}
-                          onChange={setPayMethod}
-                        />
-                      </Field>
-                      <Field label="流水号">
-                        <input className="km-input w-full" value={payRef} onChange={(event) => setPayRef(event.target.value)} />
-                      </Field>
-                      <Field label="备注">
-                        <input className="km-input w-full" value={payNotes} onChange={(event) => setPayNotes(event.target.value)} />
-                      </Field>
-                    </div>
-                    <div className="flex gap-2">
-                      <button type="button" className="km-btn km-btn-ghost" onClick={() => setSettleOpen(false)}>
-                        取消
-                      </button>
-                      <button
-                        type="button"
-                        className="km-btn"
-                        disabled={Boolean(busy)}
-                        onClick={() => {
-                          void post(
-                            {
-                              action: "settle",
-                              agentId: selected.agentId,
-                              itemIds: selectedItems.map((item) => item.id),
-                              expectedAmountCents: selectedCents,
-                              paymentMethod: payMethod,
-                              paymentReference: payRef,
-                              notes: payNotes,
-                            },
-                            `已结算 ${selectedItems.length} 张，${yuan(selectedCents)}`,
-                          ).then((ok) => {
-                            if (ok) {
-                              setSettleOpen(false);
-                              setPayRef("");
-                              setPayNotes("");
-                            }
-                          });
-                        }}
-                      >
-                        确认已收到 {yuan(selectedCents)}
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--km-border)] bg-[var(--km-bg-muted)] p-4 text-sm">
+                  <p>
+                    提卡已并入对账。这里不再单独登记结算，未结的卡会和商店收益一起在「对账」里按代理结清。
+                  </p>
+                  <a className="km-btn km-btn-sm" href={RECONCILE_HREF}>
+                    去对账
+                  </a>
+                </div>
                 {stuck.length ? (
                   <div className="space-y-2 text-sm">
                     {stuck.map((order) => (
@@ -999,26 +943,13 @@ export function AdminAgentDraw() {
                     />
                   </Field>
                   <p className="text-xs text-[var(--km-fg-muted)]">
-                    {visibleItems.length} 张{itemQuery.trim() ? `，已选 ${selectedItems.length} 张` : ""}
+                    {visibleItems.length} 张{itemQuery.trim() ? `，合计 ${yuan(visibleCents)}` : ""}
                   </p>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[860px] text-left text-sm">
                     <thead>
                       <tr className="border-b border-[var(--km-border)]">
-                        <th className="py-2 pr-3">
-                          <input
-                            type="checkbox"
-                            checked={visibleItems.length > 0 && visibleItems.every((item) => checked.includes(item.id))}
-                            onChange={(event) =>
-                              setChecked(
-                                event.target.checked
-                                  ? [...new Set([...checked, ...visibleItems.map((item) => item.id)])]
-                                  : checked.filter((id) => !visibleItems.some((item) => item.id === id)),
-                              )
-                            }
-                          />
-                        </th>
                         <th className="py-2 pr-3">时间</th>
                         <th className="py-2 pr-3">提卡单</th>
                         <th className="py-2 pr-3">套餐</th>
@@ -1031,24 +962,13 @@ export function AdminAgentDraw() {
                     <tbody>
                       {visibleItems.length === 0 ? (
                         <tr>
-                          <td colSpan={8} className="py-6 text-[var(--km-fg-muted)]">
+                          <td colSpan={7} className="py-6 text-[var(--km-fg-muted)]">
                             {items.length === 0 ? "这个代理没有未结算的提卡。" : "没有符合筛选的卡密。"}
                           </td>
                         </tr>
                       ) : null}
                       {visibleItems.map((item) => (
                         <tr key={item.id} className="border-b border-[var(--km-border)]">
-                          <td className="py-2 pr-3">
-                            <input
-                              type="checkbox"
-                              checked={checked.includes(item.id)}
-                              onChange={(event) =>
-                                setChecked((current) =>
-                                  event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id),
-                                )
-                              }
-                            />
-                          </td>
                           <td className="py-2 pr-3">{item.createdAt.slice(5, 16).replace("T", " ")}</td>
                           <td className="py-2 pr-3 font-mono text-xs">{item.drawNo}</td>
                           <td className="py-2 pr-3">

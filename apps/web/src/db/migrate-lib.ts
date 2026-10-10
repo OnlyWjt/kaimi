@@ -420,7 +420,6 @@ CREATE TABLE IF NOT EXISTS agent_earning_adjustments (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE UNIQUE INDEX IF NOT EXISTS agent_earning_adjustments_order_type_uq ON agent_earning_adjustments(order_id, type);
 CREATE INDEX IF NOT EXISTS agent_earning_adjustments_agent_status_idx ON agent_earning_adjustments(agent_id, status);
 
 CREATE TABLE IF NOT EXISTS agent_settlements (
@@ -1363,6 +1362,11 @@ async function ensureOrderLedgerSchema() {
     "ALTER TABLE agent_settlements ADD COLUMN item_count INTEGER NOT NULL DEFAULT 0",
   );
 
+  // Existing rows start at version 0; ORM inserts use schema default 1.
+  await addColumn(
+    "ALTER TABLE agent_earnings ADD COLUMN fee_fields_version INTEGER NOT NULL DEFAULT 0",
+  );
+
   const flag = await db.query.settings.findFirst({
     where: eq(settings.key, "migration_order_ledger_fees_v1"),
   });
@@ -1411,6 +1415,7 @@ async function ensureOrderLedgerSchema() {
       .set({
         agentFeeCents: fee.agentFeeCents,
         totalFeeCents: fee.finalFeeCents,
+        feeFieldsVersion: 1,
         // 已进结算单的旧列仍是渠道手续费总额，不能改成代理承担的那一段。
         ...(row.status === "pending" ? { paymentFeeCents: fee.agentFeeCents } : {}),
       })
@@ -1426,6 +1431,46 @@ async function ensureOrderLedgerSchema() {
     });
   }
   await restoreSettledFeeColumn();
+  await ensureFeeFieldsVersion();
+}
+
+/** Mark only rows whose split fee fields were recomputed from a valid order ledger. */
+async function ensureFeeFieldsVersion() {
+  const flag = await db.query.settings.findFirst({
+    where: eq(settings.key, "migration_order_ledger_fee_fields_version_v1"),
+  });
+  if (flag?.value === "done") return;
+  const orders = await db.query.storeOrders.findMany();
+  const byId = new Map(orders.map((order) => [order.id, order]));
+  const rows = await db.query.agentEarnings.findMany();
+  for (const row of rows) {
+    if (row.feeFieldsVersion !== 0) continue;
+    const order = byId.get(row.orderId);
+    if (!order) continue;
+    try {
+      const ledger = computeOrderLedger(
+        {
+          grossCents: order.grossCents,
+          invoiceSurchargeCents: order.invoiceSurchargeCents || 0,
+          agentCostTotalCents: order.agentCostTotalCents,
+          upstreamCostTotalCents: null,
+          feeRule: { ratePpm: order.feeRatePpm, fixedFeeCents: order.fixedFeeCents },
+        },
+        { gatewayFeeCents: order.finalPaymentFeeCents },
+      );
+      await db.update(agentEarnings).set({
+        agentFeeCents: ledger.agentFeeCents,
+        totalFeeCents: ledger.finalPaymentFeeCents,
+        feeFieldsVersion: 1,
+        ...(row.status === "pending" ? { paymentFeeCents: ledger.agentFeeCents } : {}),
+      }).where(eq(agentEarnings.id, row.id));
+    } catch (error) {
+      console.warn(`[order-ledger] 无法确认收益行 ${row.id} 的手续费字段：${error instanceof Error ? error.message : error}`);
+    }
+  }
+  await db.insert(settings)
+    .values({ key: "migration_order_ledger_fee_fields_version_v1", value: "done" })
+    .onConflictDoUpdate({ target: settings.key, set: { value: "done" } });
 }
 
 async function restoreSettledFeeColumn() {
@@ -1590,4 +1635,133 @@ async function ensureRedeemGuardSchema() {
     );
     CREATE INDEX IF NOT EXISTS api_webhook_deliveries_endpoint_idx ON api_webhook_deliveries(endpoint_id);
   `);
+  await ensureReconciliationSchema();
+}
+
+async function ensureReconciliationSchema() {
+  const addColumn = async (sqlText: string) => {
+    try {
+      await client.execute(sqlText);
+    } catch (error) {
+      if (!/duplicate column/i.test(String(error))) throw error;
+    }
+  };
+  await addColumn("ALTER TABLE agent_earning_adjustments ADD COLUMN sequence INTEGER NOT NULL DEFAULT 1");
+  await addColumn(
+    "ALTER TABLE agent_earning_adjustments ADD COLUMN business_event_key TEXT NOT NULL DEFAULT ''",
+  );
+  await addColumn("ALTER TABLE agent_earning_adjustments ADD COLUMN original_batch_id INTEGER");
+  await client.execute(`
+    UPDATE agent_earning_adjustments
+    SET business_event_key = 'legacy-adjustment:' || id
+    WHERE business_event_key = ''
+  `);
+  await client.execute("DROP INDEX IF EXISTS agent_earning_adjustments_order_type_uq");
+  await client.execute(`
+    CREATE UNIQUE INDEX IF NOT EXISTS agent_earning_adjustments_order_type_seq_uq
+    ON agent_earning_adjustments(order_id, type, sequence)
+  `);
+  await client.execute(`
+    CREATE UNIQUE INDEX IF NOT EXISTS agent_earning_adjustments_event_key_uq
+    ON agent_earning_adjustments(business_event_key)
+  `);
+  await client.executeMultiple(`
+    CREATE TABLE IF NOT EXISTS agent_reconciliation_batches (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      batch_no TEXT NOT NULL,
+      agent_id INTEGER NOT NULL,
+      cutoff_at TEXT NOT NULL,
+      period_label TEXT NOT NULL DEFAULT '',
+      currency TEXT NOT NULL DEFAULT 'CNY',
+      store_earning_cents INTEGER NOT NULL,
+      adjustment_cents INTEGER NOT NULL,
+      draw_debt_cents INTEGER NOT NULL,
+      net_cents INTEGER NOT NULL,
+      store_count INTEGER NOT NULL DEFAULT 0,
+      adjustment_count INTEGER NOT NULL DEFAULT 0,
+      draw_count INTEGER NOT NULL DEFAULT 0,
+      direction TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
+      snapshot_hash TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_by INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      paid_at TEXT,
+      cancelled_at TEXT,
+      payment_method TEXT NOT NULL DEFAULT '',
+      payment_reference TEXT NOT NULL DEFAULT '',
+      payment_note TEXT NOT NULL DEFAULT '',
+      actual_payment_at TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS agent_reconciliation_batches_no_uq
+      ON agent_reconciliation_batches(batch_no);
+    CREATE INDEX IF NOT EXISTS agent_reconciliation_batches_agent_idx
+      ON agent_reconciliation_batches(agent_id, created_at);
+    CREATE INDEX IF NOT EXISTS agent_reconciliation_batches_status_idx
+      ON agent_reconciliation_batches(status);
+    CREATE TABLE IF NOT EXISTS agent_reconciliation_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      batch_id INTEGER NOT NULL,
+      agent_id INTEGER NOT NULL,
+      source_type TEXT NOT NULL,
+      source_id INTEGER NOT NULL,
+      source_version TEXT NOT NULL,
+      amount_cents INTEGER NOT NULL,
+      direction TEXT NOT NULL,
+      source_order_no TEXT NOT NULL DEFAULT '',
+      snapshot_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS agent_reconciliation_items_source_uq
+      ON agent_reconciliation_items(batch_id, source_type, source_id);
+    CREATE INDEX IF NOT EXISTS agent_reconciliation_items_batch_idx
+      ON agent_reconciliation_items(batch_id);
+    CREATE TABLE IF NOT EXISTS agent_reconciliation_claims (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_type TEXT NOT NULL,
+      source_id INTEGER NOT NULL,
+      batch_id INTEGER NOT NULL,
+      claim_state TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS agent_reconciliation_claims_source_uq
+      ON agent_reconciliation_claims(source_type, source_id);
+    CREATE INDEX IF NOT EXISTS agent_reconciliation_claims_batch_idx
+      ON agent_reconciliation_claims(batch_id);
+    CREATE TABLE IF NOT EXISTS agent_reconciliation_corrections (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      original_batch_id INTEGER NOT NULL,
+      source_item_id INTEGER NOT NULL,
+      original_order_id INTEGER NOT NULL,
+      sequence INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      reference TEXT NOT NULL DEFAULT '',
+      new_adjustment_id INTEGER NOT NULL,
+      new_batch_id INTEGER,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_by INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS agent_reconciliation_corrections_adjustment_uq
+      ON agent_reconciliation_corrections(new_adjustment_id);
+    CREATE INDEX IF NOT EXISTS agent_reconciliation_corrections_batch_idx
+      ON agent_reconciliation_corrections(original_batch_id);
+    CREATE TABLE IF NOT EXISTS reconciliation_idempotency (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      actor_id INTEGER NOT NULL,
+      action TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL,
+      payload_hash TEXT NOT NULL,
+      result_status INTEGER NOT NULL,
+      result_json TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS reconciliation_idempotency_key_uq
+      ON reconciliation_idempotency(actor_id, action, idempotency_key);
+  `);
+  // 旧待返佣单（pending_payment/draft）不再自动取消：自动退回会让已线下打款但没点「已返佣」的单被重复结算。
+  // 这些单及其 settling 收益保持原样，由管理员在旧周结页逐张「标记已付」或「取消」。
+  // 新对账 loadLines 把 status=settling 的收益/调整计入 locked，不会纳入新批次。
+  // 历史上若已跑过 reconciliation_release_unpaid_store_v1，这里也不回滚数据。
 }

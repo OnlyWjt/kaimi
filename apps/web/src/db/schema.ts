@@ -686,6 +686,8 @@ export const agentEarnings = sqliteTable(
     agentFeeCents: integer("agent_fee_cents").notNull().default(0),
     /** 渠道手续费总额，含平台承担的部分。 */
     totalFeeCents: integer("total_fee_cents").notNull().default(0),
+    /** 1 = split fee fields are authoritative; 0 = legacy payment_fee_cents row. */
+    feeFieldsVersion: integer("fee_fields_version").notNull().default(1),
     paymentFeeCents: integer("payment_fee_cents").notNull(),
     feeSource: text("fee_source").notNull().default("estimated"),
     earningCents: integer("earning_cents").notNull(),
@@ -729,6 +731,10 @@ export const agentEarningAdjustments = sqliteTable(
     reference: text("reference").notNull().default(""),
     status: text("status").notNull().default("pending"),
     settlementId: integer("settlement_id"),
+    /** 同一订单、同一调整类型内递增。撤回后不复用。 */
+    sequence: integer("sequence").notNull().default(1),
+    businessEventKey: text("business_event_key").notNull().default(""),
+    originalBatchId: integer("original_batch_id"),
     createdAt: text("created_at")
       .notNull()
       .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
@@ -737,10 +743,12 @@ export const agentEarningAdjustments = sqliteTable(
       .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
   },
   (t) => ({
-    orderTypeIdx: uniqueIndex("agent_earning_adjustments_order_type_uq").on(
+    orderTypeSequenceIdx: uniqueIndex("agent_earning_adjustments_order_type_seq_uq").on(
       t.orderId,
       t.type,
+      t.sequence,
     ),
+    eventKeyIdx: uniqueIndex("agent_earning_adjustments_event_key_uq").on(t.businessEventKey),
     agentStatusIdx: index("agent_earning_adjustments_agent_status_idx").on(
       t.agentId,
       t.status,
@@ -773,6 +781,142 @@ export const agentSettlements = sqliteTable(
     agentCreatedIdx: index("agent_settlements_agent_created_idx").on(
       t.agentId,
       t.createdAt,
+    ),
+  }),
+);
+
+/** 商店收益和提卡合成的一次对账。快照生成后金额不再改。 */
+export const agentReconciliationBatches = sqliteTable(
+  "agent_reconciliation_batches",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    batchNo: text("batch_no").notNull(),
+    agentId: integer("agent_id").notNull(),
+    cutoffAt: text("cutoff_at").notNull(),
+    periodLabel: text("period_label").notNull().default(""),
+    currency: text("currency").notNull().default("CNY"),
+    storeEarningCents: integer("store_earning_cents").notNull(),
+    adjustmentCents: integer("adjustment_cents").notNull(),
+    drawDebtCents: integer("draw_debt_cents").notNull(),
+    netCents: integer("net_cents").notNull(),
+    storeCount: integer("store_count").notNull().default(0),
+    adjustmentCount: integer("adjustment_count").notNull().default(0),
+    drawCount: integer("draw_count").notNull().default(0),
+    direction: text("direction").notNull(),
+    /** draft | pending_payment | paid | cleared | cancelled | correction_pending | corrected */
+    status: text("status").notNull().default("draft"),
+    snapshotHash: text("snapshot_hash").notNull(),
+    version: integer("version").notNull().default(1),
+    createdBy: integer("created_by").notNull(),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+    paidAt: text("paid_at"),
+    cancelledAt: text("cancelled_at"),
+    paymentMethod: text("payment_method").notNull().default(""),
+    paymentReference: text("payment_reference").notNull().default(""),
+    paymentNote: text("payment_note").notNull().default(""),
+    actualPaymentAt: text("actual_payment_at"),
+  },
+  (t) => ({
+    batchNoIdx: uniqueIndex("agent_reconciliation_batches_no_uq").on(t.batchNo),
+    agentCreatedIdx: index("agent_reconciliation_batches_agent_idx").on(t.agentId, t.createdAt),
+    statusIdx: index("agent_reconciliation_batches_status_idx").on(t.status),
+  }),
+);
+
+export const agentReconciliationItems = sqliteTable(
+  "agent_reconciliation_items",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    batchId: integer("batch_id").notNull(),
+    agentId: integer("agent_id").notNull(),
+    sourceType: text("source_type").notNull(),
+    sourceId: integer("source_id").notNull(),
+    sourceVersion: text("source_version").notNull(),
+    amountCents: integer("amount_cents").notNull(),
+    direction: text("direction").notNull(),
+    sourceOrderNo: text("source_order_no").notNull().default(""),
+    snapshotJson: text("snapshot_json").notNull(),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+  },
+  (t) => ({
+    batchSourceIdx: uniqueIndex("agent_reconciliation_items_source_uq").on(
+      t.batchId,
+      t.sourceType,
+      t.sourceId,
+    ),
+    batchIdx: index("agent_reconciliation_items_batch_idx").on(t.batchId),
+  }),
+);
+
+/** 来源行只能被一个未完成或已结批次占用。取消时删掉活跃行，已结长期保留。 */
+export const agentReconciliationClaims = sqliteTable(
+  "agent_reconciliation_claims",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    sourceType: text("source_type").notNull(),
+    sourceId: integer("source_id").notNull(),
+    batchId: integer("batch_id").notNull(),
+    /** active | settled */
+    claimState: text("claim_state").notNull(),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+  },
+  (t) => ({
+    sourceIdx: uniqueIndex("agent_reconciliation_claims_source_uq").on(t.sourceType, t.sourceId),
+    batchIdx: index("agent_reconciliation_claims_batch_idx").on(t.batchId),
+  }),
+);
+
+export const agentReconciliationCorrections = sqliteTable(
+  "agent_reconciliation_corrections",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    originalBatchId: integer("original_batch_id").notNull(),
+    sourceItemId: integer("source_item_id").notNull(),
+    originalOrderId: integer("original_order_id").notNull(),
+    sequence: integer("sequence").notNull(),
+    type: text("type").notNull(),
+    reason: text("reason").notNull(),
+    reference: text("reference").notNull().default(""),
+    newAdjustmentId: integer("new_adjustment_id").notNull(),
+    newBatchId: integer("new_batch_id"),
+    /** pending | rejected | applied */
+    status: text("status").notNull().default("pending"),
+    createdBy: integer("created_by").notNull(),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+  },
+  (t) => ({
+    adjustmentIdx: uniqueIndex("agent_reconciliation_corrections_adjustment_uq").on(t.newAdjustmentId),
+    batchIdx: index("agent_reconciliation_corrections_batch_idx").on(t.originalBatchId),
+  }),
+);
+
+export const reconciliationIdempotency = sqliteTable(
+  "reconciliation_idempotency",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    actorId: integer("actor_id").notNull(),
+    action: text("action").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    payloadHash: text("payload_hash").notNull(),
+    resultStatus: integer("result_status").notNull(),
+    resultJson: text("result_json").notNull().default(""),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+  },
+  (t) => ({
+    keyIdx: uniqueIndex("reconciliation_idempotency_key_uq").on(
+      t.actorId,
+      t.action,
+      t.idempotencyKey,
     ),
   }),
 );

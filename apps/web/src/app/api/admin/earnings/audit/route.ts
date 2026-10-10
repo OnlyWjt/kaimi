@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import {
@@ -18,6 +18,8 @@ import {
   recomputeStoredLedger,
   verifyLedger,
 } from "@/lib/order-ledger-core";
+import { applyAuditCorrection, type CorrectionResult } from "@/lib/payments/fee-correction-db";
+import { ReconciliationError } from "@/lib/reconciliation";
 
 const fixSchema = z.object({
   orderNo: z.string().trim().min(1),
@@ -48,20 +50,21 @@ export async function GET() {
       earningCents: agentEarnings.earningCents,
       earningStatus: agentEarnings.status,
       settlementNo: agentSettlements.settlementNo,
-      correctionCents: agentEarningAdjustments.amountCents,
     })
     .from(storeOrders)
     .innerJoin(agents, eq(agents.id, storeOrders.agentId))
     .leftJoin(agentEarnings, eq(agentEarnings.orderId, storeOrders.id))
     .leftJoin(agentSettlements, eq(agentSettlements.id, agentEarnings.settlementId))
-    .leftJoin(
-      agentEarningAdjustments,
-      and(
-        eq(agentEarningAdjustments.orderId, storeOrders.id),
-        eq(agentEarningAdjustments.type, "fee_correction"),
-      ),
-    )
     .where(eq(storeOrders.payStatus, "paid"));
+
+  const corrections = await db.select().from(agentEarningAdjustments).where(and(
+    eq(agentEarningAdjustments.type, "fee_correction"),
+    inArray(agentEarningAdjustments.status, ["pending", "settling", "settled"]),
+  ));
+  const correctionByOrder = new Map<number, number>();
+  for (const row of corrections) {
+    correctionByOrder.set(row.orderId, (correctionByOrder.get(row.orderId) ?? 0) + row.amountCents);
+  }
 
   const issues: Array<Record<string, unknown>> = [];
   let ok = 0;
@@ -82,17 +85,19 @@ export async function GET() {
           }
         : null;
       const mismatches = verifyLedger(order, earning);
+      const correctionCents = correctionByOrder.get(order.id) ?? 0;
       const corrected =
-        row.correctionCents != null &&
         expectedEarning != null &&
-        row.correctionCents === expectedEarning - order.agentEarningCents;
+        correctionCents === expectedEarning - order.agentEarningCents;
       const kinds: string[] = [];
       if (!corrected && mismatches.some((item) => item.code === "agent_earning" || item.code === "agent_fee")) {
         kinds.push("formula_mismatch");
       }
       if (
-        !corrected &&
-        mismatches.some((item) => item.code.startsWith("earning_row_"))
+        mismatches.some((item) => item.code.startsWith("earning_row_")) &&
+        !(row.earningCents != null && row.earningCents + correctionCents === expectedEarning &&
+          row.earningGross === order.grossCents - order.invoiceSurchargeCents &&
+          row.earningCost === order.agentCostTotalCents)
       ) {
         kinds.push("order_earning_row_mismatch");
       }
@@ -167,37 +172,37 @@ export async function POST(req: Request) {
   }
 
   if (earning?.status === "settled") {
-    const delta = ledger.agentEarningCents - earning.earningCents;
-    if (delta === 0) return NextResponse.json({ ok: true, unchanged: true });
-    const inserted = await db
-      .insert(agentEarningAdjustments)
-      .values({
-        agentId: earning.agentId,
-        orderId: order.id,
-        sourceEarningId: earning.id,
-        type: "fee_correction",
-        amountCents: delta,
-        reason: "按订单快照修正已返佣收益",
-        status: "pending",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing({
-        target: [agentEarningAdjustments.orderId, agentEarningAdjustments.type],
-      })
-      .returning({ id: agentEarningAdjustments.id });
-    if (!inserted.length) {
-      return NextResponse.json(
-        { error: "这单已经有一条差额调整，没有重复写入" },
-        { status: 409 },
+    let outcome: CorrectionResult;
+    try {
+      outcome = await db.transaction((tx) =>
+        applyAuditCorrection(tx, {
+          orderId: order.id,
+          orderNo: order.orderNo,
+          earningId: earning.id,
+          expectedUpdatedAt: order.updatedAt,
+          now,
+        }),
       );
+    } catch (error) {
+      if (error instanceof ReconciliationError) {
+        return NextResponse.json(
+          { error: error.message, code: error.code },
+          { status: error.status === 422 ? 422 : 409 },
+        );
+      }
+      return NextResponse.json({ error: error instanceof Error ? error.message : "修正失败" }, { status: 409 });
+    }
+    const delta = outcome.deltaCents;
+    if (delta === 0) return NextResponse.json({ ok: true, unchanged: true });
+    if (outcome.replayed) {
+      return NextResponse.json({ ok: true, replayed: true, adjustmentCents: delta });
     }
     await writeAuditLog({
       actor: session,
       action: "admin.earning.fee_correction",
       targetType: "store_order",
       targetId: order.id,
-      metadata: { orderNo: order.orderNo, delta },
+      metadata: { orderNo: order.orderNo, delta, adjustmentId: outcome.adjustmentId },
     });
     return NextResponse.json({ ok: true, adjustmentCents: delta });
   }

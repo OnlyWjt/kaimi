@@ -12,6 +12,12 @@ import {
   ledgerInputFromOrder,
 } from "@/lib/order-ledger-core";
 import { calculatePaymentFeeCents } from "./fees";
+import {
+  NO_LOCKED_EARNING_SQL,
+  RECALC_SETTLED_MESSAGE,
+  RECALC_SETTLING_MESSAGE,
+  earningLockState,
+} from "./fee-lock-core";
 
 /**
  * 手续费是下单那一刻按当时费率算好写进订单的，之后不会自己变。
@@ -42,10 +48,13 @@ export type RecalculateFeesResult = {
   releasedSettlements: number;
   /** 待返佣结算单占用着待改收益，撤销后才能重算。 */
   blockingSettlements: BlockingSettlement[];
+  /** 收益已锁定（对账中 / 已结算）没有重算的订单，附处理提示。 */
+  skippedLocked: Array<{ orderId: number; orderNo: string; message: string }>;
 };
 
 type PlannedChange = {
   orderId: number;
+  orderNo: string;
   earningId: number | null;
   feeRatePpm: number;
   fixedFeeCents: number;
@@ -131,6 +140,7 @@ export async function recalculateEstimatedFees(
     skippedNoChannelRule: 0,
     releasedSettlements: 0,
     blockingSettlements: [],
+    skippedLocked: [],
   };
 
   const ready: PlannedChange[] = [];
@@ -174,6 +184,7 @@ export async function recalculateEstimatedFees(
 
     const change: PlannedChange = {
       orderId: order.id,
+      orderNo: order.orderNo,
       earningId: null,
       feeRatePpm: rule.feeRatePpm,
       fixedFeeCents: rule.fixedFeeCents,
@@ -212,6 +223,17 @@ export async function recalculateEstimatedFees(
     // 已返佣的钱不能事后改账；还没返佣的只是被占用，撤销单据就能放出来。
     if (!settlement || settlement.status !== "pending_payment") {
       result.skippedPaidSettlement += 1;
+      const lock = earningLockState(earningRow);
+      result.skippedLocked.push({
+        orderId: order.id,
+        orderNo: order.orderNo,
+        message:
+          lock === "settling"
+            ? RECALC_SETTLING_MESSAGE
+            : lock === "settled"
+              ? RECALC_SETTLED_MESSAGE
+              : "收益已锁定，没有重算",
+      });
       continue;
     }
     blockingById.set(settlement.id, {
@@ -233,8 +255,10 @@ export async function recalculateEstimatedFees(
 
   for (const change of applying) {
     const now = new Date().toISOString();
-    await db.transaction(async (tx) => {
-      await tx
+    const applied = await db.transaction(async (tx) => {
+      // 规划到写入之间收益可能被新对账批次占用（settling）：订单更新带 NOT EXISTS
+      // 已锁定收益的条件，没命中就整单跳过，不出现「改了订单没改收益行」。
+      const [updatedOrder] = await tx
         .update(storeOrders)
         .set({
           feeRatePpm: change.feeRatePpm,
@@ -247,7 +271,9 @@ export async function recalculateEstimatedFees(
           platformProfitCents: change.platformProfitCents,
           updatedAt: now,
         })
-        .where(eq(storeOrders.id, change.orderId));
+        .where(and(eq(storeOrders.id, change.orderId), sql.raw(NO_LOCKED_EARNING_SQL)))
+        .returning({ id: storeOrders.id });
+      if (!updatedOrder) return false;
       if (change.earningId !== null) {
         await tx
           .update(agentEarnings)
@@ -271,7 +297,16 @@ export async function recalculateEstimatedFees(
             ),
           );
       }
+      return true;
     });
+    if (!applied) {
+      result.skippedLocked.push({
+        orderId: change.orderId,
+        orderNo: change.orderNo,
+        message: RECALC_SETTLING_MESSAGE,
+      });
+      continue;
+    }
     result.updated += 1;
   }
 

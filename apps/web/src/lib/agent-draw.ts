@@ -6,6 +6,7 @@ import {
   agentDrawBills,
   agentDrawItems,
   agentDrawOrders,
+  agentReconciliationClaims,
   agentPlanPrices,
   agents,
   issuedCdks,
@@ -247,8 +248,12 @@ export async function listUnsettledDrawItems(
   };
 }
 
+/**
+ * 旧的单独结提卡入口已关闭：提卡并入对账，按代理和商店收益一起结清。
+ * 保留签名，避免调用方编译错误。
+ */
 export async function settleDrawItems(
-  input: {
+  _input: {
     agentId: number;
     itemIds: number[];
     expectedAmountCents: number;
@@ -256,87 +261,36 @@ export async function settleDrawItems(
     paymentReference: string;
     notes: string;
   },
-  actor: Actor,
-) {
-  if (!normalizeDrawPaymentMethod(input.paymentMethod)) throw new DrawError("请选择收款方式");
-  const itemIds = [...new Set(input.itemIds)];
-  if (itemIds.length === 0) throw new DrawError("请先勾选要结算的卡密");
-  if (itemIds.length > DRAW_MAX_SETTLE_ITEMS) {
-    throw new DrawError(`一次最多结算 ${DRAW_MAX_SETTLE_ITEMS} 张`);
-  }
-  const now = nowIso();
-  const bill = await db.transaction(async (tx) => {
-    const rows = await tx
-      .select()
-      .from(agentDrawItems)
-      .where(and(eq(agentDrawItems.agentId, input.agentId), inArray(agentDrawItems.id, itemIds)));
-    if (rows.length !== itemIds.length || rows.some((row) => row.status !== "unsettled")) {
-      throw new DrawError("有卡密状态已变化，请刷新后再结", 409);
-    }
-    const amountCents = rows.reduce((sum, row) => sum + row.amountCents, 0);
-    if (amountCents !== input.expectedAmountCents) {
-      throw new DrawError("金额对不上，请刷新后再结", 409);
-    }
-    const times = rows.map((row) => row.createdAt).sort();
-    const orders = await tx
-      .select({
-        id: agentDrawOrders.id,
-        planKey: agentDrawOrders.planKeySnapshot,
-        planName: agentDrawOrders.planNameSnapshot,
-      })
-      .from(agentDrawOrders)
-      .where(inArray(agentDrawOrders.id, [...new Set(rows.map((row) => row.drawOrderId))]));
-    const nameByOrder = new Map(orders.map((order) => [order.id, order]));
-    const summary = summarizeDrawItems(
-      rows.map((row) => ({
-        planKey: row.planKey,
-        planName: nameByOrder.get(row.drawOrderId)?.planName || row.planKey,
-        amountCents: row.amountCents,
-      })),
-    );
-    const [created] = await tx
-      .insert(agentDrawBills)
-      .values({
-        billNo: newOrderNo("DB"),
-        agentId: input.agentId,
-        itemCount: rows.length,
-        amountCents,
-        firstItemAt: times[0] || now,
-        lastItemAt: times[times.length - 1] || now,
-        summaryJson: JSON.stringify(summary),
-        paymentMethod: input.paymentMethod,
-        paymentReference: input.paymentReference,
-        notes: input.notes,
-        createdBy: actor.id,
-        createdAt: now,
-      })
-      .returning();
-    if (!created) throw new DrawError("结算单创建失败");
-    await tx
-      .update(agentDrawItems)
-      .set({ status: "settled", billId: created.id, settledAt: now, updatedAt: now })
-      .where(
-        and(
-          eq(agentDrawItems.agentId, input.agentId),
-          eq(agentDrawItems.status, "unsettled"),
-          inArray(agentDrawItems.id, itemIds),
-        ),
-      );
-    await tx
-      .update(agentDrawAccess)
-      .set({ creditWarnedAt: null, updatedAt: now })
-      .where(eq(agentDrawAccess.agentId, input.agentId));
-    return created;
-  });
-  await writeAuditLog({
-    actor,
-    action: "admin.draw.bill.create",
-    targetType: "agent_draw_bill",
-    targetId: bill.id,
-    metadata: { agentId: input.agentId, itemCount: bill.itemCount, amountCents: bill.amountCents },
-  });
-  return bill;
+  _actor: Actor,
+): Promise<typeof agentDrawBills.$inferSelect> {
+  throw new DrawError("提卡已并入对账。请到「对账」按代理结清商店收益和提卡。", 409);
 }
+
+/** 这张提卡是否被未结束的对账批次占用。 */
+async function drawItemInActiveBatch(tx: Pick<typeof db, "select">, itemId: number) {
+  const [claim] = await tx
+    .select({ id: agentReconciliationClaims.id })
+    .from(agentReconciliationClaims)
+    .where(
+      and(
+        eq(agentReconciliationClaims.sourceType, "draw_item"),
+        eq(agentReconciliationClaims.sourceId, itemId),
+        eq(agentReconciliationClaims.claimState, "active"),
+      ),
+    )
+    .limit(1);
+  return Boolean(claim);
+}
+
+const DRAW_IN_BATCH_MESSAGE = "这张卡已经在对账批次里，先取消或结清批次";
+
+/** 写入条件：没有 active 对账占用。检查后到写入之间被占用时，条件 update 更新 0 行。 */
+const noActiveDrawClaim = sql`NOT EXISTS (
+  SELECT 1 FROM agent_reconciliation_claims
+  WHERE agent_reconciliation_claims.source_type = 'draw_item'
+    AND agent_reconciliation_claims.source_id = ${agentDrawItems.id}
+    AND agent_reconciliation_claims.claim_state = 'active'
+)`;
 
 export async function grantDrawAccess(
   input: { agentId: number; creditLimitCents?: number; maxPerDraw?: number; adminNote?: string },
@@ -1612,9 +1566,12 @@ export async function voidDrawItem(
   if (row.cdkStatus !== "unused" && !row.manualUsedAt) {
     throw new DrawError("这张卡已经使用或正在兑换，不能作废");
   }
+  // 先查对账占用，再碰外部卡台；写入时再用 NOT EXISTS 条件兜底。
+  if (await drawItemInActiveBatch(db, row.id)) throw new DrawError(DRAW_IN_BATCH_MESSAGE, 409);
   if (input.mode === "upstream" && row.cdkStatus === "unused") await refundDrawCardUpstream(row);
   const now = nowIso();
   await db.transaction(async (tx) => {
+    if (await drawItemInActiveBatch(tx, row.id)) throw new DrawError(DRAW_IN_BATCH_MESSAGE, 409);
     const [updated] = await tx
       .update(agentDrawItems)
       .set({
@@ -1624,7 +1581,7 @@ export async function voidDrawItem(
         voidedBy: actor.id,
         updatedAt: now,
       })
-      .where(and(eq(agentDrawItems.id, row.id), eq(agentDrawItems.status, "unsettled")))
+      .where(and(eq(agentDrawItems.id, row.id), eq(agentDrawItems.status, "unsettled"), noActiveDrawClaim))
       .returning();
     if (!updated) throw new DrawError("这张卡状态已变化，请刷新", 409);
     await tx
@@ -1663,9 +1620,11 @@ export async function manualUseDrawItem(input: { itemId: number; reason: string 
   if (!row || row.status !== "unsettled") throw new DrawError("只有未结算的卡可以手动核销");
   if (row.manualUsedAt) throw new DrawError("这张卡已经手动核销过");
   if (row.cdkStatus !== "unused") throw new DrawError("这张卡已经使用或正在兑换，不能再核销");
+  if (await drawItemInActiveBatch(db, row.id)) throw new DrawError(DRAW_IN_BATCH_MESSAGE, 409);
   await refundDrawCardUpstream(row);
   const now = nowIso();
   await db.transaction(async (tx) => {
+    if (await drawItemInActiveBatch(tx, row.id)) throw new DrawError(DRAW_IN_BATCH_MESSAGE, 409);
     const [updated] = await tx
       .update(agentDrawItems)
       .set({
@@ -1679,6 +1638,7 @@ export async function manualUseDrawItem(input: { itemId: number; reason: string 
           eq(agentDrawItems.id, row.id),
           eq(agentDrawItems.status, "unsettled"),
           isNull(agentDrawItems.manualUsedAt),
+          noActiveDrawClaim,
         ),
       )
       .returning();

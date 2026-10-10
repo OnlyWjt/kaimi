@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { beijingMondayYmd, previousCompletedWeekYmd } from "@/lib/beijing-week";
-import { closeBeijingWeek, closePreviousWeekIfDue, listWeekHeld } from "@/lib/weekly-settlement";
+import { listWeekHeld } from "@/lib/weekly-settlement";
 
 export async function GET(req: Request) {
   try {
@@ -32,8 +32,13 @@ export async function POST(req: Request) {
   if (requested && requested >= beijingMondayYmd()) {
     return NextResponse.json({ error: "这一周还没结束，不能结算" }, { status: 400 });
   }
-  const result = requested
-    ? await closeBeijingWeek(requested, session.id)
-    : await closePreviousWeekIfDue();
-  return NextResponse.json({ ...result, previous });
+  void session;
+  return NextResponse.json({
+    disabled: true,
+    created: [],
+    failed: [],
+    held: [],
+    previous,
+    message: "周结已关闭。未结账到「对账」里按代理生成批次。",
+  });
 }

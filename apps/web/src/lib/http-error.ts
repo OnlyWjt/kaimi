@@ -25,6 +25,10 @@ export function messageFromApiBody(
 function stringifyErrorField(error: unknown): string {
   if (typeof error === "string" && error.trim()) return error.trim();
   if (!error || typeof error !== "object") return "";
+  if (typeof (error as { message?: unknown }).message === "string") {
+    const message = (error as { message: string }).message.trim();
+    if (message) return message;
+  }
   const obj = error as {
     formErrors?: unknown;
     fieldErrors?: Record<string, unknown>;

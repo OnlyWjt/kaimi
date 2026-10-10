@@ -1,13 +1,8 @@
 import { NextResponse } from "next/server";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import {
-  agentEarningAdjustments,
-  agentEarnings,
-  issuedCdks,
-  storeOrders,
-} from "@/db/schema";
+import { agentEarningAdjustments, agentEarnings, issuedCdks, storeOrders } from "@/db/schema";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth";
 import { getCardplatformClientById } from "@/lib/cardplatform/config";
@@ -107,7 +102,11 @@ export async function PATCH(
       where: eq(issuedCdks.orderId, order.id),
     }),
   ]);
-  if (earning?.status === "settling") {
+  const activeAdjustments = await db.query.agentEarningAdjustments.findMany({
+    where: and(eq(agentEarningAdjustments.orderId, order.id),
+      inArray(agentEarningAdjustments.status, ["pending", "settling", "settled"])),
+  });
+  if (earning?.status === "settling" || activeAdjustments.some((row) => row.status === "settling")) {
     return NextResponse.json(
       { error: "该收益正在结算，请先取消待付款结算单" },
       { status: 409 },
@@ -137,6 +136,14 @@ export async function PATCH(
         eq(storeOrders.payStatus, "paid"),
         eq(storeOrders.fulfillStatus, order.fulfillStatus),
         eq(storeOrders.updatedAt, order.updatedAt),
+        sql`NOT EXISTS (
+          SELECT 1 FROM agent_earnings ae
+          WHERE ae.order_id = ${order.id} AND ae.status = 'settling'
+        )`,
+        sql`NOT EXISTS (
+          SELECT 1 FROM agent_earning_adjustments aa
+          WHERE aa.order_id = ${order.id} AND aa.status = 'settling'
+        )`,
       ),
     )
     .returning({ id: storeOrders.id });
@@ -225,6 +232,20 @@ export async function PATCH(
   const now = new Date().toISOString();
   try {
     await db.transaction(async (tx) => {
+      const earning = await tx.query.agentEarnings.findFirst({
+        where: eq(agentEarnings.orderId, order.id),
+      });
+      const adjustments = await tx.query.agentEarningAdjustments.findMany({
+        where: and(eq(agentEarningAdjustments.orderId, order.id),
+          inArray(agentEarningAdjustments.status, ["pending", "settling", "settled"])),
+      });
+      if (earning?.status === "settling" || adjustments.some((row) => row.status === "settling")) {
+        throw new Error("收益或调整正在结算，请先取消待付款结算单");
+      }
+      if (earning && earning.status !== "settled" &&
+          (earning.status !== "pending" || adjustments.length > 0)) {
+        throw new Error("未结收益存在调整或状态异常，请先人工核对");
+      }
       const [updated] = await tx
         .update(storeOrders)
         .set({
@@ -265,26 +286,23 @@ export async function PATCH(
         }
       }
       if (earning?.status === "settled") {
-        await tx
-          .insert(agentEarningAdjustments)
-          .values({
-            agentId: earning.agentId,
-            orderId: order.id,
-            sourceEarningId: earning.id,
-            type: parsed.data.type,
-            amountCents: -earning.earningCents,
-            reason: parsed.data.reason,
-            reference: parsed.data.reference,
-            status: "pending",
-            createdAt: now,
-            updatedAt: now,
-          })
-          .onConflictDoNothing({
-            target: [
-              agentEarningAdjustments.orderId,
-              agentEarningAdjustments.type,
-            ],
-          });
+        const { effectiveEarningCents, insertLegacyAdjustment } = await import("@/lib/reconciliation");
+        const effective = await effectiveEarningCents(tx, order.id, earning.earningCents);
+        if (effective !== 0) await insertLegacyAdjustment(tx, {
+          agentId: earning.agentId,
+          orderId: order.id,
+          sourceEarningId: earning.id,
+          type: parsed.data.type,
+          amountCents: -effective,
+          reason: parsed.data.reason,
+          reference: parsed.data.reference,
+          now,
+        });
+        if (await effectiveEarningCents(tx, order.id, earning.earningCents) !== 0) {
+          throw new Error("已有退款调整未覆盖当前有效收益，请用新业务事件核对剩余差额");
+        }
+      } else if (earning?.status === "settling") {
+        throw new Error("该收益正在结算，请先取消待付款结算单");
       } else if (earning) {
         const [reversed] = await tx
           .update(agentEarnings)
