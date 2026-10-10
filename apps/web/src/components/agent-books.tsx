@@ -396,7 +396,7 @@ function UnsettledPanel({
           <h2>累计未结</h2>
           <p>
             {data ? `截止 ${bj(data.cutoffAt)}（北京时间）· ` : ""}
-            从上次结算累到现在，这里不受下方日期筛选影响。
+            自上次结算起累计，不受下方日期筛选影响。
           </p>
         </div>
         {totals ? <span className="km-acp-pill">{netDirectionLabel(totals.netCents)}</span> : null}
@@ -418,7 +418,7 @@ function UnsettledPanel({
             <div className="km-acp-kpi">
               <span>商店收益</span>
               <strong>{signedMoneyYuan(totals.storeEarningCents)}</strong>
-              <small>平台要转给我的</small>
+              <small>平台应付</small>
             </div>
             <div className="km-acp-kpi">
               <span>调整</span>
@@ -428,7 +428,7 @@ function UnsettledPanel({
             <div className="km-acp-kpi">
               <span>提卡欠款</span>
               <strong>{moneyYuanAbs(totals.drawDebtCents)}</strong>
-              <small>我要转给平台的</small>
+              <small>应付平台</small>
             </div>
           </div>
           {hasSplitLocked ? (

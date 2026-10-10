@@ -2,31 +2,33 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAskDialog } from "@/components/ask-dialog";
-import { BatchPanel, type WriteFn, type WriteInput } from "@/components/admin-reconciliation-batch";
+import { KmSelect } from "@/components/km-select";
+import { type WriteFn, type WriteInput } from "@/components/admin-reconciliation-batch";
 import {
   apiCall,
-  Formula,
-  LinesTable,
-  NetText,
   NoticeBar,
-  StatusBadge,
-  TypeTabs,
   viewOf,
   type AgentListData,
   type AgentRow,
   type BatchDetail,
+  type BatchItem,
+  type BatchItemsData,
   type BatchListData,
   type BatchRow,
   type Notice,
   type Preview,
+  type PreviewItem,
 } from "@/components/admin-reconciliation-shared";
 import {
+  directionOfNet,
   formatBeijing,
   formatSignedYuan,
   formatYuan,
   isActiveBatchStatus,
   isUnpaidBatchStatus,
   parseLocked,
+  paymentMethodLabel,
+  PAYMENT_METHODS,
   reuseOrCreateKey,
   skipCodeLabel,
   skippedAckKey,
@@ -36,9 +38,19 @@ import {
   type IdemEntry,
 } from "@/lib/admin-reconciliation-ui";
 
-type Tab = "preview" | "batch" | "history";
+type DetailTab = "store" | "draw" | "history";
 
-const PREVIEW_PAGE = 50;
+type Face = {
+  key: string;
+  type: string;
+  orderNo: string;
+  amountCents: number;
+  occurredAt: string;
+  title: string;
+  goodsCents: number | null;
+  feeCents: number | null;
+  count: number;
+};
 
 const ACTION_LABELS: Record<ErrorAction, string> = {
   repreview: "重新预览",
@@ -65,23 +77,19 @@ export function AdminReconciliation() {
   /** 列表与预览共用的截止时间（UTC ISO，来自后端回显）。空表示还没加载。 */
   const [cutoffAt, setCutoffAt] = useState("");
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("");
-  const [sort, setSort] = useState("net");
   const [rows, setRows] = useState<AgentRow[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [summary, setSummary] = useState<AgentListData["summary"]>({
-    openAgents: 0,
-    platformPaysCents: 0,
-    agentPaysCents: 0,
-    reviewOrders: 0,
-  });
   const [listLoading, setListLoading] = useState(false);
   const [selectedId, setSelectedId] = useState(0);
   const [selectedName, setSelectedName] = useState("");
-  const [tab, setTab] = useState<Tab>("preview");
+  const [detail, setDetail] = useState<DetailTab>("store");
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [previewType, setPreviewType] = useState("");
-  const [previewShown, setPreviewShown] = useState(PREVIEW_PAGE);
+  const [sheet, setSheet] = useState<Face[]>([]);
+  const [settleOpen, setSettleOpen] = useState(false);
+  const [payMethod, setPayMethod] = useState("alipay");
+  const [payRef, setPayRef] = useState("");
+  const [payNote, setPayNote] = useState("");
+  const [settleError, setSettleError] = useState("");
   /** 已勾选确认的跳过项指纹；与当前预览指纹不一致就视为没勾。 */
   const [ackedKey, setAckedKey] = useState("");
   const [batches, setBatches] = useState<BatchRow[]>([]);
@@ -98,15 +106,14 @@ export function AdminReconciliation() {
   /** 每个代理当前打开的批次，刷新和切换代理后找回。 */
   const openBatchRef = useRef<Record<number, number>>({});
   const selectedRef = useRef(0);
-  const filtersRef = useRef({ search, status, sort });
+  const filtersRef = useRef({ search });
   useEffect(() => {
-    filtersRef.current = { search, status, sort };
-  }, [search, status, sort]);
+    filtersRef.current = { search };
+  }, [search]);
 
   const loadList = useCallback(async (nextCutoff: string, append = false, cursor = "") => {
     setListLoading(true);
-    const { search: q, status: s, sort: o } = filtersRef.current;
-    const params = new URLSearchParams({ search: q, status: s, sort: o, limit: "50" });
+    const params = new URLSearchParams({ search: filtersRef.current.search, status: "", sort: "net", limit: "50" });
     if (nextCutoff) params.set("cutoffAt", nextCutoff);
     if (cursor) params.set("cursor", cursor);
     const result = await apiCall<AgentListData>(`/api/admin/reconciliations/agents?${params}`);
@@ -117,9 +124,15 @@ export function AdminReconciliation() {
       return null;
     }
     setCutoffAt(result.data.cutoffAt);
-    setSummary(result.data.summary);
     setRows((current) => (append ? [...current, ...result.data.list] : result.data.list));
     setNextCursor(result.data.nextCursor);
+    if (!append && !selectedRef.current && result.data.list[0]) {
+      const first = result.data.list[0];
+      selectedRef.current = first.agentId;
+      setSelectedId(first.agentId);
+      setSelectedName(first.name);
+      void loadPreview(first.agentId, result.data.cutoffAt);
+    }
     return result.data;
   }, []);
 
@@ -199,13 +212,14 @@ export function AdminReconciliation() {
     setPreview(null);
     setBatch(null);
     setBatches([]);
-    setPreviewType("");
-    setPreviewShown(PREVIEW_PAGE);
+    setBatches([]);
+    setSheet([]);
+    setDetail("store");
+    setSettleOpen(false);
+    setSettleError("");
     setAckedKey("");
     setNotice(null);
-    const [, opened] = await Promise.all([loadPreview(row.agentId, cutoffAt), restoreBatch(row.agentId, true)]);
-    if (selectedRef.current !== row.agentId) return;
-    setTab(opened && isActiveBatchStatus(opened.status) ? "batch" : "preview");
+    await loadPreview(row.agentId, cutoffAt);
   }
 
   /** 「刷新到现在」：不带 cutoffAt，让后端用服务器当前时间，避免浏览器时钟偏快触发 INVALID_STATE。 */
@@ -246,9 +260,8 @@ export function AdminReconciliation() {
         setNotice({ kind: "err", text: view.text, detail: view.detail, action: view.action });
         if (view.unknown && agentId) {
           // 结果未知：保留幂等键（重试会拿到首次结果），并重新载入该代理批次，防止误以为失败而重复生成。
-          const recovered = await restoreBatch(agentId, true);
+          await restoreBatch(agentId, true);
           if (selectedRef.current === agentId) {
-            if (recovered && isActiveBatchStatus(recovered.status)) setTab("batch");
             await loadList(cutoffAt);
             await loadPreview(agentId, cutoffAt);
           }
@@ -274,7 +287,7 @@ export function AdminReconciliation() {
             ? `${fresh.batchNo} 已确认，等待登记付款`
             : `${fresh.batchNo} 现在是「${statusLabel(fresh.status)}」`;
       setNotice({ kind: "ok", text });
-      if (fresh.status === "cancelled") {
+      if (fresh.status === "cancelled" || fresh.status === "paid" || fresh.status === "cleared") {
         delete openBatchRef.current[fresh.agentId];
       }
     }
@@ -284,35 +297,90 @@ export function AdminReconciliation() {
     }
   }
 
-  async function createBatch() {
-    if (!preview || !preview.items.length) return;
-    if (preview.skipped.length && !skippedAcked) return;
-    const body: Record<string, unknown> = {
-      agentId: preview.agentId,
-      cutoffAt: preview.cutoffAt,
-      previewVersion: preview.previewVersion,
-      items: preview.items.map((item) => ({ type: item.type, id: item.id, version: item.version })),
-    };
-    if (preview.skipped.length && skippedAcked) {
-      body.acknowledgedSkipped = preview.skipped.map((item) => item.orderNo);
+  async function settleNow(netCents: number) {
+    const agentId = selectedRef.current;
+    if (!agentId || !preview) return;
+    if (netCents !== 0 && !payRef.trim()) {
+      setSettleError("填写流水号");
+      return;
     }
-    const result = await write({
-      op: "create",
-      scope: `agent${preview.agentId}-${preview.previewVersion}`,
-      url: "/api/admin/reconciliations",
-      method: "POST",
-      body,
-      stage: "create",
-    });
-    if (!result?.ok) return;
-    const data = result.data as { id: number; batchNo: string };
-    const agentId = preview.agentId;
-    openBatchRef.current[agentId] = data.id;
-    await loadBatch(data.id);
-    setTab("batch");
-    setNotice({ kind: "ok", text: `已生成 ${data.batchNo}（待核对），请看下方明细后确认` });
-    const list = await loadList(cutoffAt);
-    await Promise.all([loadPreview(agentId, list?.cutoffAt || cutoffAt), loadBatches(agentId)]);
+    setSettleError("");
+    const listed = rows.find((row) => row.agentId === agentId)?.latestBatch;
+    const existing = listed && isUnpaidBatchStatus(listed.status) ? listed : undefined;
+    let current: { id: number; version: number; snapshotHash: string; status: string } | null = existing
+      ? { id: existing.id, version: existing.version, snapshotHash: existing.snapshotHash, status: existing.status }
+      : null;
+    if (!current) {
+      if (!preview.items.length) return;
+      if (preview.skipped.length && ackedKey !== skippedAckKey(preview.previewVersion, preview.cutoffAt, preview.skipped)) return;
+      const body: Record<string, unknown> = {
+        agentId: preview.agentId,
+        cutoffAt: preview.cutoffAt,
+        previewVersion: preview.previewVersion,
+        items: preview.items.map((item) => ({ type: item.type, id: item.id, version: item.version })),
+      };
+      if (preview.skipped.length) body.acknowledgedSkipped = preview.skipped.map((item) => item.orderNo);
+      const created = await write({
+        op: "create",
+        scope: `agent${preview.agentId}-${preview.previewVersion}`,
+        url: "/api/admin/reconciliations",
+        method: "POST",
+        body,
+        stage: "create",
+      });
+      if (!created?.ok) return;
+      const data = created.data as { id: number; version: number; snapshotHash: string; status: string };
+      current = data;
+      openBatchRef.current[agentId] = data.id;
+    }
+    if (current.status === "draft") {
+      const confirmed = await write({
+        op: "confirm",
+        scope: `batch${current.id}`,
+        url: `/api/admin/reconciliations/${current.id}`,
+        method: "PATCH",
+        body: { action: "confirm", expectedVersion: current.version, snapshotHash: current.snapshotHash },
+        stage: "batch",
+      });
+      if (!confirmed?.ok) return;
+      const data = confirmed.data as { version: number; snapshotHash: string };
+      current = { ...current, status: "pending_payment", version: data.version, snapshotHash: data.snapshotHash };
+    }
+    const paid = netCents === 0
+      ? await write({
+          op: "clear",
+          scope: `batch${current.id}`,
+          url: `/api/admin/reconciliations/${current.id}`,
+          method: "PATCH",
+          body: { action: "clear", expectedVersion: current.version, snapshotHash: current.snapshotHash },
+          stage: "payment",
+        })
+      : await write({
+          op: "mark_paid",
+          scope: `batch${current.id}`,
+          url: `/api/admin/reconciliations/${current.id}`,
+          method: "PATCH",
+          body: {
+            action: "mark_paid",
+            expectedVersion: current.version,
+            snapshotHash: current.snapshotHash,
+            direction: directionOfNet(netCents),
+            currency: "CNY",
+            amountCents: Math.abs(netCents),
+            paymentMethod: payMethod,
+            paymentReference: payRef.trim(),
+            actualPaymentAt: new Date().toISOString(),
+            note: payNote.trim(),
+          },
+          stage: "payment",
+        });
+    if (!paid?.ok) return;
+    setSettleOpen(false);
+    setPayRef("");
+    setPayNote("");
+    setDetail("history");
+    setNotice({ kind: "ok", text: netCents === 0 ? "已按净额为零结清，此后收益重新累计。" : "已登记结算，此后收益重新累计。" });
+    await onBatchChanged(current.id);
   }
 
   /**
@@ -334,7 +402,8 @@ export function AdminReconciliation() {
       const found = await loadBatch(id, true);
       if (found) {
         setNotice(null);
-        setTab("batch");
+        setDetail("store");
+        setSettleOpen(true);
         return;
       }
     }
@@ -374,7 +443,7 @@ export function AdminReconciliation() {
     });
     if (result?.ok) {
       await onBatchChanged(current.id);
-      setTab("preview");
+      setDetail("store");
     }
   }
 
@@ -386,7 +455,7 @@ export function AdminReconciliation() {
     }
     if (action === "repreview") {
       setNotice(null);
-      if (agentId) void loadPreview(agentId, cutoffAt).then(() => setTab("preview"));
+      if (agentId) void loadPreview(agentId, cutoffAt).then(() => setDetail("store"));
       return;
     }
     if (action === "cancel_rebuild") {
@@ -403,30 +472,91 @@ export function AdminReconciliation() {
     else void loadList(cutoffAt);
   }
 
+  const unpaid = (() => {
+    const latest = rows.find((row) => row.agentId === selectedId)?.latestBatch;
+    return latest && isUnpaidBatchStatus(latest.status) ? latest : null;
+  })();
+
+  useEffect(() => {
+    if (!unpaid) {
+      setSheet([]);
+      return;
+    }
+    let cancel = false;
+    void apiCall<BatchItemsData>(`/api/admin/reconciliations/${unpaid.id}/items?limit=100`).then((result) => {
+      if (cancel || !result.ok) return;
+      setSheet(result.data.items.map(faceFromBatch));
+    });
+    return () => {
+      cancel = true;
+    };
+  }, [unpaid]);
+
+  useEffect(() => {
+    if (detail !== "history" || !selectedId) return;
+    void loadBatches(selectedId);
+  }, [detail, selectedId, loadBatches]);
+
   const selected = rows.find((row) => row.agentId === selectedId) || null;
   const agentName = selected?.name || selectedName || (selectedId ? `代理 ${selectedId}` : "");
-  const previewLines = (preview?.items || []).filter((item) => !previewType || item.type === previewType);
+  const previewFaces = (preview?.items || []).map(faceFromPreview);
+  const faces = unpaid ? sheet : previewFaces;
+  const storeFaces = faces.filter((line) => line.type === "earning" || line.type === "adjustment");
+  const drawFaces = groupDraws(faces.filter((line) => line.type === "draw_item"));
+  const storeCents = unpaid ? unpaid.storeEarningCents : preview?.totals.storeEarningCents || 0;
+  const adjustmentCents = unpaid ? unpaid.adjustmentCents : preview?.totals.adjustmentCents || 0;
+  const drawCents = unpaid ? unpaid.drawDebtCents : preview?.totals.drawDebtCents || 0;
+  const netCents = unpaid ? unpaid.netCents : preview?.totals.netCents || 0;
+  const storeCount = unpaid ? unpaid.storeCount : faces.filter((line) => line.type === "earning").length;
+  const drawCount = unpaid ? unpaid.drawCount : faces.filter((line) => line.type === "draw_item").length;
   const locked = preview ? parseLocked(preview) : null;
   const ackKey = preview ? skippedAckKey(preview.previewVersion, preview.cutoffAt, preview.skipped) : "";
   const skippedAcked = Boolean(preview?.skipped.length) && ackedKey === ackKey;
-  const canCreate =
-    Boolean(preview && preview.items.length) && (!preview?.skipped.length || skippedAcked) && !busy;
+  const hasWork = Boolean(unpaid || preview?.items.length);
+  const canSettle = hasWork && (!preview?.skipped.length || skippedAcked) && !busy;
+  const query = search.trim().toLowerCase();
+  const visibleRows = rows.filter((row) => !query || row.name.toLowerCase().includes(query));
+  const settled = batches.filter((row) => row.status === "paid" || row.status === "cleared");
+  const waitingSheet = Boolean(unpaid && unpaid.storeCount + unpaid.adjustmentCount + unpaid.drawCount > 0 && !sheet.length);
+
+  function exportCurrent() {
+    if (detail === "history") {
+      downloadCsv(`${agentName}-已结算.csv`, [
+        ["时间", "单号", "方向", "方式", "流水号", "金额"],
+        ...settled.map((row) => [
+          shortTime(row.paidAt || row.createdAt),
+          row.batchNo,
+          youWords(row.netCents),
+          paymentMethodLabel(row.paymentMethod),
+          row.paymentReference || "",
+          formatYuan(row.netCents),
+        ]),
+      ]);
+      return;
+    }
+    if (detail === "draw") {
+      downloadCsv(`${agentName}-提卡未结.csv`, [
+        ["时间", "提卡单", "套餐", "张数", "金额"],
+        ...drawFaces.map((line) => [shortTime(line.occurredAt), line.orderNo, line.title, String(line.count), formatYuan(line.amountCents)]),
+      ]);
+      return;
+    }
+    downloadCsv(`${agentName}-商店收益.csv`, [
+      ["时间", "订单", "套餐", "货款", "手续费", "代理收益"],
+      ...storeFaces.map((line) => [
+        shortTime(line.occurredAt),
+        line.orderNo,
+        line.title,
+        line.goodsCents === null ? "" : formatYuan(line.goodsCents),
+        line.feeCents === null ? "" : formatYuan(line.feeCents),
+        formatYuan(line.amountCents),
+      ]),
+    ]);
+  }
 
   return (
     <div className="space-y-4">
       {dialog}
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-xs text-[var(--km-fg-muted)]">
-            可对账净额，不含待核对项。截止 {cutoffAt ? formatBeijing(cutoffAt) : "…"}（北京时间），不按周划分。
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold">对账</h1>
-        </div>
-        <button type="button" className="km-btn" disabled={busy || listLoading} onClick={() => void refreshToNow()}>
-          刷新到现在
-        </button>
-      </div>
-
       {notice ? (
         <NoticeBar
           notice={notice}
@@ -435,349 +565,406 @@ export function AdminReconciliation() {
           onClose={() => setNotice(null)}
         />
       ) : null}
-
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <div className="km-stat">
-          <p className="text-xs text-[var(--km-fg-muted)]">待生成代理</p>
-          <p className="km-stat-value">{summary.openAgents}</p>
-        </div>
-        <div className="km-stat">
-          <p className="text-xs text-[var(--km-fg-muted)]">平台应付代理（合计）</p>
-          <p className="km-stat-value">{formatYuan(summary.platformPaysCents)}</p>
-        </div>
-        <div className="km-stat">
-          <p className="text-xs text-[var(--km-fg-muted)]">代理应付平台（合计）</p>
-          <p className="km-stat-value">{formatYuan(summary.agentPaysCents)}</p>
-        </div>
-        <div className="km-stat">
-          <p className="text-xs text-[var(--km-fg-muted)]">待核对订单</p>
-          <p className="km-stat-value">{summary.reviewOrders}</p>
-        </div>
+      <div>
+        <p className="text-xs text-[var(--km-fg-muted)]">按代理累计结算，不再按自然周出单。</p>
+        <h1 className="mt-1 text-2xl font-semibold">对账</h1>
       </div>
-
-      <form
-        className="flex flex-wrap gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void loadList(cutoffAt);
-        }}
-      >
-        <input
-          className="km-input max-w-xs"
-          placeholder="搜索代理"
-          aria-label="搜索代理"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-        <select className="km-input w-36" aria-label="状态筛选" value={status} onChange={(event) => setStatus(event.target.value)}>
-          <option value="">全部</option>
-          <option value="balance">有余额</option>
-          <option value="pending_payment">有待处理批次</option>
-          <option value="cleared">已清</option>
-          <option value="review">待核对</option>
-        </select>
-        <select className="km-input w-36" aria-label="排序" value={sort} onChange={(event) => setSort(event.target.value)}>
-          <option value="net">按净额</option>
-          <option value="updated">按更新</option>
-          <option value="name">按名称</option>
-        </select>
-        <button type="submit" className="km-btn km-btn-ghost" disabled={listLoading}>
-          筛选
-        </button>
-      </form>
-
-      <div className="grid items-start gap-4 lg:grid-cols-[340px_minmax(0,1fr)]">
-        <section className="km-panel space-y-2" aria-label="代理列表">
-          <ul className="space-y-2">
-            {rows.map((row) => (
-              <li key={row.agentId}>
+      <div className="grid items-start gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <section className="km-panel" aria-label="代理名单">
+          <h2 className="text-lg font-semibold">代理</h2>
+          <input
+            className="km-input mt-3"
+            placeholder="搜索代理"
+            aria-label="搜索代理"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          <div className="mt-2 max-h-[calc(100vh-280px)] space-y-1 overflow-auto">
+            {visibleRows.map((row) => {
+              const figures = rowFigures(
+                row,
+                row.latestBatch && isUnpaidBatchStatus(row.latestBatch.status) ? row.latestBatch : null,
+              );
+              const on = row.agentId === selectedId;
+              return (
                 <button
+                  key={row.agentId}
                   type="button"
-                  aria-pressed={row.agentId === selectedId}
-                  className={`w-full rounded-xl border p-3 text-left text-sm transition ${
-                    row.agentId === selectedId
-                      ? "border-[var(--km-accent)] bg-[var(--km-bg-muted)]"
-                      : "border-[var(--km-border)] hover:bg-[var(--km-bg-muted)]"
-                  }`}
+                  aria-pressed={on}
+                  className={`w-full rounded-xl px-3 py-2.5 text-left ${on ? "bg-[var(--km-bg-muted)]" : "hover:bg-[var(--km-bg-muted)]"}`}
                   onClick={() => void selectAgent(row)}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <b className="min-w-0 truncate">{row.name}</b>
-                    <NetText netCents={row.netCents} className="text-right text-xs" />
-                  </div>
-                  <p className="mt-1 text-xs leading-5 text-[var(--km-fg-muted)]">
-                    商店 {formatSignedYuan(row.storeEarningCents)} ＋ 调整 {formatSignedYuan(row.adjustmentCents)} − 提卡{" "}
-                    {formatSignedYuan(row.drawDebtCents)}
-                  </p>
-                  <p className="mt-1 flex flex-wrap gap-x-3 text-xs text-[var(--km-fg-muted)]">
-                    <span>明细 {row.itemCount}</span>
-                    <span className={row.skippedCount ? "text-[var(--km-warning)]" : ""}>异常 {row.skippedCount}</span>
-                    {row.lockedNetCents ? (
-                      <span>
-                        已锁定{" "}
-                        {row.lockedNetCents > 0 ? "平台应付代理" : "代理应付平台"} {formatYuan(row.lockedNetCents)}
-                      </span>
-                    ) : null}
-                  </p>
-                  {row.latestBatch ? (
-                    <p className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                      <span className="font-mono text-[var(--km-fg-muted)]">{row.latestBatch.batchNo}</span>
-                      <StatusBadge status={row.latestBatch.status} />
-                    </p>
-                  ) : null}
+                  <span className="flex items-center justify-between gap-2">
+                    <b className="min-w-0 truncate text-sm">{row.name}</b>
+                    <span className={`shrink-0 text-xs font-medium ${netTone(figures.net)}`}>{youWords(figures.net)}</span>
+                  </span>
+                  <span className="mt-1 block text-sm font-semibold">{formatYuan(figures.net)}</span>
+                  <span className="mt-0.5 block text-xs text-[var(--km-fg-muted)]">
+                    商店 {formatYuan(figures.store)}　提卡 {formatYuan(figures.draw)}
+                  </span>
                 </button>
-              </li>
-            ))}
-          </ul>
-          {!rows.length && !listLoading ? <p className="py-4 text-sm text-[var(--km-fg-muted)]">这个筛选下没有代理。</p> : null}
-          {listLoading ? <p className="text-xs text-[var(--km-fg-muted)]">加载中…</p> : null}
-          {nextCursor ? (
-            <button
-              type="button"
-              className="km-btn km-btn-ghost km-btn-sm w-full"
-              disabled={listLoading}
-              onClick={() => void loadList(cutoffAt, true, nextCursor)}
-            >
-              加载更多代理
-            </button>
-          ) : null}
+              );
+            })}
+            {!visibleRows.length && !listLoading ? <p className="px-1 py-3 text-sm text-[var(--km-fg-muted)]">没有要结的代理。</p> : null}
+            {listLoading ? <p className="px-1 py-2 text-xs text-[var(--km-fg-muted)]">加载中…</p> : null}
+            {nextCursor ? (
+              <button
+                type="button"
+                className="km-btn km-btn-ghost km-btn-sm w-full"
+                disabled={listLoading}
+                onClick={() => void loadList(cutoffAt, true, nextCursor)}
+              >
+                更多代理
+              </button>
+            ) : null}
+          </div>
         </section>
 
-        <section className="km-panel min-w-0 space-y-3 text-sm" aria-label="代理详情">
-          {!selectedId ? <p className="text-[var(--km-fg-muted)]">先选一个代理。</p> : null}
+        <div className="min-w-0 space-y-3">
+          {!selectedId ? <p className="text-sm text-[var(--km-fg-muted)]">先选一个代理。</p> : null}
           {selectedId ? (
             <>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-xl font-semibold">{agentName}</h2>
-                <div className="flex gap-1" role="tablist" aria-label="详情视图">
-                  {(
-                    [
-                      ["preview", "未结预览"],
-                      ["batch", batch ? `批次 ${batch.batchNo}` : "批次"],
-                      ["history", `历史${batches.length ? ` ${batches.length}` : ""}`],
-                    ] as Array<[Tab, string]>
-                  ).map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      role="tab"
-                      aria-selected={tab === value}
-                      className={`km-btn km-btn-sm ${tab === value ? "" : "km-btn-ghost"}`}
-                      onClick={() => setTab(value)}
-                    >
-                      {label}
+              <section className="km-panel">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-semibold">{agentName}</h2>
+                    <p className="mt-1 text-xs text-[var(--km-fg-muted)]">自上次结算起累计至当前。</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" className="km-btn km-btn-ghost" onClick={exportCurrent}>
+                      导出
                     </button>
-                  ))}
+                    <button
+                      type="button"
+                      className="km-btn"
+                      disabled={!canSettle}
+                      onClick={() => {
+                        setSettleError("");
+                        setSettleOpen(true);
+                      }}
+                    >
+                      {hasWork ? "登记已结算" : "暂无未结"}
+                    </button>
+                  </div>
                 </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3">
+                    <p className={`text-xs font-medium ${hasWork ? netTone(netCents) : "text-[var(--km-fg-muted)]"}`}>
+                      {hasWork ? youWords(netCents) : "暂无未结"}
+                    </p>
+                    <p className={`mt-1 text-lg font-semibold tracking-tight ${hasWork ? netTone(netCents) : ""}`}>
+                      {hasWork ? formatYuan(netCents) : "¥0.00"}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3">
+                    <p className="text-xs text-[var(--km-fg-muted)]">商店待结</p>
+                    <p className="mt-1 text-lg font-semibold tracking-tight">{formatYuan(storeCents)}</p>
+                    <p className="mt-1 text-xs text-[var(--km-fg-muted)]">
+                      {storeCount} 笔 · 平台应付
+                      {adjustmentCents ? ` · 含调整 ${formatSignedYuan(adjustmentCents)}` : ""}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3">
+                    <p className="text-xs text-[var(--km-fg-muted)]">提卡未结</p>
+                    <p className="mt-1 text-lg font-semibold tracking-tight">{formatYuan(drawCents)}</p>
+                    <p className="mt-1 text-xs text-[var(--km-fg-muted)]">{drawCount} 张 · 代理应付</p>
+                  </div>
+                </div>
+                {locked?.legacy?.itemCount ? (
+                  <p className="mt-3 text-xs text-[var(--km-fg-muted)]">
+                    另有 {locked.legacy.itemCount} 笔、{youWords(locked.legacy.netCents)} {formatYuan(locked.legacy.netCents)} 在旧周结单
+                    {locked.legacy.settlementNos.length ? ` ${locked.legacy.settlementNos.join("、")}` : ""} 中，请先在历史周结核验，核验后才会纳入本次对账。{" "}
+                    <a className="underline" href="/admin#week">
+                      去历史周结
+                    </a>
+                  </p>
+                ) : null}
+              </section>
+
+              {settleOpen && canSettle ? (
+                <section className="rounded-2xl border border-[var(--km-border)] p-4" aria-label="登记已结算">
+                  <p className="font-semibold">
+                    登记已结算 · {agentName} · {youWords(netCents)} {formatYuan(netCents)}
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--km-fg-muted)]">
+                    商店 {storeCount} 笔 {formatYuan(storeCents)}　提卡 {drawCount} 张 {formatYuan(drawCents)}
+                  </p>
+                  {netCents === 0 ? <p className="mt-3 text-sm text-[var(--km-fg-muted)]">净额为零，无需填写流水号。</p> : (
+                    <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                      <label className="text-xs text-[var(--km-fg-muted)]">
+                        方式
+                        <KmSelect
+                          className="mt-1"
+                          value={payMethod}
+                          onChange={setPayMethod}
+                          options={PAYMENT_METHODS.map((item) => ({ value: item.value, label: item.label }))}
+                        />
+                      </label>
+                      <label className="text-xs text-[var(--km-fg-muted)]">
+                        流水号
+                        <input className="km-input mt-1" value={payRef} onChange={(event) => setPayRef(event.target.value)} />
+                      </label>
+                      <label className="text-xs text-[var(--km-fg-muted)]">
+                        备注
+                        <input className="km-input mt-1" value={payNote} onChange={(event) => setPayNote(event.target.value)} />
+                      </label>
+                    </div>
+                  )}
+                  {settleError ? <p className="mt-2 text-sm text-[var(--km-danger)]">{settleError}</p> : null}
+                  <div className="mt-3 flex gap-2">
+                    <button type="button" className="km-btn km-btn-ghost" onClick={() => setSettleOpen(false)}>
+                      取消
+                    </button>
+                    <button type="button" className="km-btn" disabled={busy} onClick={() => void settleNow(netCents)}>
+                      {netCents > 0 ? `确认平台已付 ${formatYuan(netCents)}` : netCents < 0 ? `确认已收到 ${formatYuan(netCents)}` : "确认结清"}
+                    </button>
+                  </div>
+                </section>
+              ) : null}
+
+              <div className="km-tabs" role="tablist">
+                {(
+                  [
+                    ["store", "商店收益"],
+                    ["draw", "提卡未结"],
+                    ["history", "已结算"],
+                  ] as Array<[DetailTab, string]>
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="tab"
+                    aria-selected={detail === value}
+                    className={`km-tab ${detail === value ? "km-tab-active" : ""}`}
+                    onClick={() => setDetail(value)}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
 
-              {tab === "preview" ? (
-                preview ? (
-                  <div className="space-y-3">
-                    <p className="text-xs text-[var(--km-fg-muted)]">
-                      {preview.note}。截止 {formatBeijing(preview.cutoffAt)}（北京时间）。
-                    </p>
-                    <NetText netCents={preview.totals.netCents} className="block text-xl" />
-                    <Formula value={preview.totals} />
-                    {locked ? (
-                      <LockedNotice
-                        locked={locked}
-                        batchNoOf={(id) => batches.find((row) => row.id === id)?.batchNo || ""}
-                        onOpenBatch={(ids) => void openBatchByIds(ids)}
-                      />
-                    ) : null}
-                    {preview.skipped.length ? (
-                      <div className="space-y-2 rounded-xl border border-[var(--km-warning)] p-3">
-                        <p className="font-medium">
-                          待核对 {preview.skipped.length} 笔，不进这次批次
-                          {preview.skippedUnknownCount ? `（其中 ${preview.skippedUnknownCount} 笔金额未知）` : ""}
-                        </p>
-                        <ul className="space-y-1 text-xs">
-                          {preview.skipped.map((item, index) => (
-                            <li key={skippedKey(item, index)} className="flex flex-wrap gap-x-2">
-                              <span className="font-mono">{item.orderNo}</span>
-                              <span>{skipCodeLabel(item.code)}</span>
-                              <span className="text-[var(--km-fg-muted)]">{item.message || ""}</span>
-                              <span>{item.amountCents === null ? "金额未知" : formatSignedYuan(item.amountCents)}</span>
-                            </li>
+              <section className="km-panel overflow-x-auto">
+                {detail === "store" ? (
+                  storeFaces.length ? (
+                    <>
+                      <table className="w-full text-left text-sm">
+                        <thead>
+                          <tr className="text-xs text-[var(--km-fg-muted)]">
+                            <th className="py-2 font-semibold">时间</th>
+                            <th className="py-2 font-semibold">订单</th>
+                            <th className="py-2 font-semibold">套餐</th>
+                            <th className="py-2 font-semibold">货款</th>
+                            <th className="py-2 font-semibold">手续费</th>
+                            <th className="py-2 font-semibold">代理收益</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {storeFaces.map((line) => (
+                            <tr key={line.key} className="border-t border-[var(--km-border)]">
+                              <td className="py-2">{shortTime(line.occurredAt)}</td>
+                              <td className="py-2 font-mono text-xs">{line.orderNo}</td>
+                              <td className="py-2">{line.title || (line.type === "adjustment" ? "调整" : "—")}</td>
+                              <td className="py-2">{line.goodsCents === null ? "—" : formatYuan(line.goodsCents)}</td>
+                              <td className="py-2">{line.feeCents === null ? "—" : formatYuan(line.feeCents)}</td>
+                              <td className="py-2">{line.type === "adjustment" ? formatSignedYuan(line.amountCents) : formatYuan(line.amountCents)}</td>
+                            </tr>
                           ))}
-                        </ul>
-                        <label className="flex items-start gap-2 text-xs">
-                          <input
-                            type="checkbox"
-                            className="mt-0.5"
-                            checked={skippedAcked}
-                            onChange={(event) => setAckedKey(event.target.checked ? ackKey : "")}
-                          />
-                          <span>我已核对这 {preview.skipped.length} 笔，暂不纳入本批次</span>
-                        </label>
-                      </div>
-                    ) : null}
+                        </tbody>
+                      </table>
+                      <p className="mt-3 text-xs text-[var(--km-fg-muted)]">
+                        共 {storeCount} 笔，收益合计 {formatYuan(storeCents)}。开票加价归平台，不计入代理收益。
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-[var(--km-fg-muted)]">{waitingSheet || !preview ? "加载中…" : "没有待结算的商店收益。"}</p>
+                  )
+                ) : null}
+                {detail === "draw" ? (
+                  drawFaces.length ? (
+                    <>
+                      <table className="w-full text-left text-sm">
+                        <thead>
+                          <tr className="text-xs text-[var(--km-fg-muted)]">
+                            <th className="py-2 font-semibold">时间</th>
+                            <th className="py-2 font-semibold">提卡单</th>
+                            <th className="py-2 font-semibold">套餐</th>
+                            <th className="py-2 font-semibold">张数</th>
+                            <th className="py-2 font-semibold">金额</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {drawFaces.map((line) => (
+                            <tr key={line.key} className="border-t border-[var(--km-border)]">
+                              <td className="py-2">{shortTime(line.occurredAt)}</td>
+                              <td className="py-2 font-mono text-xs">{line.orderNo}</td>
+                              <td className="py-2">{line.title || "—"}</td>
+                              <td className="py-2">{line.count}</td>
+                              <td className="py-2">{formatYuan(line.amountCents)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <p className="mt-3 text-xs text-[var(--km-fg-muted)]">共 {drawCount} 张。</p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-[var(--km-fg-muted)]">{waitingSheet || !preview ? "加载中…" : "没有未结算的提卡。"}</p>
+                  )
+                ) : null}
+                {detail === "history" ? (
+                  settled.length ? (
+                    <table className="w-full text-left text-sm">
+                      <thead>
+                        <tr className="text-xs text-[var(--km-fg-muted)]">
+                          <th className="py-2 font-semibold">时间</th>
+                          <th className="py-2 font-semibold">单号</th>
+                          <th className="py-2 font-semibold">方向</th>
+                          <th className="py-2 font-semibold">方式</th>
+                          <th className="py-2 font-semibold">流水号</th>
+                          <th className="py-2 font-semibold">金额</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {settled.map((row) => (
+                          <tr key={row.id} className="border-t border-[var(--km-border)]">
+                            <td className="py-2">{shortTime(row.paidAt || row.createdAt)}</td>
+                            <td className="py-2 font-mono text-xs">{row.batchNo}</td>
+                            <td className={`py-2 ${netTone(row.netCents)}`}>{youWords(row.netCents)}</td>
+                            <td className="py-2">{row.status === "cleared" ? "抵平" : paymentMethodLabel(row.paymentMethod)}</td>
+                            <td className="py-2 font-mono text-xs">{row.paymentReference || "—"}</td>
+                            <td className="py-2">{formatYuan(row.netCents)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <p className="text-sm text-[var(--km-fg-muted)]">还没有结算记录。</p>
+                  )
+                ) : null}
+                {detail === "history" && batchesNext !== null ? (
+                  <button
+                    type="button"
+                    className="km-btn km-btn-ghost km-btn-sm mt-3"
+                    onClick={() => selectedId && void loadBatches(selectedId, true, batchesNext)}
+                  >
+                    更多记录
+                  </button>
+                ) : null}
+              </section>
 
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button type="button" className="km-btn" disabled={!canCreate} onClick={() => void createBatch()}>
-                        生成批次（{preview.items.length} 笔）
-                      </button>
-                      {!preview.items.length ? <span className="text-xs text-[var(--km-fg-muted)]">没有可纳入的未结明细</span> : null}
-                      {preview.items.length && preview.skipped.length && !skippedAcked ? (
-                        <span className="text-xs text-[var(--km-warning)]">先勾选确认待核对项</span>
-                      ) : null}
-                    </div>
-
-                    <TypeTabs
-                      value={previewType}
-                      onChange={(value) => {
-                        setPreviewType(value);
-                        setPreviewShown(PREVIEW_PAGE);
-                      }}
-                      counts={{
-                        "": preview.items.length,
-                        earning: preview.items.filter((item) => item.type === "earning").length,
-                        adjustment: preview.items.filter((item) => item.type === "adjustment").length,
-                        draw_item: preview.items.filter((item) => item.type === "draw_item").length,
-                      }}
-                    />
-                    <LinesTable
-                      lines={previewLines.slice(0, previewShown).map((item) => ({
-                        key: `${item.type}-${item.id}`,
-                        type: item.type,
-                        orderNo: item.orderNo,
-                        amountCents: item.amountCents,
-                      }))}
-                    />
-                    {previewLines.length > previewShown ? (
-                      <button
-                        type="button"
-                        className="km-btn km-btn-ghost km-btn-sm"
-                        onClick={() => setPreviewShown((value) => value + PREVIEW_PAGE)}
-                      >
-                        再显示 {Math.min(PREVIEW_PAGE, previewLines.length - previewShown)} 条（共 {previewLines.length}）
-                      </button>
-                    ) : null}
-                  </div>
-                ) : (
-                  <p className="text-[var(--km-fg-muted)]">加载预览…</p>
-                )
-              ) : null}
-
-              {tab === "batch" ? (
-                batch ? (
-                  <BatchPanel
-                    key={batch.id}
-                    batch={batch}
-                    agentName={agentName}
-                    busy={busy}
-                    write={write}
-                    ask={ask}
-                    onChanged={onBatchChanged}
-                    itemsVersion={itemsVersion}
-                  />
-                ) : (
-                  <p className="text-[var(--km-fg-muted)]">没有正在处理的批次。在「未结预览」生成，或在「历史」里打开旧批次。</p>
-                )
-              ) : null}
-
-              {tab === "history" ? (
-                <div className="space-y-2">
-                  {!batches.length ? <p className="text-[var(--km-fg-muted)]">这个代理还没有批次。</p> : null}
-                  <ul className="space-y-2">
-                    {batches.map((row) => (
-                      <li key={row.id}>
-                        <button
-                          type="button"
-                          className={`w-full rounded-xl border p-3 text-left text-xs ${
-                            batch?.id === row.id ? "border-[var(--km-accent)]" : "border-[var(--km-border)]"
-                          }`}
-                          onClick={() => {
-                            openBatchRef.current[row.agentId] = row.id;
-                            void loadBatch(row.id).then((found) => found && setTab("batch"));
-                          }}
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span className="font-mono text-sm">{row.batchNo}</span>
-                            <StatusBadge status={row.status} />
-                          </div>
-                          <NetText netCents={row.netCents} className="mt-1 block text-sm" />
-                          <p className="mt-1 text-[var(--km-fg-muted)]">
-                            截止 {formatBeijing(row.cutoffAt)} · 生成 {formatBeijing(row.createdAt)}
-                            {row.paidAt ? ` · 结算 ${formatBeijing(row.paidAt)}` : ""}
-                          </p>
-                        </button>
+              {preview?.skipped.length ? (
+                <section className="km-panel space-y-2">
+                  <h2 className="text-base font-semibold">不进这次的 {preview.skipped.length} 笔</h2>
+                  <p className="text-xs text-[var(--km-fg-muted)]">手续费尚未核定，或账目不一致。核定后将自动进入下一次未结。</p>
+                  <ul className="space-y-1 text-xs">
+                    {preview.skipped.map((item, index) => (
+                      <li key={skippedKey(item, index)}>
+                        <span className="font-mono">{item.orderNo}</span> · {skipCodeLabel(item.code)}
+                        {item.amountCents === null ? " · 金额未知" : ` · ${formatYuan(item.amountCents)}`}
                       </li>
                     ))}
                   </ul>
-                  {batchesNext !== null ? (
-                    <button
-                      type="button"
-                      className="km-btn km-btn-ghost km-btn-sm w-full"
-                      onClick={() => selectedId && void loadBatches(selectedId, true, batchesNext)}
-                    >
-                      加载更多批次
-                    </button>
-                  ) : null}
-                </div>
+                  <label className="flex items-start gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={skippedAcked}
+                      onChange={(event) => setAckedKey(event.target.checked ? ackKey : "")}
+                    />
+                    <span>已核对这 {preview.skipped.length} 笔，本次暂不纳入</span>
+                  </label>
+                </section>
               ) : null}
             </>
           ) : null}
-        </section>
+        </div>
       </div>
     </div>
   );
 }
 
-function netWords(netCents: number) {
-  if (netCents === 0) return "抵平 ¥0.00";
-  return `${netCents > 0 ? "平台应付代理" : "代理应付平台"} ${formatYuan(netCents)}`;
+function rowFigures(
+  row: AgentRow,
+  unpaid: { netCents: number; storeEarningCents: number; drawDebtCents: number } | null,
+) {
+  if (unpaid) return { net: unpaid.netCents, store: unpaid.storeEarningCents, draw: unpaid.drawDebtCents };
+  return { net: row.netCents, store: row.storeEarningCents, draw: row.drawDebtCents };
 }
 
-/** 锁定来源分开讲：对账批次里待处理 / 旧周结单里。旧后端没有拆分字段时只显示合计，不给「打开批次」。 */
-function LockedNotice({
-  locked,
-  batchNoOf,
-  onOpenBatch,
-}: {
-  locked: ReturnType<typeof parseLocked>;
-  batchNoOf: (id: number) => string;
-  onOpenBatch: (ids: number[]) => void;
-}) {
-  const box = "flex flex-wrap items-center gap-2 rounded-xl bg-[var(--km-bg-muted)] px-3 py-2 text-xs";
-  if (locked.legacyShape) {
-    if (!locked.total) return null;
-    return (
-      <div className={box}>
-        <span>
-          另有 {locked.total.itemCount} 笔已被占用（{netWords(locked.total.netCents)}），不重复计算。
-        </span>
-      </div>
-    );
+function youWords(netCents: number) {
+  if (netCents > 0) return "平台应付代理";
+  if (netCents < 0) return "代理应付平台";
+  return "净额为零";
+}
+
+function netTone(netCents: number) {
+  if (netCents > 0) return "text-[var(--km-warning)]";
+  if (netCents < 0) return "text-[var(--km-success)]";
+  return "text-[var(--km-fg-muted)]";
+}
+
+function shortTime(value: string | null) {
+  const full = formatBeijing(value, "");
+  if (!full) return "—";
+  return full.length >= 16 ? full.slice(5) : full;
+}
+
+function faceFromPreview(item: PreviewItem): Face {
+  return {
+    key: `${item.type}-${item.id}`,
+    type: item.type,
+    orderNo: item.orderNo,
+    amountCents: item.amountCents,
+    occurredAt: item.occurredAt || "",
+    title: item.title || "",
+    goodsCents: item.goodsCents ?? null,
+    feeCents: item.feeCents ?? null,
+    count: 1,
+  };
+}
+
+function faceFromBatch(item: BatchItem): Face {
+  const snapshot = item.snapshot || {};
+  const text = (key: string) => (typeof snapshot[key] === "string" ? snapshot[key] : "");
+  const cents = (key: string) => (typeof snapshot[key] === "number" ? snapshot[key] : null);
+  return {
+    key: `item-${item.id}`,
+    type: item.sourceType,
+    orderNo: item.sourceOrderNo,
+    amountCents: item.amountCents,
+    occurredAt: text("occurredAt"),
+    title: text("productName") || text("planName") || text("reason") || text("type"),
+    goodsCents: cents("goodsCents"),
+    feeCents: cents("agentFeeCents"),
+    count: 1,
+  };
+}
+
+function groupDraws(lines: Face[]) {
+  const grouped = new Map<string, Face>();
+  for (const line of lines) {
+    const prev = grouped.get(line.orderNo);
+    if (!prev) {
+      grouped.set(line.orderNo, { ...line });
+      continue;
+    }
+    prev.amountCents += line.amountCents;
+    prev.count += line.count;
   }
-  return (
-    <>
-      {locked.inBatch ? (
-        <div className={box}>
-          <span>
-            {locked.inBatch.itemCount} 笔、{netWords(locked.inBatch.netCents)} 已在对账批次{" "}
-            {locked.inBatch.batchIds.map((id) => batchNoOf(id) || `#${id}`).join("、")} 中待处理，不重复计算。
-          </span>
-          {locked.inBatch.batchIds.length ? (
-            <button type="button" className="km-btn km-btn-sm" onClick={() => onOpenBatch(locked.inBatch!.batchIds)}>
-              打开批次
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-      {locked.legacy ? (
-        <div className={box}>
-          <span>
-            {locked.legacy.itemCount} 笔、{netWords(locked.legacy.netCents)} 在旧周结单{" "}
-            {locked.legacy.settlementNos.length ? locked.legacy.settlementNos.join("、") : ""}
-            中，请到「历史周结」核验后再对账。
-          </span>
-          <a className="km-btn km-btn-sm" href="/admin#week">
-            去历史周结
-          </a>
-        </div>
-      ) : null}
-    </>
-  );
+  return [...grouped.values()];
+}
+
+function downloadCsv(filename: string, rows: string[][]) {
+  const text = `\uFEFF${rows.map((row) => row.map(csvCell).join(",")).join("\r\n")}`;
+  const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function csvCell(value: string) {
+  const guarded = /^[=+\-@]/.test(value) ? `'${value}` : value;
+  return /[",\n\r]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded;
 }

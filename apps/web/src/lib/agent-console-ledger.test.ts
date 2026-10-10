@@ -55,12 +55,12 @@ describe("moneyYuanAbs", () => {
 
 describe("净额方向", () => {
   it("正/负/零", () => {
-    expect(netDirectionLabel(50000)).toBe("平台转给我");
-    expect(netDirectionLabel(-30000)).toBe("我转给平台");
-    expect(netDirectionLabel(0)).toBe("已抵平");
-    expect(netDirectionText(-30000)).toBe("我转给平台 ¥300.00");
-    expect(netDirectionText(123456)).toBe("平台转给我 ¥1,234.56");
-    expect(netDirectionText(0)).toBe("已抵平 ¥0.00");
+    expect(netDirectionLabel(50000)).toBe("平台应付");
+    expect(netDirectionLabel(-30000)).toBe("应付平台");
+    expect(netDirectionLabel(0)).toBe("净额为零");
+    expect(netDirectionText(-30000)).toBe("应付平台 ¥300.00");
+    expect(netDirectionText(123456)).toBe("平台应付 ¥1,234.56");
+    expect(netDirectionText(0)).toBe("净额为零 ¥0.00");
   });
 });
 

@@ -117,18 +117,18 @@ export function signedMoneyYuan(cents: number) {
   return value < 0 ? `−${groupedYuan(value)}` : groupedYuan(value);
 }
 
-/** 净额方向：正=平台转给代理，负=代理转给平台，零=抵平。 */
+/** 净额方向：正=平台应付代理，负=代理应付平台，零=净额为零。 */
 export function netDirectionLabel(netCents: number) {
   const value = Math.trunc(Number(netCents) || 0);
-  if (value > 0) return "平台转给我";
-  if (value < 0) return "我转给平台";
-  return "已抵平";
+  if (value > 0) return "平台应付";
+  if (value < 0) return "应付平台";
+  return "净额为零";
 }
 
-/** 「方向 ¥|N|」；零只写已抵平。 */
+/** 「方向 ¥|N|」；零只写净额为零。 */
 export function netDirectionText(netCents: number) {
   const value = Math.trunc(Number(netCents) || 0);
-  if (value === 0) return "已抵平 ¥0.00";
+  if (value === 0) return "净额为零 ¥0.00";
   return `${netDirectionLabel(value)} ${moneyYuanAbs(value)}`;
 }
 

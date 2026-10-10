@@ -180,6 +180,7 @@ export function AdminAgentDraw() {
   const [selectedId, setSelectedId] = useState(0);
   const [items, setItems] = useState<LedgerItem[]>([]);
   const [stuck, setStuck] = useState<StuckOrder[]>([]);
+  const [codesUnavailable, setCodesUnavailable] = useState(false);
   const [view, setView] = useState<"ledger" | "bills" | "apply">("ledger");
   const [grantAgentId, setGrantAgentId] = useState(0);
   const [creditYuan, setCreditYuan] = useState("");
@@ -212,8 +213,11 @@ export function AdminAgentDraw() {
     const params = new URLSearchParams();
     if (agentId > 0) params.set("agentId", String(agentId));
     params.set("itemPage", String(page));
-    const data = await fetch(`/api/admin/draw?${params}`, { cache: "no-store" }).then((res) => res.json());
+    const response = await fetch(`/api/admin/draw?${params}`, { cache: "no-store" });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data) throw new Error(data?.error || "提卡账本加载失败");
     if (data.error) throw new Error(data.error);
+    setCodesUnavailable(Boolean(data.codesUnavailable));
     setOverview(data.overview);
     setAgents(data.agents || []);
     setApplications(data.applications || []);
@@ -786,12 +790,17 @@ export function AdminAgentDraw() {
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--km-border)] bg-[var(--km-bg-muted)] p-4 text-sm">
                   <p>
-                    提卡已并入对账。这里不再单独登记结算，未结的卡会和商店收益一起在「对账」里按代理结清。
+                    提卡已并入对账。未结提卡与商店收益在「对账」中按代理一并结算，此处不再单独登记。
                   </p>
                   <a className="km-btn km-btn-sm" href={RECONCILE_HREF}>
                     去对账
                   </a>
                 </div>
+                {codesUnavailable ? (
+                  <p className="text-sm text-[var(--km-danger)]">
+                    卡号无法显示：当前加密密钥与这份数据不一致。金额与结算状态仍可查看。
+                  </p>
+                ) : null}
                 {stuck.length ? (
                   <div className="space-y-2 text-sm">
                     {stuck.map((order) => (
@@ -963,7 +972,7 @@ export function AdminAgentDraw() {
                       {visibleItems.length === 0 ? (
                         <tr>
                           <td colSpan={7} className="py-6 text-[var(--km-fg-muted)]">
-                            {items.length === 0 ? "这个代理没有未结算的提卡。" : "没有符合筛选的卡密。"}
+                            {items.length === 0 ? "该代理没有未结算的提卡。" : "没有符合筛选条件的卡密。"}
                           </td>
                         </tr>
                       ) : null}

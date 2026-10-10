@@ -14,15 +14,15 @@ import { isExternalRedeemUrl } from "@/lib/agent-redeem-core";
 import "./agent-console.css";
 
 const NAV = [
-  { href: "/agent", label: "概览", hint: "店况", group: "每天看" },
-  { href: "/agent/notices", label: "公告", hint: "平台", group: "每天看" },
-  { href: "/agent/notify", label: "通知", hint: "绑定", group: "每天看" },
-  { href: "/agent/sell", label: "售价与优惠", hint: "定价", group: "怎么卖" },
-  { href: "/agent/storefront", label: "店铺", hint: "装修", group: "怎么卖" },
-  { href: "/agent/books", label: "账本", hint: "收益", group: "钱和量" },
-  { href: "/agent/draw", label: "自助提卡", hint: "进货", group: "钱和量" },
-  { href: "/agent/codes", label: "已售卡密", hint: "售后", group: "钱和量" },
-  { href: "/agent/api", label: "开放 API", hint: "对接", group: "钱和量" },
+  { href: "/agent", label: "概览", hint: "概况", group: "日常" },
+  { href: "/agent/notices", label: "公告", hint: "平台", group: "日常" },
+  { href: "/agent/notify", label: "通知", hint: "绑定", group: "日常" },
+  { href: "/agent/sell", label: "售价与优惠", hint: "定价", group: "销售" },
+  { href: "/agent/storefront", label: "店铺", hint: "装修", group: "销售" },
+  { href: "/agent/books", label: "账本", hint: "收益", group: "账务" },
+  { href: "/agent/draw", label: "自助提卡", hint: "提卡", group: "账务" },
+  { href: "/agent/codes", label: "已售卡密", hint: "售后", group: "账务" },
+  { href: "/agent/api", label: "开放 API", hint: "对接", group: "账务" },
 ] as const;
 
 function navActive(href: string, pathname: string) {

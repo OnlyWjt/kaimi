@@ -43,6 +43,7 @@ export async function GET(req: Request) {
   const billId = Number(params.get("billId") || 0);
   const itemPage = normalizePage(params.get("itemPage"));
   const itemPageSize = normalizePageSize(params.get("itemPageSize"));
+  try {
   const [overview, agents, applications, itemPageResult, stuck, bill] = await Promise.all([
     drawLedgerOverview(),
     listDrawLedgerAgents(),
@@ -58,12 +59,17 @@ export async function GET(req: Request) {
     agents,
     applications,
     items: itemPageResult.items,
+    codesUnavailable: "codesUnavailable" in itemPageResult ? itemPageResult.codesUnavailable : false,
     itemTotal: itemPageResult.total,
     itemPage: itemPageResult.page,
     itemPageSize: itemPageResult.pageSize,
     stuck,
     bill,
   });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "提卡账本加载失败";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
 
 const postSchema = z.discriminatedUnion("action", [

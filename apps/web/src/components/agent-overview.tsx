@@ -9,8 +9,8 @@ export function AgentOverview({ snapshot }: { snapshot: AgentOverviewSnapshot })
     <>
       <header className="km-acp-head">
         <div>
-          <h1>今天店还好</h1>
-          <p>打开后台先看店况，不要先看表格。有风险用一句话点出来，点进去再处理。</p>
+          <h1>经营概览</h1>
+          <p>先查看经营概况。有待处理事项时会标出，可进入对应页面处理。</p>
         </div>
       </header>
       <div className="km-acp-kpis">
@@ -27,7 +27,7 @@ export function AgentOverview({ snapshot }: { snapshot: AgentOverviewSnapshot })
         <div className="km-acp-kpi">
           <span>未兑换积压</span>
           <strong>{unused}</strong>
-          <small>发出去还没人兑</small>
+          <small>已发卡、尚未兑换</small>
         </div>
         <div className="km-acp-kpi">
           <span>在用的券</span>
@@ -42,7 +42,7 @@ export function AgentOverview({ snapshot }: { snapshot: AgentOverviewSnapshot })
           <div className="km-acp-section-title">
             <div>
               <h2>最近成交</h2>
-              <p>确认店还在出单。明细去账本。</p>
+              <p>近期成交。明细见账本。</p>
             </div>
             <Link href="/agent/books" className="km-btn km-btn-ghost">
               账本
@@ -66,15 +66,15 @@ export function AgentOverview({ snapshot }: { snapshot: AgentOverviewSnapshot })
         <section className="km-panel">
           <div className="km-acp-section-title">
             <div>
-              <h2>要看一眼的</h2>
-              <p>没有待办就留白，不要堆零。</p>
+              <h2>待处理</h2>
+              <p>没有待办时此处留空。</p>
             </div>
           </div>
           <div className="km-acp-list">
             {risky ? (
               <Link href="/agent/sell" className="km-acp-row km-acp-todo">
                 <div>
-                  <b>有一张券可能亏本</b>
+                  <b>有优惠券可能低于成本</b>
                   <span>
                     {risky.name} · {risky.message}
                   </span>
@@ -85,14 +85,14 @@ export function AgentOverview({ snapshot }: { snapshot: AgentOverviewSnapshot })
             {unused > 0 ? (
               <Link href="/agent/codes" className="km-acp-row">
                 <div>
-                  <b>{unused} 张卡还没兑</b>
-                  <span>不是库存，是已经卖出的卡</span>
+                  <b>{unused} 张卡尚未兑换</b>
+                  <span>已售出，不是库存</span>
                 </div>
                 <span>去查</span>
               </Link>
             ) : null}
             {!risky && unused === 0 ? (
-              <p className="text-sm text-[var(--km-fg-muted)]">这会儿没有要立刻处理的事。</p>
+              <p className="text-sm text-[var(--km-fg-muted)]">当前没有待处理事项。</p>
             ) : null}
           </div>
         </section>

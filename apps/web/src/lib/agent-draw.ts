@@ -228,24 +228,39 @@ export async function listUnsettledDrawItems(
     .orderBy(desc(agentDrawItems.id))
     .limit(pageSize)
     .offset((page - 1) * pageSize);
+  let codesUnavailable = false;
   return {
-    items: rows.map((row) => ({
-      id: row.id,
-      createdAt: row.createdAt,
-      planKey: row.planKey,
-      planName: row.planName,
-      amountCents: row.amountCents,
-      upstreamCostCents: row.upstreamCostCents,
-      cdkStatus: row.cdkStatus,
-      paymentCountry: row.paymentCountry,
-      drawNo: row.drawNo,
-      manualUsedAt: row.manualUsedAt || "",
-      codeMasked: maskCode(decryptSecret(row.codeEncrypted)),
-    })),
+    items: rows.map((row) => {
+      const masked = maskedDrawCode(row.codeEncrypted);
+      if (masked.unavailable) codesUnavailable = true;
+      return {
+        id: row.id,
+        createdAt: row.createdAt,
+        planKey: row.planKey,
+        planName: row.planName,
+        amountCents: row.amountCents,
+        upstreamCostCents: row.upstreamCostCents,
+        cdkStatus: row.cdkStatus,
+        paymentCountry: row.paymentCountry,
+        drawNo: row.drawNo,
+        manualUsedAt: row.manualUsedAt || "",
+        codeMasked: masked.codeMasked,
+      };
+    }),
+    codesUnavailable,
     total: Number(total) || 0,
     page,
     pageSize,
   };
+}
+
+/** 展示用卡号。密钥与数据不一致时不抛错，避免整页账本加载失败。 */
+function maskedDrawCode(encrypted: string) {
+  try {
+    return { codeMasked: maskCode(decryptSecret(encrypted)), unavailable: false };
+  } catch {
+    return { codeMasked: "无法显示", unavailable: true };
+  }
 }
 
 /**
@@ -1429,7 +1444,7 @@ export async function getDrawBill(billId: number) {
       paymentCountry: item.paymentCountry,
       cdkStatus: item.cdkStatus,
       manualUsedAt: item.manualUsedAt || "",
-      codeMasked: maskCode(decryptSecret(item.codeEncrypted)),
+      codeMasked: maskedDrawCode(item.codeEncrypted).codeMasked,
     })),
   };
 }
@@ -1462,7 +1477,7 @@ export async function getAgentBill(agentId: number, billNo: string) {
       paymentCountry: item.paymentCountry,
       cdkStatus: item.cdkStatus,
       manualUsedAt: item.manualUsedAt || "",
-      codeMasked: maskCode(decryptSecret(item.codeEncrypted)),
+      codeMasked: maskedDrawCode(item.codeEncrypted).codeMasked,
     })),
   };
 }
@@ -1880,7 +1895,7 @@ export async function drawLedgerCsv(kind: "items" | "bills", agentId = 0, billQu
       publicShopName(row),
       row.planName,
       row.paymentCountry || "菲区",
-      maskCode(decryptSecret(row.codeEncrypted)),
+      maskedDrawCode(row.codeEncrypted).codeMasked,
       drawCodeUseLabel(row.cdkStatus, Boolean(row.manualUsedAt)),
       (row.amountCents / 100).toFixed(2),
       DRAW_ITEM_LABEL[row.status] || row.status,

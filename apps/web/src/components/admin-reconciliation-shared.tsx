@@ -31,7 +31,20 @@ export type AgentRow = {
   itemCount: number;
   skippedCount: number;
   lockedNetCents: number;
-  latestBatch: { id: number; batchNo: string; status: string; netCents: number } | null;
+  latestBatch: {
+    id: number;
+    batchNo: string;
+    status: string;
+    netCents: number;
+    storeEarningCents: number;
+    adjustmentCents: number;
+    drawDebtCents: number;
+    storeCount: number;
+    adjustmentCount: number;
+    drawCount: number;
+    version: number;
+    snapshotHash: string;
+  } | null;
   updatedAt: string;
 };
 
@@ -43,7 +56,17 @@ export type AgentListData = {
   nextCursor: string | null;
 };
 
-export type PreviewItem = { type: string; id: number; version: string; amountCents: number; orderNo: string };
+export type PreviewItem = {
+  type: string;
+  id: number;
+  version: string;
+  amountCents: number;
+  orderNo: string;
+  occurredAt?: string;
+  title?: string;
+  goodsCents?: number | null;
+  feeCents?: number | null;
+};
 export type SkippedItem = { orderNo: string; code?: string; message?: string; amountCents: number | null };
 
 /** GET /api/admin/reconciliations/agents/:agentId/preview → data */

@@ -81,14 +81,40 @@ function skipMessage(code: string) {
   return "缺收益行或来源数据，先补齐再纳入";
 }
 
+function snapText(snapshot: Record<string, unknown>, key: string) {
+  return typeof snapshot[key] === "string" ? snapshot[key] : "";
+}
+
+function snapCents(snapshot: Record<string, unknown>, key: string) {
+  return typeof snapshot[key] === "number" ? snapshot[key] : null;
+}
+
+/** 给对账表用的展示字段。不参与快照哈希。 */
+function lineFace(line: Pick<Line, "occurredAt" | "snapshot">) {
+  const snapshot = line.snapshot;
+  return {
+    occurredAt: line.occurredAt,
+    title: snapText(snapshot, "productName") || snapText(snapshot, "planName") || snapText(snapshot, "reason") || snapText(snapshot, "type"),
+    goodsCents: snapCents(snapshot, "goodsCents"),
+    feeCents: snapCents(snapshot, "agentFeeCents"),
+  };
+}
+
 function lineDirection(type: ReconciliationSourceType, amount: number): ReconciliationDirection {
   if (type === "draw_item") return "agent_pays_platform";
   return directionOf(amount);
 }
 
 async function loadLines(tx: Tx | typeof db, agentId: number, cutoffAt: string): Promise<Line[]> {
+  const tagged = await collectLines(tx, agentId, cutoffAt);
+  return tagged.map((row) => row.line);
+}
+
+/** agentId 为空时一次捞出全部代理的未结行，名单接口不用按人循环查。 */
+async function collectLines(tx: Tx | typeof db, agentId: number | null, cutoffAt: string) {
   const earnings = await tx
     .select({
+      agentId: agentEarnings.agentId,
       earningId: agentEarnings.id,
       earningCents: agentEarnings.earningCents,
       earningStatus: agentEarnings.status,
@@ -119,7 +145,7 @@ async function loadLines(tx: Tx | typeof db, agentId: number, cutoffAt: string):
     .innerJoin(storeOrders, eq(storeOrders.id, agentEarnings.orderId))
     .where(
       and(
-        eq(agentEarnings.agentId, agentId),
+        ...(agentId == null ? [] : [eq(agentEarnings.agentId, agentId)]),
         inArray(agentEarnings.status, ["pending", "settling"]),
         lte(agentEarnings.confirmedAt, cutoffAt),
         eq(storeOrders.payStatus, "paid"),
@@ -129,6 +155,7 @@ async function loadLines(tx: Tx | typeof db, agentId: number, cutoffAt: string):
 
   const missing = await tx
     .select({
+      agentId: storeOrders.agentId,
       orderNo: storeOrders.orderNo,
       occurredAt: storeOrders.deliveredAt,
       paidAt: storeOrders.paidAt,
@@ -137,7 +164,7 @@ async function loadLines(tx: Tx | typeof db, agentId: number, cutoffAt: string):
     .leftJoin(agentEarnings, eq(agentEarnings.orderId, storeOrders.id))
     .where(
       and(
-        eq(storeOrders.agentId, agentId),
+        ...(agentId == null ? [] : [eq(storeOrders.agentId, agentId)]),
         eq(storeOrders.payStatus, "paid"),
         eq(storeOrders.fulfillStatus, "delivered"),
         sql`${agentEarnings.id} is null`,
@@ -150,7 +177,7 @@ async function loadLines(tx: Tx | typeof db, agentId: number, cutoffAt: string):
     .from(agentEarningAdjustments)
     .where(
       and(
-        eq(agentEarningAdjustments.agentId, agentId),
+        ...(agentId == null ? [] : [eq(agentEarningAdjustments.agentId, agentId)]),
         inArray(agentEarningAdjustments.status, ["pending", "settling"]),
         lte(agentEarningAdjustments.createdAt, cutoffAt),
         sql`EXISTS (
@@ -163,6 +190,7 @@ async function loadLines(tx: Tx | typeof db, agentId: number, cutoffAt: string):
 
   const draws = await tx
     .select({
+      agentId: agentDrawItems.agentId,
       id: agentDrawItems.id,
       amountCents: agentDrawItems.amountCents,
       drawOrderId: agentDrawItems.drawOrderId,
@@ -175,7 +203,7 @@ async function loadLines(tx: Tx | typeof db, agentId: number, cutoffAt: string):
     .innerJoin(agentDrawOrders, eq(agentDrawOrders.id, agentDrawItems.drawOrderId))
     .where(
       and(
-        eq(agentDrawItems.agentId, agentId),
+        ...(agentId == null ? [] : [eq(agentDrawItems.agentId, agentId)]),
         eq(agentDrawItems.status, "unsettled"),
         lte(agentDrawItems.createdAt, cutoffAt),
       ),
@@ -212,7 +240,7 @@ async function loadLines(tx: Tx | typeof db, agentId: number, cutoffAt: string):
     for (const row of found) legacyNos.set(row.id, row.settlementNo);
   }
 
-  const lines: Line[] = [];
+  const tagged: Array<{ agentId: number; line: Line }> = [];
   for (const row of earnings) {
     const goods = row.grossCents - row.invoiceSurchargeCents;
     const snapshot = {
@@ -248,21 +276,21 @@ async function loadLines(tx: Tx | typeof db, agentId: number, cutoffAt: string):
       amountKnown: true,
     };
     if (row.earningStatus === "settling" || claimed.has(`earning:${row.earningId}`)) {
-      lines.push({
+      tagged.push({ agentId: row.agentId, line: {
         ...base,
         bucket: "locked",
         claimBatchId: claimed.get(`earning:${row.earningId}`) ?? null,
         legacySettlementNo: row.earningSettlementId ? legacyNos.get(row.earningSettlementId) ?? null : null,
-      });
+      } });
       continue;
     }
     if (row.feeReconcileStatus === "manual_review") {
-      lines.push({
+      tagged.push({ agentId: row.agentId, line: {
         ...base,
         bucket: "skipped",
         skipCode: "MANUAL_REVIEW_REQUIRED",
         skipMessage: skipMessage("MANUAL_REVIEW_REQUIRED"),
-      });
+      } });
       continue;
     }
     const issues = verifyLedger(
@@ -287,18 +315,19 @@ async function loadLines(tx: Tx | typeof db, agentId: number, cutoffAt: string):
       },
     );
     if (issues.length) {
-      lines.push({
+      tagged.push({ agentId: row.agentId, line: {
         ...base,
         bucket: "skipped",
         skipCode: "LEDGER_MISMATCH",
         skipMessage: skipMessage("LEDGER_MISMATCH"),
-      });
+      } });
       continue;
     }
-    lines.push({ ...base, bucket: "open" });
+    tagged.push({ agentId: row.agentId, line: { ...base, bucket: "open" } });
   }
   for (const row of missing) {
-    lines.push({
+    if (!row.agentId) continue;
+    tagged.push({ agentId: row.agentId, line: {
       sourceType: "earning",
       sourceId: 0,
       sourceVersion: "",
@@ -310,7 +339,7 @@ async function loadLines(tx: Tx | typeof db, agentId: number, cutoffAt: string):
       skipMessage: skipMessage("MISSING_SOURCE"),
       snapshot: { orderNo: row.orderNo },
       amountKnown: false,
-    });
+    } });
   }
   for (const row of adjustments) {
     const base = {
@@ -333,7 +362,7 @@ async function loadLines(tx: Tx | typeof db, agentId: number, cutoffAt: string):
       amountKnown: true,
     };
     const locked = row.status === "settling" || claimed.has(`adjustment:${row.id}`);
-    lines.push({
+    tagged.push({ agentId: row.agentId, line: {
       ...base,
       bucket: locked ? "locked" : "open",
       ...(locked
@@ -342,7 +371,7 @@ async function loadLines(tx: Tx | typeof db, agentId: number, cutoffAt: string):
             legacySettlementNo: row.settlementId ? legacyNos.get(row.settlementId) ?? null : null,
           }
         : {}),
-    });
+    } });
   }
   for (const row of draws) {
     const base = {
@@ -361,13 +390,13 @@ async function loadLines(tx: Tx | typeof db, agentId: number, cutoffAt: string):
       },
       amountKnown: true,
     };
-    lines.push({
+    tagged.push({ agentId: row.agentId, line: {
       ...base,
       bucket: claimed.has(`draw_item:${row.id}`) ? "locked" : "open",
       claimBatchId: claimed.get(`draw_item:${row.id}`) ?? null,
-    });
+    } });
   }
-  return lines;
+  return tagged;
 }
 
 function partition(lines: Line[]) {
@@ -545,6 +574,7 @@ export async function previewReconciliation(agentId: number, cutoffAt: string) {
       version: line.sourceVersion,
       amountCents: line.amountCents,
       orderNo: line.orderNo,
+      ...lineFace(line),
     })),
     note: "可对账净额，不含待核对项",
   };
@@ -1224,25 +1254,36 @@ export async function listReconciliationAgents(query: {
     .select({ id: agents.id, name: agents.displayName, shopName: agents.shopName })
     .from(agents)
     .orderBy(agents.displayName);
+  const taggedLines = await collectLines(db, null, query.cutoffAt);
+  const batchRows = await db.select().from(agentReconciliationBatches).orderBy(desc(agentReconciliationBatches.id));
+  const claimRows = await db
+    .select({ agentId: agentReconciliationBatches.agentId })
+    .from(agentReconciliationClaims)
+    .innerJoin(agentReconciliationBatches, eq(agentReconciliationBatches.id, agentReconciliationClaims.batchId))
+    .where(eq(agentReconciliationClaims.claimState, "active"));
+  const linesByAgent = new Map<number, Line[]>();
+  for (const row of taggedLines) {
+    const bucket = linesByAgent.get(row.agentId);
+    if (bucket) bucket.push(row.line);
+    else linesByAgent.set(row.agentId, [row.line]);
+  }
+  const batchesByAgent = new Map<number, typeof batchRows>();
+  for (const batch of batchRows) {
+    const bucket = batchesByAgent.get(batch.agentId);
+    if (bucket) bucket.push(batch);
+    else batchesByAgent.set(batch.agentId, [batch]);
+  }
+  const claimedAgents = new Set(claimRows.map((row) => row.agentId));
   const listed = [];
   for (const agent of rows) {
     const name = agent.shopName || agent.name;
     if (query.search && !name.toLowerCase().includes(query.search.toLowerCase()) && !agent.name.includes(query.search)) {
       continue;
     }
-    const view = partition(await loadLines(db, agent.id, query.cutoffAt));
-    const batches = await db
-      .select()
-      .from(agentReconciliationBatches)
-      .where(eq(agentReconciliationBatches.agentId, agent.id))
-      .orderBy(desc(agentReconciliationBatches.id));
+    const view = partition(linesByAgent.get(agent.id) || []);
+    const batches = batchesByAgent.get(agent.id) || [];
     const latest = batches[0];
-    const activeClaims = await db
-      .select({ id: agentReconciliationClaims.id })
-      .from(agentReconciliationClaims)
-      .innerJoin(agentReconciliationBatches, eq(agentReconciliationBatches.id, agentReconciliationClaims.batchId))
-      .where(and(eq(agentReconciliationBatches.agentId, agent.id), eq(agentReconciliationClaims.claimState, "active")))
-      .limit(1);
+    const activeClaims = claimedAgents.has(agent.id) ? [agent.id] : [];
     const open = view.openTotals.itemCount > 0;
     const pending = batches.some(
       (batch) => batch.status === "draft" || batch.status === "pending_payment" || batch.status === "correction_pending",
@@ -1268,7 +1309,20 @@ export async function listReconciliationAgents(query: {
       skippedCount: view.skipped.length,
       lockedNetCents: view.lockedTotals.netCents,
       latestBatch: latest
-        ? { id: latest.id, batchNo: latest.batchNo, status: latest.status, netCents: latest.netCents }
+        ? {
+            id: latest.id,
+            batchNo: latest.batchNo,
+            status: latest.status,
+            netCents: latest.netCents,
+            storeEarningCents: latest.storeEarningCents,
+            adjustmentCents: latest.adjustmentCents,
+            drawDebtCents: latest.drawDebtCents,
+            storeCount: latest.storeCount,
+            adjustmentCount: latest.adjustmentCount,
+            drawCount: latest.drawCount,
+            version: latest.version,
+            snapshotHash: latest.snapshotHash,
+          }
         : null,
       updatedAt: view.open[0]?.occurredAt || latest?.createdAt || "",
     });
