@@ -21,10 +21,14 @@ import { RegionBadge } from "@/components/region-badge";
 
 function planStatus(plan: AgentPlanRow) {
   if (!plan.enabled) return { label: "未开放", tone: "mute" as const };
-  if (plan.cardplatformSellable || isLocalAccountPlan(plan)) {
-    return { label: "可售", tone: "ok" as const };
+  if (!(plan.cardplatformSellable || isLocalAccountPlan(plan))) {
+    return { label: "平台暂时缺货", tone: "warn" as const };
   }
-  return { label: "平台暂时缺货", tone: "warn" as const };
+  if (plan.retailPriceCents <= 0) return { label: "未定价", tone: "warn" as const };
+  if (plan.retailPriceCents < plan.costPriceCents) {
+    return { label: "低于成本", tone: "warn" as const };
+  }
+  return { label: "可售", tone: "ok" as const };
 }
 
 export function AgentSell({
@@ -147,7 +151,7 @@ export function AgentSell({
         <div className="km-acp-section-title">
           <div>
             <h2>在售套餐</h2>
-            <p>只能填在成本和上限之间。保存一次，全店生效。</p>
+            <p>零售价要落在成本和上限之间。低于成本，或还是 0，顾客店铺里不会出现。保存一次，全店生效。</p>
           </div>
           <button
             type="button"

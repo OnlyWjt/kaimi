@@ -1168,6 +1168,8 @@ select.km-input option {
 
 .km-sf-cat-active,
 .km-sf-cat-active:hover {
+  --km-region-fg: var(--km-accent-fg);
+  --km-region-bg: color-mix(in srgb, var(--km-accent-fg) 18%, transparent);
   color: var(--km-accent-fg);
   background: var(--km-fg);
   border-color: var(--km-fg);

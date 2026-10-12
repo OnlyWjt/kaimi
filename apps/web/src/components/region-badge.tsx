@@ -31,8 +31,8 @@ export function RegionBadge({
         fontSize: size === "md" ? 13 : 12,
         lineHeight: 1.5,
         whiteSpace: "nowrap",
-        color: "var(--km-fg)",
-        ...(TONE[region.code] || TONE.PH),
+        color: "var(--km-region-fg, var(--km-fg))",
+        background: `var(--km-region-bg, ${(TONE[region.code] || TONE.PH).background})`,
       }}
     >
       <b style={{ fontFamily: "ui-monospace, monospace", fontWeight: 650 }}>{region.code}</b>
