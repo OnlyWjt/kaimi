@@ -1161,12 +1161,13 @@ select.km-input option {
   cursor: pointer;
 }
 
-.km-sf-cat:hover {
+.km-sf-cat:hover:not(.km-sf-cat-active) {
   color: var(--km-fg);
   border-color: var(--km-fg);
 }
 
-.km-sf-cat-active {
+.km-sf-cat-active,
+.km-sf-cat-active:hover {
   color: var(--km-accent-fg);
   background: var(--km-fg);
   border-color: var(--km-fg);
