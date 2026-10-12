@@ -78,6 +78,7 @@ export async function syncDefaultCardplatformPlans() {
       }
 
       if (!regionCapable) continue;
+      const displayName = existing?.name || plan.name;
       for (const region of activeRegions) {
         const key = variantPlanKey(plan.key, region.country);
         const variant = await tx.query.platformPlans.findFirst({
@@ -87,6 +88,7 @@ export async function syncDefaultCardplatformPlans() {
           await tx
             .update(platformPlans)
             .set({
+              name: displayName,
               cardplatformSellable: plan.enabled,
               sortOrder: plan.sortOrder,
               cardplatformRawJson: JSON.stringify(plan.raw),
@@ -101,7 +103,7 @@ export async function syncDefaultCardplatformPlans() {
             upstreamPlanKey: plan.key,
             paymentCountry: region.country,
             regionCapable: true,
-            name: plan.name,
+            name: displayName,
             sortOrder: plan.sortOrder,
             enabled: false,
             globalCostPriceCents: 0,

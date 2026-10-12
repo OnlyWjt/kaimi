@@ -291,7 +291,7 @@ export function AgentStorefrontSettings() {
               >
                 <BilingualField
                   label={plan.name}
-                  hint={`平台名称：${plan.name}`}
+                  hint={`留空则顾客看到平台名称：${plan.name}`}
                   value={settings.productNames[plan.planKey] ?? { zh: "", en: "" }}
                   onChange={(name) =>
                     patch({

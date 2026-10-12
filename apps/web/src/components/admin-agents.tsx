@@ -117,6 +117,7 @@ function PlanCostCards({
   onCap,
   onEnabled,
   onGrant,
+  onRename,
 }: {
   catalog: CatalogPlan[];
   costDraft: Record<string, string>;
@@ -130,6 +131,7 @@ function PlanCostCards({
   onCap: (planKey: string, value: string) => void;
   onEnabled: (planKey: string, enabled: boolean) => void;
   onGrant: (plans: CatalogPlan[]) => void;
+  onRename: (planKeys: string[], name: string) => void;
 }) {
   const groups = groupPlansByBase(withRegion(catalog)).map((group) => ({
     ...group,
@@ -173,9 +175,23 @@ function PlanCostCards({
               return (
                 <article key={group.baseKey} className="overflow-hidden rounded-2xl border border-[var(--km-border)]">
                   <div className="flex flex-wrap items-center gap-3 px-4 py-3">
+                    <label className="min-w-[12rem] flex-1 text-xs text-[var(--km-fg-muted)]">
+                      显示名称
+                      <input
+                        className="km-input mt-1"
+                        maxLength={100}
+                        aria-label={`${group.baseKey} 的显示名称`}
+                        value={group.primary.name}
+                        onChange={(event) =>
+                          onRename(
+                            group.plans.map((plan) => plan.planKey),
+                            event.target.value,
+                          )
+                        }
+                      />
+                    </label>
                     <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onToggleGroup(group.baseKey)}>
                       <div className="flex flex-wrap items-baseline gap-2">
-                        <b>{group.primary.name}</b>
                         <span className="font-mono text-xs text-[var(--km-fg-muted)]">{group.baseKey}</span>
                         <span className="text-xs text-[var(--km-fg-muted)]">
                           {sellableLabel(group.primary)}
@@ -714,21 +730,30 @@ export function AdminAgents() {
   }
 
   function pricePayload(source: CatalogPlan[]) {
+    const displayName = new Map<string, string>();
+    for (const group of groupPlansByBase(withRegion(source))) {
+      const name = group.primary.name.trim();
+      for (const plan of group.plans) displayName.set(plan.planKey, name);
+    }
     return source.map((item) => {
+      const name = displayName.get(item.planKey) ?? item.name.trim();
       const cents = centsFromYuanText(costDraft[item.planKey] ?? "");
+      if (!name) {
+        throw new Error(`${item.planKey} 的显示名称不能为空`);
+      }
       if (cents == null || Number.isNaN(cents)) {
-        throw new Error(`${item.name} 的默认成本请填金额`);
+        throw new Error(`${name} 的默认成本请填金额`);
       }
       const capRaw = capDraft[item.planKey] ?? "";
       const capCents = centsFromYuanText(capRaw);
       if (capRaw.trim() && (capCents == null || Number.isNaN(capCents))) {
-        throw new Error(`${item.name} 的零售价上限请填金额`);
+        throw new Error(`${name} 的零售价上限请填金额`);
       }
       const capError = maxRetailPriceError(capCents, cents);
-      if (capError) throw new Error(`${item.name} ${capError}`);
+      if (capError) throw new Error(`${name} ${capError}`);
       return {
         planKey: item.planKey,
-        name: item.name,
+        name,
         globalCostPriceCents: cents,
         maxRetailPriceCents: capRaw.trim() ? capCents : null,
         enabled: item.enabled,
@@ -967,11 +992,12 @@ export function AdminAgents() {
             </p>
             {costsOpen ? (
               <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
+                显示名称由管理员填写。保存后，代理后台和顾客店铺都使用这个名称。代理在店铺装修里另行填写商品名时，顾客看到的是代理填写的名称。
                 这是平台给代理的默认成本。代理登录后只能在自己的成本之上加零售价。
                 零售价上限留空表示不限价；填了之后代理改价不能超过它，但已经高于上限的老价格照卖，会在下面的「套餐」弹窗里标出来。
               </p>
             ) : (
-              <p className="mt-1 text-sm text-[var(--km-fg-muted)]">点开再改成本和上限。</p>
+              <p className="mt-1 text-sm text-[var(--km-fg-muted)]">点开再改显示名称、成本和上限。</p>
             )}
         </div>
         {costsOpen && catalog.length === 0 ? (
@@ -999,6 +1025,11 @@ export function AdminAgents() {
               )
             }
             onGrant={(plans) => void enableForAllAgents(plans)}
+            onRename={(planKeys, name) =>
+              setCatalog((current) =>
+                current.map((item) => (planKeys.includes(item.planKey) ? { ...item, name } : item)),
+              )
+            }
           />
         ) : null}
         {costsOpen ? (
@@ -1009,7 +1040,7 @@ export function AdminAgents() {
             disabled={Boolean(busy) || catalog.length === 0}
             onClick={() => void saveDefaultPrices()}
           >
-            {busy === "defaults" ? "保存中…" : "保存默认价格"}
+            {busy === "defaults" ? "保存中…" : "保存名称和价格"}
           </button>
           <button
             type="button"
