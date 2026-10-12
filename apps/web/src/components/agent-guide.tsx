@@ -8,7 +8,7 @@ const SECTIONS = [
   { id: "customer", title: "客户怎么买" },
   { id: "desk", title: "后台几个按钮" },
   { id: "money", title: "收益怎么算" },
-  { id: "settle", title: "什么时候拿到钱" },
+  { id: "settle", title: "如何结算" },
   { id: "faq", title: "客户问你怎么答" },
 ] as const;
 
@@ -151,18 +151,18 @@ export function AgentGuide({ slug }: { slug: string }) {
         </section>
 
         <section id="agent-guide-settle" className="km-panel space-y-3">
-          <h2 className="text-lg font-semibold">什么时候拿到钱</h2>
-          <p className="text-sm text-[var(--km-fg-muted)]">
-            客户付的钱先进平台的收款账户，平台按周期把你的收益结给你。你不用自己申请。
+          <h2 className="text-lg font-semibold">如何结算</h2>
+          <p className="text-sm leading-relaxed text-[var(--km-fg-muted)]">
+            客户支付的款项进入平台账户。发卡完成后，商店收益立即记入「账本」。若已开通自助提卡，未结算的提卡是你应付平台的金额。
+          </p>
+          <p className="text-sm leading-relaxed text-[var(--km-fg-muted)]">
+            未结净额 = 商店收益 + 调整 − 未结提卡。大于 0 时平台付给你，小于 0 时你付给平台，等于 0 时双方抵平。账本顶部的未结金额与平台对账页一致。
           </p>
           <ol className="km-guide-steps">
-            <li>订单付款成功并且卡密已经发出去，这笔收益就算「待结算」。多张单如果还在补发，等出齐再进结算。</li>
-            <li>平台按周期出一张结算单，状态是「待返佣」，金额就是这段时间你的收益合计。</li>
-            <li>平台实际打款给你之后，结算单变成「已返佣」，并会记下打款方式和流水号。</li>
+            <li>不按自然周自动打款。需要结算时联系平台，并在「账本」核对当前未结净额。</li>
+            <li>线下转账完成后，由平台登记「已结算」。代理不能自行结算。</li>
+            <li>登记之后，已纳入的明细结清，新的订单和提卡重新累计。此后的退款或手续费差额记入下一次未结。</li>
           </ol>
-          <p className="text-sm text-[var(--km-fg-muted)]">
-            在「账本」下面的结算里能看到每一张结算单和它的状态。
-          </p>
         </section>
 
         <section id="agent-guide-faq" className="km-panel space-y-3">

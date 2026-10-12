@@ -9,8 +9,8 @@ export default async function AgentStartPage() {
         <header>
           <p className="km-eyebrow">{appearance.siteName}</p>
           <h1 className="km-page-title">代理快速上手</h1>
-          <p className="mt-2 text-sm text-[var(--km-fg-muted)]">
-            平台把这个地址发给你就对了。登录后后台里还有更细的「使用说明」。
+          <p className="mt-2 text-sm leading-relaxed text-[var(--km-fg-muted)]">
+            登录前先阅读本页。这里说明后台各功能如何使用，以及商店收益和提卡如何结算。登录后可在「使用说明」中查看更细的计算和常见问题。
           </p>
         </header>
         <AgentStartGuide />
