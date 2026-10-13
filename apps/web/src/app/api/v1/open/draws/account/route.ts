@@ -54,6 +54,9 @@ export async function GET(req: Request) {
       plan_key: plan.planKey,
       name: plan.name,
       unit_price_cents: plan.unitPriceCents,
+      fulfillment_kind: plan.fulfillmentKind,
+      /** 成品号可提数量；卡密为 null。 */
+      available_stock: plan.availableStock,
     })),
   });
 }

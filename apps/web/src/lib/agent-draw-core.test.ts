@@ -17,7 +17,11 @@ import {
   drawQuantityError,
   drawSettingsError,
   drawTodayUsedCount,
+  drawUnit,
+  finishedDrawAvailable,
+  finishedStockError,
   normalizeDrawPaymentMethod,
+  normalizeFinishedReserve,
   toCsv,
   formatYuan,
   isDrawLinkToken,
@@ -153,6 +157,49 @@ describe("对账", () => {
 
   it("没有未结算时给一句话", () => {
     expect(buildDrawStatementText({ shopName: "Polus", items: [] })).toContain("没有未结算");
+  });
+
+  it("只有成品号按「个」，混着按「件」", () => {
+    const finished = [
+      { planKey: "finished_gpt", planName: "GPT 成品号", amountCents: 3500, createdAt: "2026-10-13T06:20:00.000Z", finished: true },
+    ];
+    expect(buildDrawStatementText({ shopName: "Polus", items: finished })).toContain("合计 1 个，应付 ¥35.00");
+    const mixed = buildDrawStatementText({ shopName: "Polus", items: [...items, ...finished], voidCount: 2 });
+    expect(mixed).toContain("合计 5 件，应付 ¥595.00");
+    expect(mixed).toContain("作废 2 件未计入");
+  });
+});
+
+describe("提成品号", () => {
+  it("可提库存扣掉商城保留数，不为负", () => {
+    expect(finishedDrawAvailable({ unused: 10, reserve: 8 })).toBe(2);
+    expect(finishedDrawAvailable({ unused: 3, reserve: 8 })).toBe(0);
+    expect(finishedDrawAvailable({ unused: 3, reserve: 0 })).toBe(3);
+  });
+
+  it("保留数非法按 0", () => {
+    expect(normalizeFinishedReserve("5")).toBe(5);
+    expect(normalizeFinishedReserve("-1")).toBe(0);
+    expect(normalizeFinishedReserve("abc")).toBe(0);
+    expect(normalizeFinishedReserve(undefined)).toBe(0);
+  });
+
+  it("库存不够整单拒绝，说清最多能提几个", () => {
+    expect(finishedStockError(5, 5)).toBeNull();
+    expect(finishedStockError(2, 3)).toBe("成品号库存不够，现在最多能提 2 个");
+    expect(finishedStockError(0, 1)).toContain("暂无库存");
+  });
+
+  it("成品号状态显示已交付 / 已作废，不显示「已兑换」", () => {
+    expect(drawCodeUseLabel("used", false, true)).toBe("已交付");
+    expect(drawCodeUseLabel("disabled", false, true)).toBe("已作废");
+    expect(drawCodeUseLabel("used", false)).toBe("已兑换");
+  });
+
+  it("单位", () => {
+    expect(drawUnit({ finished: 0, cards: 3 })).toBe("张");
+    expect(drawUnit({ finished: 2, cards: 0 })).toBe("个");
+    expect(drawUnit({ finished: 1, cards: 1 })).toBe("件");
   });
 });
 

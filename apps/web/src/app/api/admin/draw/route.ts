@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
 import {
   DrawError,
+  drawFinishedOverview,
   drawLedgerOverview,
   getDrawBill,
   grantDrawAccess,
@@ -20,6 +21,7 @@ import {
   suspendDrawAccess,
   updateDrawCredit,
   updateDrawSettings,
+  updateFinishedReserve,
   voidDrawItem,
 } from "@/lib/agent-draw";
 import { bootDb } from "@/lib/config";
@@ -44,7 +46,7 @@ export async function GET(req: Request) {
   const itemPage = normalizePage(params.get("itemPage"));
   const itemPageSize = normalizePageSize(params.get("itemPageSize"));
   try {
-  const [overview, agents, applications, itemPageResult, stuck, bill] = await Promise.all([
+  const [overview, agents, applications, itemPageResult, stuck, bill, finished] = await Promise.all([
     drawLedgerOverview(),
     listDrawLedgerAgents(),
     listPendingDrawApplications(),
@@ -53,9 +55,11 @@ export async function GET(req: Request) {
       : Promise.resolve({ items: [], total: 0, page: 1, pageSize: itemPageSize }),
     agentId > 0 ? listStuckDrawOrders(agentId) : Promise.resolve([]),
     billId > 0 ? getDrawBill(billId).catch(() => null) : Promise.resolve(null),
+    drawFinishedOverview(),
   ]);
   return NextResponse.json({
     overview,
+    finished,
     agents,
     applications,
     items: itemPageResult.items,
@@ -99,6 +103,11 @@ const postSchema = z.discriminatedUnion("action", [
     maxPerDraw: z.number().int(),
     dailyLimitCount: z.number().int(),
     notifyEachDraw: z.boolean(),
+    allowFinished: z.boolean().optional(),
+  }),
+  z.object({
+    action: z.literal("finished-reserve"),
+    reserve: z.number().int().min(0).max(100_000),
   }),
   z.object({
     action: z.literal("suspend"),
@@ -165,6 +174,10 @@ export async function POST(req: Request) {
     if (body.action === "settings") {
       const result = await updateDrawSettings(body, session);
       return NextResponse.json({ ok: true, ...result });
+    }
+    if (body.action === "finished-reserve") {
+      const finished = await updateFinishedReserve(body.reserve, session);
+      return NextResponse.json({ ok: true, finished });
     }
     if (body.action === "suspend") {
       await suspendDrawAccess(body.agentId, session);

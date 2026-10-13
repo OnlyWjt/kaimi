@@ -911,6 +911,17 @@ async function ensureAgentDrawSchema() {
     "CREATE INDEX IF NOT EXISTS issued_cdks_draw_order_idx ON issued_cdks(draw_order_id)",
   );
   await addColumn("ALTER TABLE agent_plan_prices ADD COLUMN draw_price_cents INTEGER");
+  // 提成品号：提卡单记交付方式，成品号记被哪张提卡单领走，代理逐个开通。
+  await addColumn(
+    "ALTER TABLE agent_draw_orders ADD COLUMN fulfillment_kind TEXT NOT NULL DEFAULT 'cardplatform'",
+  );
+  await addColumn("ALTER TABLE finished_accounts ADD COLUMN draw_order_id INTEGER");
+  await client.execute(
+    "CREATE INDEX IF NOT EXISTS finished_accounts_draw_order_idx ON finished_accounts(draw_order_id)",
+  );
+  await addColumn(
+    "ALTER TABLE agent_draw_access ADD COLUMN allow_finished INTEGER NOT NULL DEFAULT 0",
+  );
 }
 
 export async function ensureSchema() {
@@ -1252,6 +1263,7 @@ export async function ensureSchema() {
   await ensureSetting("draw_default_credit_cents", "300000");
   await ensureSetting("draw_default_max_per_draw", "10");
   await ensureSetting("draw_agent_notice", "");
+  await ensureSetting("draw_finished_reserve", "0");
   await ensureSetting("cardplatform_region_whitelist", "US,CL");
 
   // Older saves accidentally wrote storefront titles into site_name via 外观店面卡.

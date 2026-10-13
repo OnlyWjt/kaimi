@@ -1,7 +1,7 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { finishedAccounts } from "@/db/schema";
-import { encryptSecret } from "@/lib/crypto";
+import { finishedAccounts, issuedCdks } from "@/db/schema";
+import { encryptSecret, hashLookupValue } from "@/lib/crypto";
 import {
   FINISHED_GPT_PLAN_KEY,
   type FinishedAccountParts,
@@ -130,6 +130,62 @@ export async function allocateFinishedAccounts(
     if (updated) claimed.push(updated);
   }
   return claimed;
+}
+
+/**
+ * 提卡领号。邮箱已经在 issued_cdks 里出现过（管理员手工补发过）的号跳过，
+ * 继续往后领；够不够数由调用方判断，不够就整个事务回滚。
+ */
+export async function claimFinishedAccountsForDraw(
+  conn: DbLike,
+  input: { planKey: string; drawOrderId: number; quantity: number; now: string },
+) {
+  const claimed: Array<typeof finishedAccounts.$inferSelect> = [];
+  const conflicted: number[] = [];
+  let afterId = 0;
+  while (claimed.length < input.quantity) {
+    const candidates = await conn
+      .select()
+      .from(finishedAccounts)
+      .where(
+        and(
+          eq(finishedAccounts.planKey, input.planKey),
+          eq(finishedAccounts.status, "unused"),
+          gt(finishedAccounts.id, afterId),
+        ),
+      )
+      .orderBy(asc(finishedAccounts.id))
+      .limit(input.quantity - claimed.length);
+    if (candidates.length === 0) break;
+    afterId = candidates[candidates.length - 1].id;
+    const hashOf = new Map(candidates.map((row) => [row.id, hashLookupValue(row.email)]));
+    const taken = new Set(
+      (
+        await conn
+          .select({ codeHash: issuedCdks.codeHash })
+          .from(issuedCdks)
+          .where(inArray(issuedCdks.codeHash, [...hashOf.values()]))
+      ).map((row) => row.codeHash),
+    );
+    for (const row of candidates) {
+      if (taken.has(hashOf.get(row.id) || "")) {
+        conflicted.push(row.id);
+        continue;
+      }
+      const [updated] = await conn
+        .update(finishedAccounts)
+        .set({
+          status: "sold",
+          drawOrderId: input.drawOrderId,
+          soldAt: input.now,
+          updatedAt: input.now,
+        })
+        .where(and(eq(finishedAccounts.id, row.id), eq(finishedAccounts.status, "unused")))
+        .returning();
+      if (updated) claimed.push(updated);
+    }
+  }
+  return { claimed, conflicted };
 }
 
 export function decryptFinishedAccount(

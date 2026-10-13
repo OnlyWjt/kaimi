@@ -23,6 +23,7 @@ export async function GET(req: Request, context: { params: Promise<{ drawNo: str
   return openOk({
     draw_no: order.drawNo,
     status: order.status,
+    fulfillment_kind: order.fulfillmentKind,
     plan_name: order.planNameSnapshot,
     quantity: order.quantity,
     issued_count: order.issuedCount,

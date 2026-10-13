@@ -89,6 +89,7 @@ export async function POST(req: Request) {
     return openOk({
         draw_no: result.drawNo,
         status: result.status,
+        fulfillment_kind: result.fulfillmentKind,
         plan_name: result.planName,
         quantity: result.quantity,
         issued_count: result.issuedCount,
@@ -101,6 +102,13 @@ export async function POST(req: Request) {
           available_cents: result.credit.availableCents,
         },
         items: cards.map((card) => ({ id: card.id, code: decryptSecret(card.codeEncrypted) })),
+        // 成品号单才有：code 是 邮箱----GPT密码----邮箱密码----Session，这里拆好四段。
+        accounts: result.accounts.map((account) => ({
+          email: account.email,
+          gpt_password: account.gptPassword,
+          mailbox_password: account.mailboxPassword,
+          session: account.session,
+        })),
     });
   } catch (error) {
     return failFromDraw(error);

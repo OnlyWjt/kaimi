@@ -9,6 +9,7 @@ import {
   agentReconciliationClaims,
   agentPlanPrices,
   agents,
+  finishedAccounts,
   issuedCdks,
   platformPlans,
 } from "@/db/schema";
@@ -35,8 +36,11 @@ import {
   drawOrderStatusFromIssued,
   drawQuantityError,
   drawSettingsError,
+  finishedDrawAvailable,
+  finishedStockError,
   newDrawLinkToken,
   normalizeDrawPaymentMethod,
+  normalizeFinishedReserve,
   parseAllowedPlanKeys,
   planAllowed,
   resolveDrawUnitPrice,
@@ -44,6 +48,23 @@ import {
   toCsv,
   type DrawPlanSummary,
 } from "@/lib/agent-draw-core";
+import {
+  CARDPLATFORM_FULFILLMENT,
+  LOCAL_ACCOUNT_FULFILLMENT,
+  type FinishedAccountParts,
+  finishedAccountIdFromRef,
+  formatFinishedAccountLine,
+  isFinishedRef,
+  isLocalAccountPlan,
+  maskFinishedEmail,
+  splitFinishedAccountLine,
+} from "@/lib/finished-account-core";
+import {
+  claimFinishedAccountsForDraw,
+  countUnusedFinishedAccounts,
+  decryptFinishedAccount,
+  unusedFinishedAccountCounts,
+} from "@/lib/finished-accounts";
 import { publicShopName } from "@/lib/agent-names";
 import { writeAuditLog } from "@/lib/audit";
 import type { UserRole } from "@/lib/auth";
@@ -59,7 +80,7 @@ import {
 } from "@/lib/cardplatform/issue-target";
 import { issuePrefFromAccount } from "@/lib/cardplatform/policy";
 import { planNameWithRegion } from "@/lib/cardplatform/regions";
-import { getSetting } from "@/lib/config";
+import { getSetting, setSetting } from "@/lib/config";
 import { decryptSecret, encryptSecret, hashLookupValue, maskCode } from "@/lib/crypto";
 import { issueIdempotencyKey } from "@/lib/fulfillment/issue-keys";
 import {
@@ -68,6 +89,11 @@ import {
   newLeaseToken,
   upstreamRefsSummary,
 } from "@/lib/fulfillment/lease-core";
+import {
+  DRAW_EXPORT_MAX_ROWS,
+  type DrawExportRow,
+  drawExportRangeError,
+} from "@/lib/draw-export";
 import { newOrderNo } from "@/lib/ids";
 import { DEFAULT_PAGE_SIZE, normalizePage, normalizePageSize } from "@/lib/pagination-core";
 import { notifyDrawAlert, notifyDrawApply, notifyDrawCreated } from "@/lib/notify";
@@ -187,6 +213,7 @@ export async function listDrawLedgerAgents() {
         maxPerDraw: access?.maxPerDraw ?? DRAW_DEFAULT_MAX_PER_DRAW,
         dailyLimitCount: access?.dailyLimitCount ?? 0,
         notifyEachDraw: access?.notifyEachDraw ?? true,
+        allowFinished: access?.allowFinished ?? false,
       };
     })
     .sort((a, b) => {
@@ -220,6 +247,7 @@ export async function listUnsettledDrawItems(
       drawNo: agentDrawOrders.drawNo,
       planName: agentDrawOrders.planNameSnapshot,
       manualUsedAt: agentDrawItems.manualUsedAt,
+      upstreamRef: issuedCdks.upstreamRef,
     })
     .from(agentDrawItems)
     .innerJoin(issuedCdks, eq(issuedCdks.id, agentDrawItems.issuedCdkId))
@@ -245,6 +273,7 @@ export async function listUnsettledDrawItems(
         drawNo: row.drawNo,
         manualUsedAt: row.manualUsedAt || "",
         codeMasked: masked.codeMasked,
+        finished: isFinishedRef(row.upstreamRef),
       };
     }),
     codesUnavailable,
@@ -254,13 +283,53 @@ export async function listUnsettledDrawItems(
   };
 }
 
-/** 展示用卡号。密钥与数据不一致时不抛错，避免整页账本加载失败。 */
+/** 展示用卡号；成品号只显示打码邮箱。密钥与数据不一致时不抛错，避免整页账本加载失败。 */
 function maskedDrawCode(encrypted: string) {
   try {
-    return { codeMasked: maskCode(decryptSecret(encrypted)), unavailable: false };
+    const plain = decryptSecret(encrypted);
+    const account = splitFinishedAccountLine(plain);
+    return {
+      codeMasked: account ? maskFinishedEmail(account.email) : maskCode(plain),
+      unavailable: false,
+    };
   } catch {
     return { codeMasked: "无法显示", unavailable: true };
   }
+}
+
+/** 成品号单把交付行拆成四段；卡密单返回空数组。 */
+function accountsFromCodes(fulfillmentKind: string, codes: string[]): FinishedAccountParts[] {
+  if (fulfillmentKind !== LOCAL_ACCOUNT_FULFILLMENT) return [];
+  return codes.flatMap((code) => {
+    const parts = splitFinishedAccountLine(code);
+    return parts ? [parts] : [];
+  });
+}
+
+async function finishedReserve() {
+  return normalizeFinishedReserve(await getSetting("draw_finished_reserve", "0"));
+}
+
+/** 管理端看成品号库存：未售多少、给商城留多少、提卡还能拿多少。 */
+export async function drawFinishedOverview() {
+  const [unused, reserve] = await Promise.all([countUnusedFinishedAccounts(), finishedReserve()]);
+  return { unused, reserve, available: finishedDrawAvailable({ unused, reserve }) };
+}
+
+export async function updateFinishedReserve(reserve: number, actor: Actor) {
+  if (!Number.isInteger(reserve) || reserve < 0 || reserve > 100_000) {
+    throw new DrawError("保留数填 0 到 100000");
+  }
+  const from = await finishedReserve();
+  await setSetting("draw_finished_reserve", String(reserve));
+  await writeAuditLog({
+    actor,
+    action: "admin.draw.finished_reserve",
+    targetType: "setting",
+    targetId: "draw_finished_reserve",
+    metadata: { from, reserve },
+  });
+  return drawFinishedOverview();
 }
 
 /**
@@ -623,14 +692,23 @@ export async function getAgentDrawState(agentId: number) {
       and(
         eq(agentPlanPrices.agentId, agentId),
         eq(platformPlans.enabled, true),
-        eq(platformPlans.cardplatformSellable, true),
-        eq(platformPlans.fulfillmentKind, "cardplatform"),
+        or(
+          and(
+            eq(platformPlans.cardplatformSellable, true),
+            eq(platformPlans.fulfillmentKind, CARDPLATFORM_FULFILLMENT),
+          ),
+          access.allowFinished ? eq(platformPlans.fulfillmentKind, LOCAL_ACCOUNT_FULFILLMENT) : undefined,
+        ),
       ),
     );
+  const localKeys = plans.filter((plan) => isLocalAccountPlan(plan)).map((plan) => plan.planKey);
+  const unusedByPlan = localKeys.length ? await unusedFinishedAccountCounts(localKeys) : new Map();
+  const reserve = localKeys.length ? await finishedReserve() : 0;
   const drawable = plans.flatMap((plan) => {
     if (!planAllowed(allowed, plan.planKey)) return [];
     const price = resolveDrawUnitPrice(plan);
     if (!price) return [];
+    const local = isLocalAccountPlan(plan);
     return [
       {
         planKey: plan.planKey,
@@ -638,9 +716,20 @@ export async function getAgentDrawState(agentId: number) {
         unitPriceCents: price.unitPriceCents,
         paymentCountry: plan.paymentCountry,
         regionCapable: plan.regionCapable,
+        fulfillmentKind: local ? LOCAL_ACCOUNT_FULFILLMENT : CARDPLATFORM_FULFILLMENT,
+        /** 只有成品号有库存数；卡密为 null。 */
+        availableStock: local
+          ? finishedDrawAvailable({ unused: unusedByPlan.get(plan.planKey) || 0, reserve })
+          : null,
       },
     ];
   });
+  // 成品号排在卡密后面
+  drawable.sort(
+    (a, b) =>
+      Number(a.fulfillmentKind === LOCAL_ACCOUNT_FULFILLMENT) -
+      Number(b.fulfillmentKind === LOCAL_ACCOUNT_FULFILLMENT),
+  );
   const ledger = await agentLedgerSummary(agentId);
   const totals = await drawTotalsByAgent(agentId);
   const lifetime = totals.get(agentId);
@@ -766,6 +855,7 @@ export async function createDrawOrder(
       regionCapable: platformPlans.regionCapable,
       globalCostPriceCents: platformPlans.globalCostPriceCents,
       upstreamCostCents: platformPlans.upstreamCostCents,
+      fulfillmentKind: platformPlans.fulfillmentKind,
       costOverrideCents: agentPlanPrices.costOverrideCents,
       drawPriceCents: agentPlanPrices.drawPriceCents,
     })
@@ -776,22 +866,36 @@ export async function createDrawOrder(
         eq(agentPlanPrices.agentId, agentId),
         eq(platformPlans.planKey, input.planKey),
         eq(platformPlans.enabled, true),
-        eq(platformPlans.cardplatformSellable, true),
+        or(
+          eq(platformPlans.cardplatformSellable, true),
+          eq(platformPlans.fulfillmentKind, LOCAL_ACCOUNT_FULFILLMENT),
+        ),
       ),
     )
     .limit(1);
   if (!offer) throw new DrawError("这个套餐现在不能提");
-  if (!planAllowed(parseAllowedPlanKeys(access.allowedPlanKeysJson), offer.planKey)) {
+  const localAccount = isLocalAccountPlan(offer);
+  if (
+    (localAccount && !access.allowFinished) ||
+    !planAllowed(parseAllowedPlanKeys(access.allowedPlanKeysJson), offer.planKey)
+  ) {
     throw new DrawError("这个套餐不在你的可提范围里");
   }
   const price = resolveDrawUnitPrice(offer);
   if (!price) throw new DrawError("该套餐未配置价格，暂不能提卡", 409);
 
-  const account = await getDefaultCardplatformAccount();
-  if (!account) throw new DrawError("卡台未就绪", 503);
-  if (offer.paymentCountry && !accountSupportsPaymentCountry(account)) {
-    throw new DrawError("当前卡台不支持这个付款地区，请先提菲区", 409);
+  // 成品号从本地库存出，不碰卡台；卡台单号记 0。
+  let cardplatformAccountId = 0;
+  if (!localAccount) {
+    const account = await getDefaultCardplatformAccount();
+    if (!account) throw new DrawError("卡台未就绪", 503);
+    if (offer.paymentCountry && !accountSupportsPaymentCountry(account)) {
+      throw new DrawError("当前卡台不支持这个付款地区，请先提菲区", 409);
+    }
+    cardplatformAccountId = account.id;
   }
+  const reserve = localAccount ? await finishedReserve() : 0;
+  const hashConflicts: number[] = [];
 
   // 额度、在途单、日限的检查和插单放进同一个写事务（libsql 默认 BEGIN IMMEDIATE），
   // 同一代理换 requestId 并发提卡时后进来的会读到前一单的 issuing 占用。
@@ -834,6 +938,14 @@ export async function createDrawOrder(
       quantity: input.quantity,
     });
     if (dailyError) throw new DrawError(dailyError, 409);
+    if (localAccount) {
+      const unused = await countUnusedFinishedAccounts(offer.planKey, tx);
+      const stockError = finishedStockError(
+        finishedDrawAvailable({ unused, reserve }),
+        input.quantity,
+      );
+      if (stockError) throw new DrawError(stockError, 409);
+    }
 
     const now = nowIso();
     const drawNo = newOrderNo("DR");
@@ -855,7 +967,8 @@ export async function createDrawOrder(
       unitPriceCents: price.unitPriceCents,
       priceSource: price.source,
       upstreamCostUnitCents: offer.upstreamCostCents,
-      cardplatformAccountId: account.id,
+      fulfillmentKind: localAccount ? LOCAL_ACCOUNT_FULFILLMENT : CARDPLATFORM_FULFILLMENT,
+      cardplatformAccountId,
       idempotencyKey: `draw:${drawNo}`,
       status: "issuing",
       createdAt: now,
@@ -863,7 +976,29 @@ export async function createDrawOrder(
     })
     .returning();
     if (!inserted) throw new DrawError("提卡单创建失败");
-    return { order: inserted, fresh: true };
+    if (!localAccount) return { order: inserted, fresh: true };
+    const delivered = await deliverFinishedDraw(tx, {
+      order: inserted,
+      planUpstreamCostCents: offer.upstreamCostCents,
+      now,
+      conflicts: hashConflicts,
+    });
+    return { order: delivered, fresh: true };
+  }).finally(async () => {
+    if (hashConflicts.length === 0) return;
+    // 邮箱已经发给过别人，这些号不能再卖。和商城发货一样停用；放在事务外，提卡回滚了也照样停用，
+    // 否则它们会一直算在库存里，让「可提」数虚高。
+    await db
+      .update(finishedAccounts)
+      .set({ status: "disabled", updatedAt: nowIso() })
+      .where(and(inArray(finishedAccounts.id, hashConflicts), eq(finishedAccounts.status, "unused")))
+      .catch(() => null);
+    await writeAuditLog({
+      action: "draw.finished.hash_conflict",
+      targetType: "finished_account",
+      targetId: hashConflicts.join(","),
+      metadata: { agentId, planKey: offer.planKey, accountIds: hashConflicts },
+    }).catch(() => null);
   });
   const order = created.order;
   if (!created.fresh) {
@@ -873,8 +1008,124 @@ export async function createDrawOrder(
     }
     return presentDrawOrder(order.id);
   }
-  await issueDrawOrder(order.id, "initial");
+  if (localAccount) {
+    await afterDrawIssued(order, order.issuedCount).catch(() => null);
+  } else {
+    await issueDrawOrder(order.id, "initial");
+  }
   return presentDrawOrder(order.id);
+}
+
+/**
+ * 成品号提卡在建单的同一个写事务里交付：领号、写交付记录和账本、把单改成已交付。
+ * 撞车跳过后不够数就抛错，整个事务回滚，库存、额度都不动。
+ */
+async function deliverFinishedDraw(
+  tx: DrawTx,
+  input: {
+    order: typeof agentDrawOrders.$inferSelect;
+    planUpstreamCostCents: number | null;
+    now: string;
+    /** 撞车跳过的账号 id，事务回滚了也要带出去写审计。 */
+    conflicts: number[];
+  },
+) {
+  const { order, now } = input;
+  const { claimed, conflicted } = await claimFinishedAccountsForDraw(tx, {
+    planKey: order.planKeySnapshot,
+    drawOrderId: order.id,
+    quantity: order.quantity,
+    now,
+  });
+  input.conflicts.push(...conflicted);
+  if (claimed.length < order.quantity) {
+    throw new DrawError(
+      finishedStockError(claimed.length, order.quantity) || "成品号库存不够",
+      409,
+    );
+  }
+  const costs: Array<number | null> = [];
+  for (const row of claimed) {
+    const parts = decryptFinishedAccount(row, decryptSecret);
+    const [issued] = await tx
+      .insert(issuedCdks)
+      .values({
+        orderId: 0,
+        agentId: order.agentId,
+        planKey: order.planKeySnapshot,
+        codeEncrypted: encryptSecret(formatFinishedAccountLine(parts)),
+        codeHash: hashLookupValue(parts.email),
+        codePrefix: parts.email.slice(0, 14),
+        cardplatformAccountId: 0,
+        upstreamRef: `finished:${row.id}`,
+        upstreamFeeMinor: 0,
+        // 成品号交付即完成，没有兑换这一步，不进未兑换积压。
+        status: "used",
+        source: "draw",
+        drawOrderId: order.id,
+        issuedAt: now,
+        usedAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: issuedCdks.id });
+    if (!issued) throw new DrawError("成品号交付记录写入失败，请重试", 409);
+    const cost = row.costCents ?? input.planUpstreamCostCents;
+    costs.push(cost);
+    await tx.insert(agentDrawItems).values({
+      drawOrderId: order.id,
+      issuedCdkId: issued.id,
+      agentId: order.agentId,
+      planKey: order.planKeySnapshot,
+      amountCents: order.unitPriceCents,
+      upstreamCostCents: cost,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  const sameCost = costs.every((cost) => cost === costs[0]);
+  const [updated] = await tx
+    .update(agentDrawOrders)
+    .set({
+      status: "delivered",
+      issuedCount: claimed.length,
+      upstreamCostUnitCents: sameCost ? (costs[0] ?? null) : null,
+      deliveredAt: now,
+      updatedAt: now,
+    })
+    .where(eq(agentDrawOrders.id, order.id))
+    .returning();
+  if (!updated) throw new DrawError("提卡单创建失败");
+  return updated;
+}
+
+/** 出卡入库后的通知和额度预警，失败不影响已经出的卡。 */
+async function afterDrawIssued(order: typeof agentDrawOrders.$inferSelect, inserted: number) {
+  if (inserted <= 0) return;
+  const agent = await db.query.agents.findFirst({ where: eq(agents.id, order.agentId) });
+  const access = await db.query.agentDrawAccess.findFirst({
+    where: eq(agentDrawAccess.agentId, order.agentId),
+  });
+  if (access?.notifyEachDraw !== false) {
+    const { unsettledCents, inflight } = await exposureFor(order.agentId);
+    const credit = computeDrawCredit({
+      limitCents: access?.creditLimitCents || 0,
+      unsettledCents,
+      inflight,
+    });
+    await notifyDrawCreated({
+      drawNo: order.drawNo,
+      agentName: agent ? publicShopName(agent) : String(order.agentId),
+      planName: order.planNameSnapshot,
+      quantity: order.quantity,
+      issuedCount: inserted,
+      unitPriceCents: order.unitPriceCents,
+      amountCents: order.unitPriceCents * inserted,
+      exposureCents: credit.exposureCents,
+      limitCents: credit.limitCents,
+      upstreamCostUnitCents: order.upstreamCostUnitCents,
+    }).catch(() => null);
+  }
+  await maybeWarnCredit(order.agentId).catch(() => null);
 }
 
 /**
@@ -1021,33 +1272,7 @@ async function issueDrawOrder(orderId: number, mode: "initial" | "retry" | "job"
       if (updated.length === 0) throw new LeaseLostError();
     });
     committed = true;
-    if (inserted > 0) {
-      const agent = await db.query.agents.findFirst({ where: eq(agents.id, order.agentId) });
-      const access = await db.query.agentDrawAccess.findFirst({
-        where: eq(agentDrawAccess.agentId, order.agentId),
-      });
-      if (access?.notifyEachDraw !== false) {
-      const { unsettledCents, inflight } = await exposureFor(order.agentId);
-      const credit = computeDrawCredit({
-        limitCents: access?.creditLimitCents || 0,
-        unsettledCents,
-        inflight,
-      });
-      await notifyDrawCreated({
-        drawNo: order.drawNo,
-        agentName: agent ? publicShopName(agent) : String(order.agentId),
-        planName: order.planNameSnapshot,
-        quantity: order.quantity,
-        issuedCount: inserted,
-        unitPriceCents: order.unitPriceCents,
-        amountCents: order.unitPriceCents * inserted,
-        exposureCents: credit.exposureCents,
-        limitCents: credit.limitCents,
-        upstreamCostUnitCents: order.upstreamCostUnitCents,
-      }).catch(() => null);
-      }
-      await maybeWarnCredit(order.agentId).catch(() => null);
-    }
+    await afterDrawIssued(order, inserted);
     return true;
   } catch (error) {
     // 上游已出卡但本地写库失败（租约丢失 / 订单状态变化 / 入库异常）：卡密不能丢，记 unknown
@@ -1121,15 +1346,18 @@ async function presentDrawOrder(orderId: number) {
     unsettledCents,
     inflight,
   });
+  const codes = cards.map((card) => decryptSecret(card.codeEncrypted));
   return {
     drawNo: order.drawNo,
     status: order.status,
+    fulfillmentKind: order.fulfillmentKind,
     planName: order.planNameSnapshot,
     quantity: order.quantity,
     issuedCount: order.issuedCount,
     unitPriceCents: order.unitPriceCents,
     amountCents: order.unitPriceCents * order.issuedCount,
-    codes: cards.map((card) => decryptSecret(card.codeEncrypted)),
+    codes,
+    accounts: accountsFromCodes(order.fulfillmentKind, codes),
     message:
       order.status === "unknown" || order.status === "issuing"
         ? order.lastErrorMessage || "卡台还没返回结果，没有重复扣费。再点一次会取回同一笔。"
@@ -1182,10 +1410,17 @@ async function agentLedgerSummary(agentId: number) {
       planKey: agentDrawItems.planKey,
       amountCents: agentDrawItems.amountCents,
       planName: agentDrawOrders.planNameSnapshot,
+      fulfillmentKind: agentDrawOrders.fulfillmentKind,
     })
     .from(agentDrawItems)
     .innerJoin(agentDrawOrders, eq(agentDrawOrders.id, agentDrawItems.drawOrderId))
-    .where(and(eq(agentDrawItems.agentId, agentId), eq(agentDrawItems.status, "unsettled")));
+    .where(and(eq(agentDrawItems.agentId, agentId), eq(agentDrawItems.status, "unsettled")))
+    .then((list) =>
+      list.map(({ fulfillmentKind, ...row }) => ({
+        ...row,
+        finished: fulfillmentKind === LOCAL_ACCOUNT_FULFILLMENT,
+      })),
+    );
   const [{ voidCount }] = await db
     .select({ voidCount: sql<number>`count(*)` })
     .from(agentDrawItems)
@@ -1231,6 +1466,7 @@ export async function listAgentDrawOrders(agentId: number) {
     .select({
       drawNo: agentDrawOrders.drawNo,
       status: agentDrawOrders.status,
+      fulfillmentKind: agentDrawOrders.fulfillmentKind,
       planName: agentDrawOrders.planNameSnapshot,
       quantity: agentDrawOrders.quantity,
       issuedCount: agentDrawOrders.issuedCount,
@@ -1267,7 +1503,8 @@ export async function revealDrawItemCode(itemId: number, actor: Actor, ownerAgen
     targetId: row.id,
     metadata: { drawNo: row.drawNo, agentId: row.agentId },
   });
-  return { id: row.id, code: decryptSecret(row.codeEncrypted) };
+  const code = decryptSecret(row.codeEncrypted);
+  return { id: row.id, code, account: splitFinishedAccountLine(code) };
 }
 
 export async function getAgentDrawOrderCodes(agentId: number, drawNo: string, actor: Actor) {
@@ -1287,13 +1524,83 @@ export async function getAgentDrawOrderCodes(agentId: number, drawNo: string, ac
     targetId: order.id,
     metadata: { drawNo: order.drawNo, count: cards.length },
   });
+  const codes = cards.map((card) => decryptSecret(card.codeEncrypted));
   return {
     drawNo: order.drawNo,
     status: order.status,
+    fulfillmentKind: order.fulfillmentKind,
     planName: order.planNameSnapshot,
     createdAt: order.createdAt,
-    codes: cards.map((card) => decryptSecret(card.codeEncrypted)),
+    codes,
+    accounts: accountsFromCodes(order.fulfillmentKind, codes),
   };
+}
+
+/**
+ * 代理导出自己提过的卡密和成品号（明文），作废的不导出。按一张提取单或北京时间日期区间取。
+ * 每次导出都写审计。
+ */
+export async function agentDrawExportRows(
+  agentId: number,
+  scope: { drawNo: string } | { from: string; to: string },
+  actor: Actor,
+): Promise<DrawExportRow[]> {
+  let orderFilter;
+  if ("drawNo" in scope) {
+    const order = await db.query.agentDrawOrders.findFirst({
+      where: and(eq(agentDrawOrders.agentId, agentId), eq(agentDrawOrders.drawNo, scope.drawNo)),
+    });
+    if (!order) throw new DrawError("提取单不存在", 404);
+    orderFilter = eq(agentDrawItems.drawOrderId, order.id);
+  } else {
+    const rangeError = drawExportRangeError(scope.from, scope.to);
+    if (rangeError) throw new DrawError(rangeError);
+    orderFilter = and(
+      gte(agentDrawItems.createdAt, beijingDateStartIso(scope.from)),
+      lt(agentDrawItems.createdAt, beijingDateEndExclusiveIso(scope.to)),
+    );
+  }
+  const rows = await db
+    .select({
+      createdAt: agentDrawItems.createdAt,
+      amountCents: agentDrawItems.amountCents,
+      manualUsedAt: agentDrawItems.manualUsedAt,
+      drawNo: agentDrawOrders.drawNo,
+      planName: agentDrawOrders.planNameSnapshot,
+      codeEncrypted: issuedCdks.codeEncrypted,
+      cdkStatus: issuedCdks.status,
+      paymentCountry: issuedCdks.paymentCountry,
+      upstreamRef: issuedCdks.upstreamRef,
+    })
+    .from(agentDrawItems)
+    .innerJoin(issuedCdks, eq(issuedCdks.id, agentDrawItems.issuedCdkId))
+    .innerJoin(agentDrawOrders, eq(agentDrawOrders.id, agentDrawItems.drawOrderId))
+    .where(and(eq(agentDrawItems.agentId, agentId), ne(agentDrawItems.status, "void"), orderFilter))
+    .orderBy(agentDrawItems.id)
+    .limit(DRAW_EXPORT_MAX_ROWS + 1);
+  if (rows.length > DRAW_EXPORT_MAX_ROWS) {
+    throw new DrawError(`单次最多导出 ${DRAW_EXPORT_MAX_ROWS} 条，请缩小时间范围`);
+  }
+  await writeAuditLog({
+    actor,
+    action: "agent.draw.export",
+    targetType: "agent",
+    targetId: agentId,
+    metadata: { ...scope, count: rows.length },
+  });
+  return rows.map((row) => {
+    const finished = isFinishedRef(row.upstreamRef);
+    return {
+      drawNo: row.drawNo,
+      createdAt: row.createdAt,
+      planName: row.planName,
+      code: decryptSecret(row.codeEncrypted),
+      finished,
+      paymentCountry: row.paymentCountry,
+      useLabel: drawCodeUseLabel(row.cdkStatus, Boolean(row.manualUsedAt), finished),
+      amountCents: row.amountCents,
+    };
+  });
 }
 
 export type DrawBillQuery = {
@@ -1396,6 +1703,7 @@ async function billItems(billId: number, agentId?: number) {
       cdkStatus: issuedCdks.status,
       manualUsedAt: agentDrawItems.manualUsedAt,
       codeEncrypted: issuedCdks.codeEncrypted,
+      upstreamRef: issuedCdks.upstreamRef,
     })
     .from(agentDrawItems)
     .innerJoin(issuedCdks, eq(issuedCdks.id, agentDrawItems.issuedCdkId))
@@ -1445,6 +1753,7 @@ export async function getDrawBill(billId: number) {
       cdkStatus: item.cdkStatus,
       manualUsedAt: item.manualUsedAt || "",
       codeMasked: maskedDrawCode(item.codeEncrypted).codeMasked,
+      finished: isFinishedRef(item.upstreamRef),
     })),
   };
 }
@@ -1478,6 +1787,7 @@ export async function getAgentBill(agentId: number, billNo: string) {
       cdkStatus: item.cdkStatus,
       manualUsedAt: item.manualUsedAt || "",
       codeMasked: maskedDrawCode(item.codeEncrypted).codeMasked,
+      finished: isFinishedRef(item.upstreamRef),
     })),
   };
 }
@@ -1578,7 +1888,12 @@ export async function voidDrawItem(
     .where(eq(agentDrawItems.id, input.itemId))
     .limit(1);
   if (!row || row.status !== "unsettled") throw new DrawError("只有未结算的卡可以作废");
-  if (row.cdkStatus !== "unused" && !row.manualUsedAt) {
+  // 成品号交付即「已用」，没有卡台可退；账号已经交出去，作废后停用、不回库存。
+  const finishedId = finishedAccountIdFromRef(row.upstreamRef);
+  if (finishedId != null && input.mode !== "local") {
+    throw new DrawError("成品号没有卡台，只能选「只在本系统作废」");
+  }
+  if (finishedId == null && row.cdkStatus !== "unused" && !row.manualUsedAt) {
     throw new DrawError("这张卡已经使用或正在兑换，不能作废");
   }
   // 先查对账占用，再碰外部卡台；写入时再用 NOT EXISTS 条件兜底。
@@ -1599,6 +1914,17 @@ export async function voidDrawItem(
       .where(and(eq(agentDrawItems.id, row.id), eq(agentDrawItems.status, "unsettled"), noActiveDrawClaim))
       .returning();
     if (!updated) throw new DrawError("这张卡状态已变化，请刷新", 409);
+    if (finishedId != null) {
+      await tx
+        .update(issuedCdks)
+        .set({ status: "disabled", updatedAt: now })
+        .where(eq(issuedCdks.id, row.issuedCdkId));
+      await tx
+        .update(finishedAccounts)
+        .set({ status: "disabled", updatedAt: now })
+        .where(and(eq(finishedAccounts.id, finishedId), eq(finishedAccounts.status, "sold")));
+      return;
+    }
     await tx
       .update(issuedCdks)
       .set({ status: "disabled", updatedAt: now })
@@ -1609,7 +1935,7 @@ export async function voidDrawItem(
     action: "admin.draw.item.void",
     targetType: "agent_draw_item",
     targetId: row.id,
-    metadata: { agentId: row.agentId, mode: input.mode, reason },
+    metadata: { agentId: row.agentId, mode: input.mode, reason, finishedAccountId: finishedId },
   });
 }
 
@@ -1634,6 +1960,7 @@ export async function manualUseDrawItem(input: { itemId: number; reason: string 
     .limit(1);
   if (!row || row.status !== "unsettled") throw new DrawError("只有未结算的卡可以手动核销");
   if (row.manualUsedAt) throw new DrawError("这张卡已经手动核销过");
+  if (isFinishedRef(row.upstreamRef)) throw new DrawError("成品号没有兑换这一步，不用手动核销");
   if (row.cdkStatus !== "unused") throw new DrawError("这张卡已经使用或正在兑换，不能再核销");
   if (await drawItemInActiveBatch(db, row.id)) throw new DrawError(DRAW_IN_BATCH_MESSAGE, 409);
   await refundDrawCardUpstream(row);
@@ -1801,6 +2128,8 @@ export async function updateDrawSettings(
     maxPerDraw: number;
     dailyLimitCount: number;
     notifyEachDraw: boolean;
+    /** 不传就保持原样。 */
+    allowFinished?: boolean;
   },
   actor: Actor,
 ) {
@@ -1822,6 +2151,7 @@ export async function updateDrawSettings(
       maxPerDraw: input.maxPerDraw,
       dailyLimitCount: input.dailyLimitCount,
       notifyEachDraw: input.notifyEachDraw,
+      allowFinished: input.allowFinished ?? access.allowFinished,
       updatedAt: nowIso(),
     })
     .where(eq(agentDrawAccess.agentId, input.agentId));
@@ -1834,6 +2164,7 @@ export async function updateDrawSettings(
       maxPerDraw: input.maxPerDraw,
       dailyLimitCount: input.dailyLimitCount,
       notifyEachDraw: input.notifyEachDraw,
+      allowFinished: input.allowFinished ?? access.allowFinished,
     },
   });
   return credit;
@@ -1868,6 +2199,7 @@ export async function drawLedgerCsv(kind: "items" | "bills", agentId = 0, billQu
       cdkStatus: issuedCdks.status,
       manualUsedAt: agentDrawItems.manualUsedAt,
       codeEncrypted: issuedCdks.codeEncrypted,
+      upstreamRef: issuedCdks.upstreamRef,
       billId: agentDrawItems.billId,
       displayName: agents.displayName,
       shopName: agents.shopName,
@@ -1896,7 +2228,7 @@ export async function drawLedgerCsv(kind: "items" | "bills", agentId = 0, billQu
       row.planName,
       row.paymentCountry || "菲区",
       maskedDrawCode(row.codeEncrypted).codeMasked,
-      drawCodeUseLabel(row.cdkStatus, Boolean(row.manualUsedAt)),
+      drawCodeUseLabel(row.cdkStatus, Boolean(row.manualUsedAt), isFinishedRef(row.upstreamRef)),
       (row.amountCents / 100).toFixed(2),
       DRAW_ITEM_LABEL[row.status] || row.status,
       row.billId ? billNoById.get(row.billId) || "" : "",

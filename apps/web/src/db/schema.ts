@@ -553,6 +553,8 @@ export const finishedAccounts = sqliteTable(
     /** unused | sold | disabled */
     status: text("status").notNull().default("unused"),
     storeOrderId: integer("store_order_id"),
+    /** 代理自助提卡领走时记提卡单 id，此时 store_order_id 为空。 */
+    drawOrderId: integer("draw_order_id"),
     importedAt: text("imported_at")
       .notNull()
       .default(sql`(datetime('now'))`),
@@ -567,6 +569,7 @@ export const finishedAccounts = sqliteTable(
     emailIdx: uniqueIndex("finished_accounts_email_uq").on(t.email),
     unusedIdx: index("finished_accounts_plan_status_idx").on(t.planKey, t.status),
     orderIdx: index("finished_accounts_order_idx").on(t.storeOrderId),
+    drawOrderIdx: index("finished_accounts_draw_order_idx").on(t.drawOrderId),
   }),
 );
 
@@ -1431,6 +1434,10 @@ export const agentDrawAccess = sqliteTable(
     notifyEachDraw: integer("notify_each_draw", { mode: "boolean" })
       .notNull()
       .default(true),
+    /** 成品号库存有限，要管理员逐个代理打开才能提。 */
+    allowFinished: integer("allow_finished", { mode: "boolean" })
+      .notNull()
+      .default(false),
     creditWarnedAt: text("credit_warned_at"),
     rejectReason: text("reject_reason").notNull().default(""),
     adminNote: text("admin_note").notNull().default(""),
@@ -1489,6 +1496,8 @@ export const agentDrawOrders = sqliteTable(
     /** draw_override | agent_cost | global_cost */
     priceSource: text("price_source").notNull(),
     upstreamCostUnitCents: integer("upstream_cost_unit_cents"),
+    /** cardplatform | local_account。成品号单 cardplatform_account_id 为 0。 */
+    fulfillmentKind: text("fulfillment_kind").notNull().default("cardplatform"),
     cardplatformAccountId: integer("cardplatform_account_id").notNull(),
     idempotencyKey: text("idempotency_key").notNull(),
     /** issuing | delivered | partial | failed | unknown */

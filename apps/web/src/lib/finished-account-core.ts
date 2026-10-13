@@ -81,6 +81,35 @@ export function parseFinishedAccountLines(text: string) {
   return { accepted, rejected };
 }
 
+/** 交付记录里 upstream_ref 写成 `finished:{账号id}`，以此区分成品号和卡台卡密。 */
+export const FINISHED_REF_PREFIX = "finished:";
+
+export function isFinishedRef(upstreamRef: string | null | undefined) {
+  return String(upstreamRef || "").startsWith(FINISHED_REF_PREFIX);
+}
+
+export function finishedAccountIdFromRef(upstreamRef: string | null | undefined) {
+  if (!isFinishedRef(upstreamRef)) return null;
+  const id = Number(String(upstreamRef).slice(FINISHED_REF_PREFIX.length));
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+/** 拆已交付的一行。不做导入时的格式校验，老数据不合规也照样拆；不是四段返回 null。 */
+export function splitFinishedAccountLine(line: string): FinishedAccountParts | null {
+  const parts = line.split(FINISHED_ACCOUNT_SEP);
+  if (parts.length !== 4) return null;
+  const [email, gptPassword, mailboxPassword, session] = parts.map((part) => part.trim());
+  return { email, gptPassword, mailboxPassword, session };
+}
+
+/** 邮箱只打 @ 前面那段：ab****@outlook.com。 */
+export function maskFinishedEmail(email: string) {
+  const at = email.lastIndexOf("@");
+  if (at <= 0) return maskFinishedSecret(email);
+  const local = email.slice(0, at);
+  return `${local.slice(0, Math.min(2, local.length - 1) || 1)}****${email.slice(at)}`;
+}
+
 export function maskFinishedSecret(value: string) {
   const text = value.trim();
   if (text.length <= 4) return "****";

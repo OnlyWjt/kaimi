@@ -309,6 +309,8 @@ export type DrawItemForSummary = {
   planKey: string;
   planName?: string;
   amountCents: number;
+  /** 成品号行，对账文本里按「个」计。 */
+  finished?: boolean;
 };
 
 export type DrawPlanSummary = {
@@ -364,6 +366,8 @@ export function buildDrawStatementText(input: {
   }
   const times = input.items.map((item) => item.createdAt).sort();
   const summary = summarizeDrawItems(input.items);
+  const finishedCount = input.items.filter((item) => item.finished).length;
+  const unit = drawUnit({ finished: finishedCount, cards: input.items.length - finishedCount });
   const total = summary.reduce((sum, row) => sum + row.amountCents, 0);
   const width = Math.max(...summary.map((row) => row.planName.length), 4);
   const lines = summary.map(
@@ -376,8 +380,8 @@ export function buildDrawStatementText(input: {
     "————————————",
     ...lines,
     "————————————",
-    `合计 ${input.items.length} 张，应付 ${formatYuan(total)}`,
-    input.voidCount ? `（作废 ${input.voidCount} 张未计入）` : "",
+    `合计 ${input.items.length} ${unit}，应付 ${formatYuan(total)}`,
+    input.voidCount ? `（作废 ${input.voidCount} ${unit}未计入）` : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -413,10 +417,35 @@ export const CDK_USE_LABEL: Record<string, string> = {
   disabled: "已作废",
 };
 
-/** 手动核销过的卡密已经禁用，但账上仍算未结，不能显示成「已作废」。 */
-export function drawCodeUseLabel(cdkStatus: string, manualUsed: boolean) {
+/** 手动核销过的卡密已经禁用，但账上仍算未结，不能显示成「已作废」。成品号交出去就算完成。 */
+export function drawCodeUseLabel(cdkStatus: string, manualUsed: boolean, finished = false) {
   if (manualUsed) return "手动核销";
+  if (finished) return cdkStatus === "disabled" ? "已作废" : "已交付";
   return CDK_USE_LABEL[cdkStatus] || cdkStatus;
+}
+
+/** 卡密论「张」，成品号论「个」，混在一起论「件」。 */
+export function drawUnit(kinds: { finished: number; cards: number }) {
+  if (kinds.finished > 0 && kinds.cards > 0) return "件";
+  return kinds.finished > 0 ? "个" : "张";
+}
+
+/** 后台设置的商城保留数，非法值按 0。 */
+export function normalizeFinishedReserve(raw: string | null | undefined) {
+  const value = Math.trunc(Number(raw));
+  return Number.isSafeInteger(value) && value > 0 ? value : 0;
+}
+
+/** 提卡能拿的成品号：未售库存扣掉给商城留的那部分。 */
+export function finishedDrawAvailable(input: { unused: number; reserve: number }) {
+  return Math.max(0, Math.trunc(input.unused) - Math.max(0, Math.trunc(input.reserve)));
+}
+
+export function finishedStockError(available: number, quantity: number): string | null {
+  if (quantity <= available) return null;
+  return available > 0
+    ? `成品号库存不够，现在最多能提 ${available} 个`
+    : "成品号暂无库存，请稍后再来";
 }
 
 /** 北京时间某一天的起点，入参是 YYYY-MM-DD。非法日期返回空串。 */

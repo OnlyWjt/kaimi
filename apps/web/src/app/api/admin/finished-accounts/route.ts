@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { and, desc, eq, like, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { agents, finishedAccounts, storeOrders } from "@/db/schema";
+import { agentDrawOrders, agents, finishedAccounts, storeOrders } from "@/db/schema";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
@@ -69,11 +69,14 @@ export async function GET(req: Request) {
         mailboxPasswordEncrypted: finishedAccounts.mailboxPasswordEncrypted,
         sessionEncrypted: finishedAccounts.sessionEncrypted,
         orderNo: storeOrders.orderNo,
+        drawNo: agentDrawOrders.drawNo,
         agentName: agents.displayName,
       })
       .from(finishedAccounts)
       .leftJoin(storeOrders, eq(storeOrders.id, finishedAccounts.storeOrderId))
-      .leftJoin(agents, eq(agents.id, storeOrders.agentId))
+      .leftJoin(agentDrawOrders, eq(agentDrawOrders.id, finishedAccounts.drawOrderId))
+      // 商城单和提卡单只会有一个
+      .leftJoin(agents, eq(agents.id, sql`coalesce(${storeOrders.agentId}, ${agentDrawOrders.agentId})`))
       .where(where)
       .orderBy(desc(finishedAccounts.id))
       .limit(pageSize)
@@ -98,7 +101,7 @@ export async function GET(req: Request) {
       status: row.status,
       importedAt: row.importedAt,
       soldAt: row.soldAt,
-      orderNo: row.orderNo || "",
+      orderNo: row.orderNo || (row.drawNo ? `提卡 ${row.drawNo}` : ""),
       agentName: row.agentName || "",
       gptPasswordMasked: maskFinishedSecret(decryptSecret(row.gptPasswordEncrypted)),
       mailboxPasswordMasked: maskFinishedSecret(

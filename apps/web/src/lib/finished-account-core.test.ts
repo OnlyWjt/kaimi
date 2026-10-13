@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  finishedAccountIdFromRef,
   formatFinishedAccountLine,
+  isFinishedRef,
   isLocalAccountPlan,
+  maskFinishedEmail,
   parseFinishedAccountLine,
   parseFinishedAccountLines,
+  splitFinishedAccountLine,
 } from "./finished-account-core";
 
 const session = "s".repeat(24);
@@ -53,6 +57,32 @@ describe("formatFinishedAccountLine", () => {
         session,
       }),
     ).toBe(`a@b.com----x----y----${session}`);
+  });
+});
+
+describe("提卡交付行", () => {
+  it("拆四段，不做导入校验；段数不对返回 null", () => {
+    expect(splitFinishedAccountLine("x@y.com----=pw----mb----short")).toEqual({
+      email: "x@y.com",
+      gptPassword: "=pw",
+      mailboxPassword: "mb",
+      session: "short",
+    });
+    expect(splitFinishedAccountLine("CDK-ABCD-1234")).toBeNull();
+  });
+
+  it("邮箱只打 @ 前面", () => {
+    expect(maskFinishedEmail("abcdef@outlook.com")).toBe("ab****@outlook.com");
+    expect(maskFinishedEmail("ab@outlook.com")).toBe("a****@outlook.com");
+    expect(maskFinishedEmail("a@outlook.com")).toBe("a****@outlook.com");
+  });
+
+  it("从 upstream_ref 认成品号", () => {
+    expect(isFinishedRef("finished:12")).toBe(true);
+    expect(isFinishedRef("98231")).toBe(false);
+    expect(finishedAccountIdFromRef("finished:12")).toBe(12);
+    expect(finishedAccountIdFromRef("finished:x")).toBeNull();
+    expect(finishedAccountIdFromRef("12")).toBeNull();
   });
 });
 

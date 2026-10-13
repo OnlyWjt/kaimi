@@ -14,12 +14,60 @@ import {
 import { yuanTextFromCents } from "@/lib/money";
 import { hasNextPage, pageLabel } from "@/lib/pagination-core";
 
+const LOCAL_ACCOUNT = "local_account";
+
 type DrawPlan = {
   planKey: string;
   name: string;
   unitPriceCents: number;
   paymentCountry?: string;
+  fulfillmentKind?: string;
+  /** 只有成品号有。 */
+  availableStock?: number | null;
 };
+
+type FinishedAccount = {
+  email: string;
+  gptPassword: string;
+  mailboxPassword: string;
+  session: string;
+};
+
+type DrawResult = {
+  drawNo: string;
+  fulfillmentKind: string;
+  codes: string[];
+  accounts: FinishedAccount[];
+};
+
+/** 走 fetch 下载，出错时能弹提示，而不是下载到一个写着错误的 JSON 文件。 */
+async function downloadExport(url: string, fallbackName: string) {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "导出失败");
+  }
+  const blob = await response.blob();
+  const name =
+    /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") || "")?.[1] || fallbackName;
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(href);
+}
+
+function exportOrder(drawNo: string) {
+  void downloadExport(
+    `/api/agent/draw/orders/${encodeURIComponent(drawNo)}/export`,
+    `kaimi-draw-${drawNo}.xlsx`,
+  ).catch((error) => toast(error instanceof Error ? error.message : "导出失败", "err"));
+}
+
+function beijingToday() {
+  return new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10);
+}
 
 type DrawGroup = {
   planName: string;
@@ -57,11 +105,13 @@ type LedgerItem = {
   drawNo: string;
   codeMasked: string;
   manualUsedAt?: string;
+  finished?: boolean;
 };
 
 type DrawOrderRow = {
   drawNo: string;
   status: string;
+  fulfillmentKind?: string;
   planName: string;
   quantity: number;
   issuedCount: number;
@@ -89,14 +139,17 @@ export function AgentDraw() {
   const [planKey, setPlanKey] = useState("");
   const [quantity, setQuantity] = useState(1);
   const [busy, setBusy] = useState(false);
-  const [codes, setCodes] = useState<string[]>([]);
+  const [result, setResult] = useState<DrawResult | null>(null);
   const [tab, setTab] = useState<"open" | "orders" | "bills">("open");
+  const [exportFrom, setExportFrom] = useState(() => `${beijingToday().slice(0, 8)}01`);
+  const [exportTo, setExportTo] = useState(beijingToday);
+  const [exporting, setExporting] = useState(false);
   const [items, setItems] = useState<LedgerItem[]>([]);
   const [itemPage, setItemPage] = useState(1);
   const [itemTotal, setItemTotal] = useState(0);
   const [orders, setOrders] = useState<DrawOrderRow[]>([]);
   const [bills, setBills] = useState<BillRow[]>([]);
-  const [openCodes, setOpenCodes] = useState<Record<string, string[]>>({});
+  const [openCodes, setOpenCodes] = useState<Record<string, DrawResult>>({});
   const [openBill, setOpenBill] = useState<string>("");
   const [billItems, setBillItems] = useState<LedgerItem[]>([]);
   const requestId = useRef("");
@@ -156,9 +209,12 @@ export function AgentDraw() {
   async function draw() {
     const plan = state?.plans?.find((item) => item.planKey === planKey);
     if (!plan) return;
+    const finished = plan.fulfillmentKind === LOCAL_ACCOUNT;
     if (
       !window.confirm(
-        `确认提 ${plan.name} × ${quantity}，合计 ¥${yuanTextFromCents(plan.unitPriceCents * quantity)}？提了就计入未结算。`,
+        `确认提 ${plan.name} × ${quantity}，合计 ¥${yuanTextFromCents(plan.unitPriceCents * quantity)}？提了就计入未结算。${
+          finished ? "账号交出后不能退回库存。" : ""
+        }`,
       )
     ) {
       return;
@@ -186,8 +242,13 @@ export function AgentDraw() {
         throw new Error(data.message || "卡台还没返回结果，没有重复扣费。再点一次会取回同一笔。");
       }
       requestId.current = "";
-      setCodes(data.codes || []);
-      toast(`已生成 ${data.issuedCount} 张`);
+      setResult({
+        drawNo: data.drawNo,
+        fulfillmentKind: data.fulfillmentKind || "",
+        codes: data.codes || [],
+        accounts: data.accounts || [],
+      });
+      toast(finished ? `已提取 ${data.issuedCount} 个账号` : `已生成 ${data.issuedCount} 张`);
       await load();
       setTab("open");
     } catch (error) {
@@ -214,7 +275,29 @@ export function AgentDraw() {
       toast(data.error || "加载失败", "err");
       return;
     }
-    setOpenCodes((current) => ({ ...current, [drawNo]: data.codes || [] }));
+    setOpenCodes((current) => ({
+      ...current,
+      [drawNo]: {
+        drawNo,
+        fulfillmentKind: data.fulfillmentKind || "",
+        codes: data.codes || [],
+        accounts: data.accounts || [],
+      },
+    }));
+  }
+
+  async function exportRange() {
+    setExporting(true);
+    try {
+      await downloadExport(
+        `/api/agent/draw/export?from=${exportFrom}&to=${exportTo}`,
+        `kaimi-draw-${exportFrom}-${exportTo}.xlsx`,
+      );
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "导出失败", "err");
+    } finally {
+      setExporting(false);
+    }
   }
 
   async function showBill(billNo: string) {
@@ -271,6 +354,9 @@ export function AgentDraw() {
   }
 
   const plan = state.plans?.find((item) => item.planKey === planKey);
+  const planFinished = plan?.fulfillmentKind === LOCAL_ACCOUNT;
+  const maxPerDraw = state.limits?.maxPerDraw ?? 10;
+  const quantityCap = planFinished ? Math.min(maxPerDraw, plan?.availableStock ?? 0) : maxPerDraw;
   const credit = state.credit;
   const limit = credit?.limitCents || 0;
   const unsettled = credit?.unsettledCents || 0;
@@ -308,46 +394,67 @@ export function AgentDraw() {
                 className="mt-1"
                 value={planKey}
                 placeholder="选择套餐"
-                options={(state.plans || []).map((item) => ({
-                  value: item.planKey,
-                  label: `${item.name} · ¥${yuanTextFromCents(item.unitPriceCents)}`,
-                }))}
+                options={(state.plans || []).map((item) => {
+                  const stock = item.fulfillmentKind === LOCAL_ACCOUNT ? item.availableStock ?? 0 : null;
+                  return {
+                    value: item.planKey,
+                    label: `${item.name} · ¥${yuanTextFromCents(item.unitPriceCents)}${
+                      stock == null ? "" : stock > 0 ? ` · 可提 ${stock} 个` : " · 暂无库存"
+                    }`,
+                  };
+                })}
                 onChange={setPlanKey}
               />
             </label>
             <label className="block text-sm">
-              数量（一次最多 {state.limits?.maxPerDraw ?? 10} 张）
+              数量（一次最多 {maxPerDraw} {planFinished ? "个" : "张"}
+              {planFinished ? `，现在可提 ${plan?.availableStock ?? 0} 个` : ""}）
               <input
                 className="km-input mt-1 w-32"
                 type="number"
                 min={1}
-                max={state.limits?.maxPerDraw ?? 10}
+                max={Math.max(1, quantityCap)}
                 value={quantity}
                 onChange={(event) => setQuantity(Number(event.target.value))}
               />
             </label>
             <p>合计 ¥{yuanTextFromCents((plan?.unitPriceCents || 0) * quantity)}</p>
-            <button type="button" className="km-btn" disabled={busy || !planKey} onClick={() => void draw()}>
-              {busy ? "正在出卡…" : "生成卡密"}
+            <button
+              type="button"
+              className="km-btn"
+              disabled={busy || !planKey || (planFinished && quantityCap < 1)}
+              onClick={() => void draw()}
+            >
+              {busy ? (planFinished ? "正在提取…" : "正在出卡…") : planFinished ? "提取账号" : "生成卡密"}
             </button>
           </>
         ) : null}
       </section>
-      {codes.length ? (
+      {result && (result.accounts.length || result.codes.length) ? (
         <section className="km-panel space-y-2">
-          <h2 className="font-semibold">刚生成的卡密</h2>
-          {codes.map((code) => (
-            <p key={code} className="font-mono text-sm">
-              {code}
-            </p>
-          ))}
-          <button
-            type="button"
-            className="km-btn km-btn-ghost"
-            onClick={() => void navigator.clipboard.writeText(codes.join("\n")).then(() => toast("已复制"))}
-          >
-            复制全部
-          </button>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-semibold">
+              {result.accounts.length
+                ? `刚提取的成品号（${result.accounts.length} 个）`
+                : `刚生成的卡密（${result.codes.length} 张）`}
+            </h2>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="km-btn km-btn-ghost"
+                onClick={() =>
+                  void navigator.clipboard.writeText(result.codes.join("\n")).then(() => toast("已复制"))
+                }
+              >
+                复制全部
+              </button>
+              <button type="button" className="km-btn km-btn-ghost" onClick={() => exportOrder(result.drawNo)}>
+                下载 Excel
+              </button>
+            </div>
+          </div>
+          <DrawContent result={result} />
+          <p className="text-xs text-[var(--km-fg-muted)]">关掉这一页后，可以在「提取记录」里再次查看和导出。</p>
         </section>
       ) : null}
       <section className="km-panel space-y-3">
@@ -356,7 +463,7 @@ export function AgentDraw() {
             未结算 ({state.summary?.count ?? 0})
           </button>
           <button type="button" className={`km-btn ${tab === "orders" ? "" : "km-btn-ghost"}`} onClick={() => setTab("orders")}>
-            提卡记录
+            提取记录
           </button>
           <button type="button" className={`km-btn ${tab === "bills" ? "" : "km-btn-ghost"}`} onClick={() => setTab("bills")}>
             已结算账单
@@ -403,41 +510,79 @@ export function AgentDraw() {
         ) : null}
         {tab === "orders" ? (
           <div className="space-y-2 text-sm">
-            {orders.length === 0 ? <p className="text-[var(--km-fg-muted)]">还没有提卡记录。</p> : null}
-            {orders.map((order) => (
-              <div key={order.drawNo} className="rounded-xl border border-[var(--km-border)] p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p>
-                    {stamp(order.createdAt)} · {order.planName} × {order.issuedCount}/{order.quantity} ·{" "}
-                    {DRAW_ORDER_LABEL[order.status as keyof typeof DRAW_ORDER_LABEL] || order.status}
-                    {order.status === "unknown" || order.status === "issuing" ? "（找回中，额度仍占用）" : ""}
-                  </p>
-                  <button type="button" className="km-btn km-btn-ghost" onClick={() => void showOrder(order.drawNo)}>
-                    {openCodes[order.drawNo] ? "收起" : "查看卡密"}
-                  </button>
-                </div>
-                {openCodes[order.drawNo] ? (
-                  <div className="mt-2 space-y-1">
-                    {openCodes[order.drawNo].map((code) => (
-                      <p key={code} className="font-mono text-xs">
-                        {code}
-                      </p>
-                    ))}
-                    <button
-                      type="button"
-                      className="km-btn km-btn-ghost"
-                      onClick={() =>
-                        void navigator.clipboard
-                          .writeText(openCodes[order.drawNo].join("\n"))
-                          .then(() => toast("已复制"))
-                      }
-                    >
-                      复制这一单
-                    </button>
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="text-xs">
+                导出
+                <input
+                  className="km-input mt-1 block"
+                  type="date"
+                  value={exportFrom}
+                  onChange={(event) => setExportFrom(event.target.value)}
+                />
+              </label>
+              <label className="text-xs">
+                至
+                <input
+                  className="km-input mt-1 block"
+                  type="date"
+                  value={exportTo}
+                  onChange={(event) => setExportTo(event.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                className="km-btn km-btn-ghost"
+                disabled={exporting || !exportFrom || !exportTo}
+                onClick={() => void exportRange()}
+              >
+                {exporting ? "导出中…" : "导出 Excel"}
+              </button>
+              <span className="text-xs text-[var(--km-fg-muted)]">
+                卡密和成品号分两个工作表，按北京时间，一次最多 31 天。
+              </span>
+            </div>
+            {orders.length === 0 ? <p className="text-[var(--km-fg-muted)]">还没有提取记录。</p> : null}
+            {orders.map((order) => {
+              const finished = order.fulfillmentKind === LOCAL_ACCOUNT;
+              const opened = openCodes[order.drawNo];
+              return (
+                <div key={order.drawNo} className="rounded-xl border border-[var(--km-border)] p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p>
+                      {stamp(order.createdAt)} · {order.planName} × {order.issuedCount}/{order.quantity} ·{" "}
+                      {finished && order.status === "delivered"
+                        ? "已交付"
+                        : DRAW_ORDER_LABEL[order.status as keyof typeof DRAW_ORDER_LABEL] || order.status}
+                      {order.status === "unknown" || order.status === "issuing" ? "（找回中，额度仍占用）" : ""}
+                    </p>
+                    <div className="flex gap-2">
+                      <button type="button" className="km-btn km-btn-ghost" onClick={() => void showOrder(order.drawNo)}>
+                        {opened ? "收起" : finished ? "查看账号" : "查看卡密"}
+                      </button>
+                      {order.issuedCount > 0 ? (
+                        <button type="button" className="km-btn km-btn-ghost" onClick={() => exportOrder(order.drawNo)}>
+                          导出 Excel
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
-                ) : null}
-              </div>
-            ))}
+                  {opened ? (
+                    <div className="mt-2 space-y-1">
+                      <DrawContent result={opened} />
+                      <button
+                        type="button"
+                        className="km-btn km-btn-ghost"
+                        onClick={() =>
+                          void navigator.clipboard.writeText(opened.codes.join("\n")).then(() => toast("已复制"))
+                        }
+                      >
+                        复制这一单
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         ) : null}
         {tab === "bills" ? (
@@ -473,8 +618,8 @@ function ItemTable({ items, empty }: { items: LedgerItem[]; empty: string }) {
             <th className="py-2 pr-3">时间</th>
             <th className="py-2 pr-3">提卡单</th>
             <th className="py-2 pr-3">套餐</th>
-            <th className="py-2 pr-3">卡密</th>
-            <th className="py-2 pr-3">使用</th>
+            <th className="py-2 pr-3">卡密 / 账号</th>
+            <th className="py-2 pr-3">状态</th>
             <th className="py-2">金额</th>
           </tr>
         </thead>
@@ -505,8 +650,76 @@ function ItemTable({ items, empty }: { items: LedgerItem[]; empty: string }) {
                   <span className="font-mono text-xs">{item.codeMasked}</span>
                 )}
               </td>
-              <td className="py-2 pr-3">{drawCodeUseLabel(item.cdkStatus, Boolean(item.manualUsedAt))}</td>
+              <td className="py-2 pr-3">
+                {drawCodeUseLabel(item.cdkStatus, Boolean(item.manualUsedAt), Boolean(item.finished))}
+              </td>
               <td className="py-2">{formatYuan(item.amountCents)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** 一单的内容：成品号出四列表格，卡密一行一个。 */
+function DrawContent({ result }: { result: DrawResult }) {
+  if (result.accounts.length === 0) {
+    return (
+      <div className="space-y-1">
+        {result.codes.map((code) => (
+          <p key={code} className="font-mono text-sm">
+            {code}
+          </p>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[760px] text-left text-sm">
+        <thead>
+          <tr className="border-b border-[var(--km-border)]">
+            <th className="py-2 pr-3">#</th>
+            <th className="py-2 pr-3">邮箱</th>
+            <th className="py-2 pr-3">GPT 密码</th>
+            <th className="py-2 pr-3">邮箱密码</th>
+            <th className="py-2 pr-3">Session</th>
+            <th className="py-2" />
+          </tr>
+        </thead>
+        <tbody>
+          {result.accounts.map((account, index) => (
+            <tr key={account.email} className="border-b border-[var(--km-border)] font-mono text-xs">
+              <td className="py-2 pr-3">{index + 1}</td>
+              <td className="py-2 pr-3">{account.email}</td>
+              <td className="py-2 pr-3">{account.gptPassword}</td>
+              <td className="py-2 pr-3">{account.mailboxPassword}</td>
+              <td className="py-2 pr-3">
+                <button
+                  type="button"
+                  className="underline decoration-dotted underline-offset-2"
+                  title="复制完整 Session"
+                  onClick={() => void navigator.clipboard.writeText(account.session).then(() => toast("Session 已复制"))}
+                >
+                  {account.session.slice(0, 12)}… ⧉
+                </button>
+              </td>
+              <td className="py-2">
+                <button
+                  type="button"
+                  className="km-btn km-btn-ghost km-btn-sm"
+                  onClick={() =>
+                    void navigator.clipboard
+                      .writeText(
+                        [account.email, account.gptPassword, account.mailboxPassword, account.session].join("----"),
+                      )
+                      .then(() => toast("已复制这一行"))
+                  }
+                >
+                  复制
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>

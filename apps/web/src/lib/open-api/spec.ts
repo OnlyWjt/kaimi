@@ -307,7 +307,7 @@ export const openApiSpec = {
     "/draws": {
       get: { summary: "提卡单列表，不含卡密明文", responses: { "200": ok({ type: "object" }), "403": errorResponse } },
       post: {
-        summary: "提卡，按代理成本取卡",
+        summary: "提卡，按代理成本取卡；开通成品号的代理也可提成品号（返回 accounts 四段）",
         parameters: [{ name: "Idempotency-Key", in: "header", required: true, schema: { type: "string" } }],
         responses: { "200": ok({ type: "object" }), "400": errorResponse, "403": errorResponse, "409": errorResponse },
       },

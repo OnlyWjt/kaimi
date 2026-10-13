@@ -303,6 +303,8 @@ function drawApiDocs(base: string): DocSection[] {
             ["unsettled", "未结张数、金额，以及按套餐分开的明细"],
             ["lifetime", "历史提卡和已结算"],
             ["plans", "现在能提的套餐和单价"],
+            ["plans[].fulfillment_kind", "cardplatform = 卡密；local_account = 成品号"],
+            ["plans[].available_stock", "成品号现在最多能提几个；卡密为 null"],
           ],
         },
         { kind: "code", text: `curl -H "Authorization: Bearer km_live_你的Key" \\\n  ${base}/draws/account` },
@@ -326,6 +328,7 @@ function drawApiDocs(base: string): DocSection[] {
         },
         { kind: "code", text: `curl -X POST ${base}/draws \\\n  -H "Authorization: Bearer km_live_你的Key" \\\n  -H "Content-Type: application/json" \\\n  -H "Idempotency-Key: draw-1001" \\\n  -d "{\\"plan_key\\":\\"plus\\",\\"quantity\\":1,\\"region_confirmed\\":true}"` },
         { kind: "p", text: "成功时 items 里是这次的卡密明文和 id。状态若是 issuing 或 unknown，卡可能还没齐，用查询接口看进度，再用 reveal 取明文。额度、单次和每日上限与网页提卡相同。" },
+        { kind: "p", text: "成品号（fulfillment_kind = local_account）需要平台单独开通。库存不够时整单拒绝（409），不会只给一部分；成功时状态直接是 delivered。items[].code 是「邮箱----GPT密码----邮箱密码----Session」一行，另外 accounts 里拆好了 email、gpt_password、mailbox_password、session 四段。卡密单的 accounts 是空数组。" },
       ],
     },
     {

@@ -28,7 +28,10 @@ type LedgerAgent = {
   maxPerDraw: number;
   dailyLimitCount: number;
   notifyEachDraw: boolean;
+  allowFinished?: boolean;
 };
+
+type FinishedStock = { unused: number; reserve: number; available: number };
 
 type LedgerItem = {
   id: number;
@@ -41,6 +44,7 @@ type LedgerItem = {
   drawNo: string;
   codeMasked: string;
   manualUsedAt?: string;
+  finished?: boolean;
 };
 
 type Application = {
@@ -187,6 +191,9 @@ export function AdminAgentDraw() {
   const [maxPerDraw, setMaxPerDraw] = useState("10");
   const [dailyLimit, setDailyLimit] = useState("0");
   const [notifyEach, setNotifyEach] = useState(true);
+  const [allowFinished, setAllowFinished] = useState(false);
+  const [finishedStock, setFinishedStock] = useState<FinishedStock | null>(null);
+  const [reserveDraft, setReserveDraft] = useState("");
   const [reconcileError, setReconcileError] = useState("");
   const [voidTarget, setVoidTarget] = useState<LedgerItem | null>(null);
   const [manualTarget, setManualTarget] = useState<LedgerItem | null>(null);
@@ -219,6 +226,10 @@ export function AdminAgentDraw() {
     if (data.error) throw new Error(data.error);
     setCodesUnavailable(Boolean(data.codesUnavailable));
     setOverview(data.overview);
+    if (data.finished) {
+      setFinishedStock(data.finished);
+      setReserveDraft((current) => current || String(data.finished.reserve));
+    }
     setAgents(data.agents || []);
     setApplications(data.applications || []);
     setItems(data.items || []);
@@ -260,6 +271,7 @@ export function AdminAgentDraw() {
     setMaxPerDraw(String(agent?.maxPerDraw ?? 10));
     setDailyLimit(String(agent?.dailyLimitCount ?? 0));
     setNotifyEach(agent?.notifyEachDraw ?? true);
+    setAllowFinished(agent?.allowFinished ?? false);
   }
 
   async function openAgent(agentId: number) {
@@ -333,7 +345,7 @@ export function AdminAgentDraw() {
           </div>
         </div>
       ) : null}
-      <section className="grid gap-3 sm:grid-cols-3">
+      <section className="grid gap-3 sm:grid-cols-4">
         <div className="km-stat">
           <p className="text-xs text-[var(--km-fg-muted)]">待审批</p>
           <p className="km-stat-value">{overview?.pendingApplications ?? "…"}</p>
@@ -345,7 +357,30 @@ export function AdminAgentDraw() {
         <div className="km-stat">
           <p className="text-xs text-[var(--km-fg-muted)]">未结算</p>
           <p className="km-stat-value">{overview ? yuan(overview.unsettledCents) : "…"}</p>
-          <p className="text-xs text-[var(--km-fg-muted)]">{overview?.unsettledCount ?? 0} 张</p>
+          <p className="text-xs text-[var(--km-fg-muted)]">{overview?.unsettledCount ?? 0} 件</p>
+        </div>
+        <div className="km-stat">
+          <p className="text-xs text-[var(--km-fg-muted)]">成品号可提</p>
+          <p className="km-stat-value">{finishedStock?.available ?? "…"}</p>
+          <div className="mt-1 flex items-center gap-1 text-xs text-[var(--km-fg-muted)]">
+            <span>未售 {finishedStock?.unused ?? 0}，给商城留</span>
+            <input
+              className="km-input w-16 px-1 py-0.5 text-xs"
+              inputMode="numeric"
+              value={reserveDraft}
+              onChange={(event) => setReserveDraft(event.target.value.replace(/\D/g, ""))}
+            />
+            <button
+              type="button"
+              className="km-btn km-btn-ghost km-btn-sm"
+              disabled={busy === "post" || reserveDraft === String(finishedStock?.reserve ?? "")}
+              onClick={() =>
+                void post({ action: "finished-reserve", reserve: Number(reserveDraft || 0) }, "已保存商城保留数")
+              }
+            >
+              保存
+            </button>
+          </div>
         </div>
       </section>
 
@@ -628,7 +663,9 @@ export function AdminAgentDraw() {
                                     href={`/api/admin/draw/items/${item.id}`}
                                   />
                                 </td>
-                                <td className="py-2 pr-3">{drawCodeUseLabel(item.cdkStatus, Boolean(item.manualUsedAt))}</td>
+                                <td className="py-2 pr-3">
+                                  {drawCodeUseLabel(item.cdkStatus, Boolean(item.manualUsedAt), Boolean(item.finished))}
+                                </td>
                                 <td className="py-2">{yuan(item.amountCents)}</td>
                               </tr>
                             ))}
@@ -733,10 +770,20 @@ export function AdminAgentDraw() {
                     </Field>
                   </div>
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                    <label className="flex items-center gap-2 text-sm">
-                      <input type="checkbox" checked={notifyEach} onChange={(event) => setNotifyEach(event.target.checked)} />
-                      每次提卡发 Telegram
-                    </label>
+                    <div className="flex flex-wrap items-center gap-4">
+                      <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={notifyEach} onChange={(event) => setNotifyEach(event.target.checked)} />
+                        每次提卡发 Telegram
+                      </label>
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={allowFinished}
+                          onChange={(event) => setAllowFinished(event.target.checked)}
+                        />
+                        允许提成品号
+                      </label>
+                    </div>
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
@@ -758,6 +805,7 @@ export function AdminAgentDraw() {
                               maxPerDraw: per,
                               dailyLimitCount: daily,
                               notifyEachDraw: notifyEach,
+                              allowFinished,
                             },
                             "提卡设置已保存",
                           );
@@ -894,18 +942,26 @@ export function AdminAgentDraw() {
                       作废 {voidTarget.codeMasked} · {voidTarget.planName} · {yuan(voidTarget.amountCents)}
                     </p>
                     <p className="text-[var(--km-fg-muted)]">作废后不再计入欠款。误提、退卡才用这个。</p>
-                    <label className="block">
-                      <input
-                        type="radio"
-                        checked={voidMode === "upstream"}
-                        onChange={() => setVoidMode("upstream")}
-                      />{" "}
-                      退卡台（删卡退款）
-                    </label>
-                    <label className="block">
-                      <input type="radio" checked={voidMode === "local"} onChange={() => setVoidMode("local")} />{" "}
-                      只在本系统作废（卡台已手动处理过）
-                    </label>
+                    {voidTarget.finished ? (
+                      <p className="text-[var(--km-fg-muted)]">
+                        成品号只在本系统作废。账号已经交给代理，作废后停用，不回库存。
+                      </p>
+                    ) : (
+                      <>
+                        <label className="block">
+                          <input
+                            type="radio"
+                            checked={voidMode === "upstream"}
+                            onChange={() => setVoidMode("upstream")}
+                          />{" "}
+                          退卡台（删卡退款）
+                        </label>
+                        <label className="block">
+                          <input type="radio" checked={voidMode === "local"} onChange={() => setVoidMode("local")} />{" "}
+                          只在本系统作废（卡台已手动处理过）
+                        </label>
+                      </>
+                    )}
                     <input
                       className="km-input w-full"
                       placeholder="原因"
@@ -925,7 +981,7 @@ export function AdminAgentDraw() {
                             {
                               action: "void-item",
                               itemId: voidTarget.id,
-                              mode: voidMode,
+                              mode: voidTarget.finished ? "local" : voidMode,
                               reason: voidReason,
                             },
                             "已作废",
@@ -952,7 +1008,7 @@ export function AdminAgentDraw() {
                     />
                   </Field>
                   <p className="text-xs text-[var(--km-fg-muted)]">
-                    {visibleItems.length} 张{itemQuery.trim() ? `，合计 ${yuan(visibleCents)}` : ""}
+                    {visibleItems.length} 件{itemQuery.trim() ? `，合计 ${yuan(visibleCents)}` : ""}
                   </p>
                 </div>
                 <div className="overflow-x-auto">
@@ -962,8 +1018,8 @@ export function AdminAgentDraw() {
                         <th className="py-2 pr-3">时间</th>
                         <th className="py-2 pr-3">提卡单</th>
                         <th className="py-2 pr-3">套餐</th>
-                        <th className="py-2 pr-3">卡密</th>
-                        <th className="py-2 pr-3">使用</th>
+                        <th className="py-2 pr-3">卡密 / 账号</th>
+                        <th className="py-2 pr-3">状态</th>
                         <th className="py-2 pr-3">金额</th>
                         <th className="py-2">操作</th>
                       </tr>
@@ -991,11 +1047,13 @@ export function AdminAgentDraw() {
                               href={`/api/admin/draw/items/${item.id}`}
                             />
                           </td>
-                          <td className="py-2 pr-3">{drawCodeUseLabel(item.cdkStatus, Boolean(item.manualUsedAt))}</td>
+                          <td className="py-2 pr-3">
+                            {drawCodeUseLabel(item.cdkStatus, Boolean(item.manualUsedAt), Boolean(item.finished))}
+                          </td>
                           <td className="py-2 pr-3">{yuan(item.amountCents)}</td>
                           <td className="py-2">
                             <div className="flex flex-wrap gap-1">
-                              {item.cdkStatus === "unused" && !item.manualUsedAt ? (
+                              {!item.finished && item.cdkStatus === "unused" && !item.manualUsedAt ? (
                                 <button
                                   type="button"
                                   className="km-btn km-btn-ghost km-btn-sm"
@@ -1007,7 +1065,7 @@ export function AdminAgentDraw() {
                                   手动核销
                                 </button>
                               ) : null}
-                              {item.cdkStatus === "unused" || item.manualUsedAt ? (
+                              {item.finished || item.cdkStatus === "unused" || item.manualUsedAt ? (
                                 <button type="button" className="km-btn km-btn-ghost km-btn-sm" onClick={() => setVoidTarget(item)}>
                                   作废
                                 </button>
