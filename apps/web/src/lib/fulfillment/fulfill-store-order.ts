@@ -353,7 +353,7 @@ export async function fulfillStoreOrder(orderId: number) {
           .where(eq(fulfillmentAttempts.id, attempt.id));
       }
     });
-    if (mailDelivered) queueDeliveryMail(order.id);
+    if (mailDelivered) announceDelivered(order.id);
   } catch (error) {
     const cardError =
       error instanceof CardplatformError
@@ -726,7 +726,7 @@ async function fulfillLocalAccountOrder(
         })
         .where(eq(fulfillmentAttempts.id, createdAttempt.id));
     });
-    if (mailDelivered) queueDeliveryMail(order.id);
+    if (mailDelivered) announceDelivered(order.id);
   } catch (error) {
     const message = error instanceof Error ? error.message : "成品号发放失败";
     const leaseLost = error instanceof LeaseLostError;
@@ -829,12 +829,20 @@ export async function retryPendingStoreOrders(limit = 10) {
   return { checked, delivered };
 }
 
-function queueDeliveryMail(orderId: number) {
+/** 整单发齐后通知买家（邮件）和代理（order.delivered 回调）。只在切到 delivered 的那次调用。 */
+function announceDelivered(orderId: number) {
   void import("@/lib/mail")
     .then(({ sendDeliveryMail }) => sendDeliveryMail(orderId))
     .catch((error) => {
       console.warn(
         `[fulfill] 发货邮件失败：${error instanceof Error ? error.message : error}`,
+      );
+    });
+  void import("@/lib/open-api/webhooks")
+    .then(({ enqueueStoreOrderWebhook }) => enqueueStoreOrderWebhook(orderId, "order.delivered"))
+    .catch((error) => {
+      console.warn(
+        `[fulfill] order.delivered 回调入队失败：${error instanceof Error ? error.message : error}`,
       );
     });
 }

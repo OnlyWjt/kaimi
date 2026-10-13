@@ -140,10 +140,27 @@ export function AgentApiPanel() {
   );
 }
 
+const WEBHOOK_EVENT_OPTIONS = [
+  { value: "order.paid", label: "订单已付款" },
+  { value: "order.delivered", label: "订单已发货" },
+  { value: "redemption.succeeded", label: "兑换成功" },
+  { value: "redemption.failed", label: "兑换失败" },
+] as const;
+
+function parseEventList(raw: string) {
+  try {
+    const value = JSON.parse(raw);
+    return Array.isArray(value) ? value.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
 function WebhookForm() {
   const [url, setUrl] = useState("");
   const [secret, setSecret] = useState("");
-  const [list, setList] = useState<Array<{ id: number; url: string; status: string }>>([]);
+  const [events, setEvents] = useState<string[]>(WEBHOOK_EVENT_OPTIONS.map((item) => item.value));
+  const [list, setList] = useState<Array<{ id: number; url: string; status: string; events: string }>>([]);
 
   async function reload() {
     const response = await fetch("/api/agent/webhooks");
@@ -157,17 +174,18 @@ function WebhookForm() {
 
   return (
     <section className="km-panel space-y-3 text-sm">
-      <h2 className="font-semibold">兑换结果回调</h2>
+      <h2 className="font-semibold">事件回调</h2>
       <p>
         这里填<strong>你自己服务器</strong>上能接收 POST 的 https 地址，例如
         <code> https://api.example.com/hooks/kaimi</code>。不要填店铺链接，也不要填本站地址。
-        兑换成功或失败后，本站会主动把结果 POST 到这个地址。
+        订单付款、发货，或兑换成功、失败后，本站会主动把结果 POST 到这个地址。
       </p>
       <ul className="list-disc space-y-1 pl-5 text-[var(--km-fg-muted)]">
         <li>请在 10 秒内返回任意 2xx，否则算失败。</li>
-        <li>请求头 X-Kaimi-Event 是 redemption.succeeded 或 redemption.failed。</li>
+        <li>请求头 X-Kaimi-Event 是事件名：order.paid、order.delivered、redemption.succeeded 或 redemption.failed。</li>
         <li>请求头 X-Kaimi-Signature 是 t=时间戳,v1=HMAC。用保存时给你的密钥，对「时间戳.原始请求体」做 SHA256。请用原始 body 验签，时间戳超过 5 分钟应拒绝。</li>
-        <li>失败后会在 1 分钟、5 分钟、30 分钟、2 小时、12 小时重试，共 5 次。同一笔单可能推送多次，用 redemption_no 去重。</li>
+        <li>失败后会在 1 分钟、5 分钟、30 分钟、2 小时、12 小时重试，共 5 次。同一事件可能推送多次，订单用 order_no + event 去重，兑换用 redemption_no 去重。</li>
+        <li>订单回调里不带卡密，收到后用 GET /orders/{"{orderNo}"} 取。</li>
       </ul>
       <label className="block space-y-1">
         <span>你的接收地址</span>
@@ -178,17 +196,36 @@ function WebhookForm() {
           onChange={(event) => setUrl(event.target.value)}
         />
       </label>
+      <fieldset className="space-y-1">
+        <legend>推送哪些事件</legend>
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          {WEBHOOK_EVENT_OPTIONS.map((option) => (
+            <label key={option.value} className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={events.includes(option.value)}
+                onChange={(event) =>
+                  setEvents((current) =>
+                    event.target.checked
+                      ? [...current, option.value]
+                      : current.filter((item) => item !== option.value),
+                  )
+                }
+              />
+              {option.label}
+            </label>
+          ))}
+        </div>
+      </fieldset>
       <div className="flex flex-wrap gap-2">
         <button
           className="km-btn"
+          disabled={!events.length}
           onClick={async () => {
             const response = await fetch("/api/agent/webhooks", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                url,
-                events: ["redemption.succeeded", "redemption.failed"],
-              }),
+              body: JSON.stringify({ url, events }),
             });
             const data = await response.json();
             if (!response.ok) {
@@ -206,7 +243,14 @@ function WebhookForm() {
       {secret ? <pre className="overflow-x-auto rounded bg-[var(--km-bg)] p-3">{secret}</pre> : null}
       {list.map((row) => (
         <div key={row.id} className="flex items-center justify-between gap-2">
-          <span>{row.url}（{row.status === "active" ? "启用" : "已停用"}）</span>
+          <span>
+            {row.url}（{row.status === "active" ? "启用" : "已停用"}）
+            <span className="ml-2 text-[var(--km-fg-muted)]">
+              {parseEventList(row.events)
+                .map((value) => WEBHOOK_EVENT_OPTIONS.find((item) => item.value === value)?.label || value)
+                .join("、")}
+            </span>
+          </span>
           {row.status === "active" ? (
             <button
               className="km-btn km-btn-ghost"

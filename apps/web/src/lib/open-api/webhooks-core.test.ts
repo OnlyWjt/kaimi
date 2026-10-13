@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isWebhookEvent,
   signWebhookBody,
   verifyWebhookSignature,
   webhookBackoffMs,
@@ -28,5 +29,15 @@ describe("webhook schedule", () => {
     expect(webhookBackoffMs(1)).toBe(60_000);
     expect(webhookBackoffMs(5)).toBe(43_200_000);
     expect(webhookBackoffMs(6)).toBeNull();
+  });
+});
+
+describe("webhook events", () => {
+  it("knows order and redemption events", () => {
+    expect(isWebhookEvent("order.paid")).toBe(true);
+    expect(isWebhookEvent("order.delivered")).toBe(true);
+    expect(isWebhookEvent("redemption.failed")).toBe(true);
+    expect(isWebhookEvent("order.refunded")).toBe(false);
+    expect(isWebhookEvent(1)).toBe(false);
   });
 });

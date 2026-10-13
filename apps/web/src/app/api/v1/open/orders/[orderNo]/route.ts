@@ -1,9 +1,27 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { issuedCdks, storeOrders } from "@/db/schema";
+import { issuedCdks, platformPlans, storeOrders } from "@/db/schema";
+import { writeAuditLog } from "@/lib/audit";
+import { regionDisplay } from "@/lib/cardplatform/regions";
 import { decryptSecret, maskCode } from "@/lib/crypto";
+import { isLocalAccountPlan, parseFinishedAccountLine } from "@/lib/finished-account-core";
 import { isApiKeyContext, requireApiKey } from "@/lib/open-api/auth";
 import { openFail, openOk } from "@/lib/open-api/respond";
+
+/** 成品号明文是一行「邮箱----GPT密码----邮箱密码----Session」，拆开给调用方。 */
+function finishedAccountFields(code: string) {
+  try {
+    const parts = parseFinishedAccountLine(code);
+    return {
+      email: parts.email,
+      password: parts.gptPassword,
+      mailbox_password: parts.mailboxPassword,
+      session: parts.session,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export async function GET(
   req: Request,
@@ -11,6 +29,10 @@ export async function GET(
 ) {
   const auth = await requireApiKey(req, "orders:read");
   if (!isApiKeyContext(auth)) return auth;
+  const reveal = new URL(req.url).searchParams.get("reveal") === "1";
+  if (reveal && !auth.scopes.includes("cdks:reveal")) {
+    return openFail("FORBIDDEN_SCOPE", "API Key 没有看卡密明文的权限");
+  }
   const { orderNo } = await context.params;
   const filters = [eq(storeOrders.orderNo, orderNo)];
   if (auth.ownerType === "agent" && auth.agentId) {
@@ -20,22 +42,53 @@ export async function GET(
     where: and(...filters),
   });
   if (!order) return openFail("NOT_FOUND", "订单不存在");
-  const cdks = await db
-    .select({
-      id: issuedCdks.id,
-      status: issuedCdks.status,
-      planKey: issuedCdks.planKey,
-      codeEncrypted: issuedCdks.codeEncrypted,
-      issuedAt: issuedCdks.issuedAt,
-      usedAt: issuedCdks.usedAt,
-    })
-    .from(issuedCdks)
-    .where(eq(issuedCdks.orderId, order.id));
+  const [cdks, plan] = await Promise.all([
+    db
+      .select({
+        id: issuedCdks.id,
+        status: issuedCdks.status,
+        planKey: issuedCdks.planKey,
+        paymentCountry: issuedCdks.paymentCountry,
+        codeEncrypted: issuedCdks.codeEncrypted,
+        issuedAt: issuedCdks.issuedAt,
+        usedAt: issuedCdks.usedAt,
+      })
+      .from(issuedCdks)
+      .where(eq(issuedCdks.orderId, order.id))
+      .orderBy(asc(issuedCdks.id)),
+    db.query.platformPlans.findFirst({
+      where: eq(platformPlans.planKey, order.planKeySnapshot),
+      columns: { regionCapable: true, regionLabel: true, fulfillmentKind: true },
+    }),
+  ]);
+  const account = isLocalAccountPlan({
+    planKey: order.planKeySnapshot,
+    fulfillmentKind: plan?.fulfillmentKind,
+  });
+  const region = plan?.regionCapable
+    ? regionDisplay(order.paymentCountrySnapshot, plan.regionLabel)
+    : null;
+  if (reveal && cdks.length) {
+    await writeAuditLog({
+      action: "open_api_order_reveal",
+      targetType: "store_order",
+      targetId: order.id,
+      ip: auth.ip,
+      metadata: { keyId: auth.id, agentId: auth.agentId, count: cdks.length },
+    });
+  }
   return openOk({
     order_no: order.orderNo,
     plan_key: order.planKeySnapshot,
+    payment_country: order.paymentCountrySnapshot,
+    region: region && { code: region.code, name: region.zh, name_en: region.en },
+    kind: account ? "account" : "cdk",
     product_name: order.productNameSnapshot,
     quantity: order.quantity,
+    list_goods_cents: order.listGoodsCents,
+    discount_cents: order.couponDiscountCents,
+    coupon_code: order.couponCodeSnapshot,
+    invoice_surcharge_cents: order.invoiceSurchargeCents,
     gross_cents: order.grossCents,
     currency: order.currency,
     customer_email: order.customerEmail,
@@ -43,18 +96,23 @@ export async function GET(
     fulfill_status: order.fulfillStatus,
     created_at: order.createdAt,
     paid_at: order.paidAt,
+    delivered_at: order.deliveredAt,
     cdks: cdks.map((cdk) => {
-      let masked = "";
+      let code = "";
       try {
-        masked = maskCode(decryptSecret(cdk.codeEncrypted));
+        code = decryptSecret(cdk.codeEncrypted);
       } catch {
-        masked = "";
+        code = "";
       }
       return {
         id: cdk.id,
         status: cdk.status,
         plan_key: cdk.planKey,
-        code_masked: masked,
+        payment_country: cdk.paymentCountry,
+        code_masked: code ? maskCode(code) : "",
+        ...(reveal
+          ? { code, ...(account ? { account: finishedAccountFields(code) } : {}) }
+          : {}),
         issued_at: cdk.issuedAt,
         used_at: cdk.usedAt,
       };

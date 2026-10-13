@@ -5,41 +5,35 @@ import {
   apiWebhookEndpoints,
   backgroundJobs,
   orders,
+  storeOrders,
 } from "@/db/schema";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { checkWebhookUrl } from "./webhook-url";
 import {
+  isWebhookEvent,
   signWebhookBody,
   webhookBackoffMs,
   webhookEventForStatus,
   type WebhookEventName,
 } from "./webhooks-core";
 
-export async function enqueueRedemptionWebhook(orderNo: string) {
-  const order = await db.query.orders.findFirst({
-    where: eq(orders.orderNo, orderNo),
-  });
-  if (!order?.agentId) return;
-  const event = webhookEventForStatus(order.fulfillStatus);
-  if (!event) return;
+/** 给订阅了该事件的代理回调地址各排一条投递。 */
+async function enqueueAgentWebhook(
+  agentId: number,
+  event: WebhookEventName,
+  body: Record<string, unknown>,
+) {
   const endpoints = await db
     .select()
     .from(apiWebhookEndpoints)
     .where(
       and(
-        eq(apiWebhookEndpoints.agentId, order.agentId),
+        eq(apiWebhookEndpoints.agentId, agentId),
         eq(apiWebhookEndpoints.status, "active"),
       ),
     );
   const now = new Date().toISOString();
-  const payload = JSON.stringify({
-    event,
-    redemption_no: order.orderNo,
-    status: order.fulfillStatus,
-    message: order.message,
-    plan_key: order.upstreamPlan,
-    created_at: order.createdAt,
-  });
+  const payload = JSON.stringify({ event, ...body });
   for (const endpoint of endpoints) {
     let events: string[] = [];
     try {
@@ -73,6 +67,51 @@ export async function enqueueRedemptionWebhook(orderNo: string) {
       })
       .onConflictDoNothing({ target: backgroundJobs.dedupeKey });
   }
+}
+
+export async function enqueueRedemptionWebhook(orderNo: string) {
+  const order = await db.query.orders.findFirst({
+    where: eq(orders.orderNo, orderNo),
+  });
+  if (!order?.agentId) return;
+  const event = webhookEventForStatus(order.fulfillStatus);
+  if (!event) return;
+  await enqueueAgentWebhook(order.agentId, event, {
+    redemption_no: order.orderNo,
+    status: order.fulfillStatus,
+    message: order.message,
+    plan_key: order.upstreamPlan,
+    created_at: order.createdAt,
+  });
+}
+
+/**
+ * 店铺销售订单的状态推送。负载里不带卡密，代理收到后用 GET /orders/{orderNo} 取。
+ * 调用方在状态真正切换的那一次调用，重复推送由代理按 order_no + event 去重。
+ */
+export async function enqueueStoreOrderWebhook(
+  orderId: number,
+  event: "order.paid" | "order.delivered",
+) {
+  const order = await db.query.storeOrders.findFirst({
+    where: eq(storeOrders.id, orderId),
+  });
+  if (!order) return;
+  await enqueueAgentWebhook(order.agentId, event, {
+    order_no: order.orderNo,
+    pay_status: order.payStatus,
+    fulfill_status: order.fulfillStatus,
+    plan_key: order.planKeySnapshot,
+    payment_country: order.paymentCountrySnapshot,
+    product_name: order.productNameSnapshot,
+    quantity: order.quantity,
+    gross_cents: order.grossCents,
+    currency: order.currency,
+    customer_email: order.customerEmail,
+    created_at: order.createdAt,
+    paid_at: order.paidAt,
+    delivered_at: order.deliveredAt,
+  });
 }
 
 export async function deliverApiWebhook(deliveryId: number) {
@@ -160,7 +199,5 @@ export function storeWebhookSecret(secret: string) {
 
 export function parseWebhookEvents(raw: unknown): WebhookEventName[] {
   if (!Array.isArray(raw)) return [];
-  return raw.filter((item): item is WebhookEventName =>
-    item === "redemption.succeeded" || item === "redemption.failed",
-  );
+  return [...new Set(raw.filter(isWebhookEvent))];
 }

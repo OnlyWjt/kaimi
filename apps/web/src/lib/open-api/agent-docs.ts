@@ -41,18 +41,36 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
       id: "plans",
       title: "GET /plans  查套餐",
       blocks: [
-        { kind: "p", text: "权限 plans:read。返回本店已启用的套餐。cost_cents 是你的成本，retail_price_cents 是你设的零售价。" },
+        { kind: "p", text: "权限 plans:read。返回本店现在能下单的套餐，和本站店铺页展示的一致。cost_cents 是你的成本，retail_price_cents 是你设的零售价。name、name_en、cover_url 是你在店铺装修里改过的名字和封面。" },
+        { kind: "p", text: "同一套餐的不同地区是不同的 plan_key，base_plan_key 相同，可以按它归成一个商品、把地区做成规格。region 是付款地区（code 短码、name 中文名、note 规格说明），没有地区概念的套餐（点数档等）为 null。display_name 是拼好地区的展示名。region_confirmation_required 为 true 时，下单要带 region_confirmed=true，建议让买家在页面上确认一次地区。" },
+        { kind: "p", text: "kind 是 cdk（卡密）或 account（成品号）。available 为 false 表示成品号暂时缺货，stock 是成品号剩余数量，卡密为 null。store.open 为 false 时全站暂停售卖，下单会失败，请把 store.closed_reason 显示给买家。store.max_quantity 是单笔最多张数，store.payment_channels 是现在能用的支付方式。" },
         { kind: "code", text: `curl -H "Authorization: Bearer km_live_你的Key" \\\n  ${base}/plans` },
         {
           kind: "code",
           text: `{
   "data": {
+    "store": {
+      "open": true,
+      "closed_reason": "",
+      "max_quantity": 10,
+      "payment_channels": ["alipay", "wxpay"]
+    },
     "plans": [
       {
-        "plan_key": "pro_20x",
+        "plan_key": "pro_20x:us",
+        "base_plan_key": "pro_20x",
+        "payment_country": "US",
+        "region": { "code": "US", "name": "美区", "name_en": "United States", "note": "" },
         "name": "Pro",
+        "display_name": "Pro · 美区",
         "description": "",
         "category": "",
+        "name_en": "Pro",
+        "cover_url": "https://.../storefront/cover-pro.png",
+        "kind": "cdk",
+        "available": true,
+        "stock": null,
+        "region_confirmation_required": true,
         "cost_cents": 1000,
         "retail_price_cents": 1500,
         "currency": "CNY"
@@ -62,6 +80,7 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
   "request_id": "req_..."
 }`,
         },
+        { kind: "p", text: "商品列表变化不频繁，建议在你的服务端缓存 1 到 5 分钟，不要每个买家访问都调一次。" },
       ],
     },
     {
@@ -75,7 +94,8 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
           rows: [
             ["limit", "query", "每页条数，1 到 100，默认 20"],
             ["cursor", "query", "上一页返回的 next_cursor，不传则从最新开始"],
-            ["pay_status", "query", "按支付状态过滤，例如 paid、unpaid"],
+            ["pay_status", "query", "按支付状态过滤：unpaid、paid、closed（未付款 30 分钟自动关闭）"],
+            ["customer_email", "query", "只看某个买家邮箱的订单，大小写不敏感。做「按邮箱查订单」用这个"],
           ],
         },
         { kind: "code", text: `curl -H "Authorization: Bearer km_live_你的Key" \\\n  "${base}/orders?limit=20&pay_status=paid"` },
@@ -121,19 +141,30 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
             ["quantity", "否", "张数，默认 1，不能超过店铺的单笔上限"],
             ["region_confirmed", "多地区时必填", "同一套餐有两个及以上在售地区时必须为 true"],
             ["coupon_code", "否", "本店优惠券"],
+            ["return_url", "否", "买家付完款跳回的 https 地址，例如你自己站上的订单页。可以写 {order_no}，会换成本单单号。不传则跳回本站订单页"],
           ],
         },
-        { kind: "code", text: `curl -X POST ${base}/orders \\\n  -H "Authorization: Bearer km_live_你的Key" \\\n  -H "Content-Type: application/json" \\\n  -H "Idempotency-Key: pay-1001" \\\n  -d "{\\"plan_key\\":\\"plus\\",\\"channel\\":\\"alipay\\",\\"customer_email\\":\\"buyer@example.com\\",\\"quantity\\":1}"` },
-        { kind: "code", text: `{ "data": { "order_no": "KS...", "pay_url": "https://...", "gross_cents": 17500, "pay_status": "unpaid" }, "request_id": "req_..." }` },
-        { kind: "p", text: "把 pay_url 交给买家。付完后用 GET /orders/{orderNo} 看 pay_status 和 fulfill_status。卡密仍然默认脱敏。支付通知只打到本站，不会打到调用方。" },
+        { kind: "code", text: `curl -X POST ${base}/orders \\\n  -H "Authorization: Bearer km_live_你的Key" \\\n  -H "Content-Type: application/json" \\\n  -H "Idempotency-Key: pay-1001" \\\n  -d "{\\"plan_key\\":\\"plus\\",\\"channel\\":\\"alipay\\",\\"customer_email\\":\\"buyer@example.com\\",\\"quantity\\":1,\\"return_url\\":\\"https://shop.example.com/orders/{order_no}\\"}"` },
+        { kind: "code", text: `{ "data": { "order_no": "KS...", "pay_url": "https://...", "gross_cents": 17500, "currency": "CNY", "pay_status": "unpaid", "query_token": "..." }, "request_id": "req_..." }` },
+        { kind: "p", text: "把 pay_url 交给买家。支付网关跳回 return_url 时会附带自己的参数，这些参数不能当作付款凭据：请以 order.paid 回调或 GET /orders/{orderNo} 的 pay_status 为准。未付款的订单 30 分钟后自动关闭，pay_status 变成 closed，需要重新下单。" },
+      ],
+    },
+    {
+      id: "quote",
+      title: "POST /orders/quote  询价",
+      blocks: [
+        { kind: "p", text: "权限 orders:write。参数和 POST /orders 一样（plan_key、channel、quantity、coupon_code、invoice_requested），只算钱，不建单、不占券，不需要 Idempotency-Key。用它在下单前显示实付金额，或校验买家输入的优惠券：券不能用时返回 VALIDATION_FAILED，message 可以直接给买家看。" },
+        { kind: "code", text: `curl -X POST ${base}/orders/quote \\\n  -H "Authorization: Bearer km_live_你的Key" \\\n  -H "Content-Type: application/json" \\\n  -d "{\\"plan_key\\":\\"plus\\",\\"channel\\":\\"alipay\\",\\"quantity\\":2,\\"coupon_code\\":\\"NEW10\\"}"` },
+        { kind: "code", text: `{ "data": { "list_goods_cents": 35000, "discount_cents": 1000, "goods_cents": 34000, "invoice_surcharge_cents": 0, "pay_cents": 34000, "coupon_code": "NEW10", "currency": "CNY" }, "request_id": "req_..." }` },
       ],
     },
     {
       id: "order",
       title: "GET /orders/{orderNo}  单笔订单",
       blocks: [
-        { kind: "p", text: "权限 orders:read。卡密默认脱敏，字段是 code_masked。要明文请再调 reveal。别人的订单返回 404。" },
-        { kind: "code", text: `curl -H "Authorization: Bearer km_live_你的Key" \\\n  ${base}/orders/KS202609240001` },
+        { kind: "p", text: "权限 orders:read。返回订单金额明细（list_goods_cents 原价、discount_cents 券减免、invoice_surcharge_cents 开票加价、gross_cents 实付）、地区 region、类型 kind 和已发出的卡。卡密默认脱敏，字段是 code_masked。别人的订单返回 404。" },
+        { kind: "p", text: "加 ?reveal=1 一次取整单明文，需要 Key 同时有 cdks:reveal 权限，会写一条审计。卡密在 code 字段；成品号（kind=account）还会拆好放在 account 里：email、password、mailbox_password、session。一单多张时可能分批发出，fulfill_status 为 delivered 才算发齐。" },
+        { kind: "code", text: `curl -H "Authorization: Bearer km_live_你的Key" \\\n  "${base}/orders/KS202609240001?reveal=1"` },
       ],
     },
     {
@@ -203,9 +234,19 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
       id: "webhook",
       title: "兑换结果回调",
       blocks: [
-        { kind: "p", text: "回调地址填你自己服务器上的 https 接口，例如 https://api.example.com/hooks/kaimi。不要填店铺地址，也不要填本站地址。兑换进入成功或失败后，本站会向这个地址 POST JSON。请在 10 秒内返回任意 2xx，否则视为失败。" },
-        { kind: "p", text: "事件只有两个：redemption.succeeded（status=success）和 redemption.failed（status=failed）。保存地址时会给你一把 whsec_ 密钥，只显示一次。请求头 X-Kaimi-Event 是事件名，X-Kaimi-Signature 是 t=<unix秒>,v1=<hex>。v1 是用密钥对「时间戳.原始请求体」做 HMAC-SHA256。请用收到的原始 body 验签，不要先 JSON.parse 再重新序列化。时间戳和当前时间相差超过 5 分钟应拒绝。" },
-        { kind: "p", text: "投递失败后按 1 分钟、5 分钟、30 分钟、2 小时、12 小时重试，一共 5 次。同一笔兑换可能收到多次相同事件，请用 redemption_no 做幂等。" },
+        { kind: "p", text: "回调地址填你自己服务器上的 https 接口，例如 https://api.example.com/hooks/kaimi。不要填店铺地址，也不要填本站地址。订单付款、发货，或兑换成功、失败后，本站会向这个地址 POST JSON。请在 10 秒内返回任意 2xx，否则视为失败。" },
+        {
+          kind: "table",
+          headers: ["事件", "什么时候", "负载"],
+          rows: [
+            ["order.paid", "销售订单付款到账", "order_no、pay_status、fulfill_status、plan_key、payment_country、product_name、quantity、gross_cents、currency、customer_email、created_at、paid_at、delivered_at"],
+            ["order.delivered", "销售订单的卡密或成品号全部发齐", "同 order.paid。负载不带卡密，收到后用 GET /orders/{orderNo}?reveal=1 取"],
+            ["redemption.succeeded", "兑换成功（status=success）", "redemption_no、status、message、plan_key、created_at"],
+            ["redemption.failed", "兑换失败（status=failed）", "同上"],
+          ],
+        },
+        { kind: "p", text: "保存地址时选要推送的事件，会给你一把 whsec_ 密钥，只显示一次。以前保存的地址只订阅了兑换事件，要收订单事件请重新保存一个地址。请求头 X-Kaimi-Event 是事件名，X-Kaimi-Signature 是 t=<unix秒>,v1=<hex>。v1 是用密钥对「时间戳.原始请求体」做 HMAC-SHA256。请用收到的原始 body 验签，不要先 JSON.parse 再重新序列化。时间戳和当前时间相差超过 5 分钟应拒绝。" },
+        { kind: "p", text: "投递失败后按 1 分钟、5 分钟、30 分钟、2 小时、12 小时重试，一共 5 次。同一事件可能收到多次，订单用 order_no + event 做幂等，兑换用 redemption_no 做幂等。回调可能丢，关键状态请再用 GET /orders/{orderNo} 核对。" },
         {
           kind: "code",
           text: `POST https://api.example.com/hooks/kaimi

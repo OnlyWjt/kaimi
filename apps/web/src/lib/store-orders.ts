@@ -17,6 +17,7 @@ import { createEpayPayment } from "@/lib/payments/epay";
 import { epayReady, getEpayConfig } from "@/lib/payments/config";
 import type { PaymentChannel } from "@/lib/payments/fees";
 import { assertStoreSalesOpen } from "@/lib/ops-health";
+import { buildReturnUrl } from "@/lib/open-api/return-url";
 import { requirePublicBaseUrl } from "@/lib/public-url";
 import { resolveProductName, rowToSettings } from "@/lib/agent-storefront-config";
 import { getMaxOrderQuantity, resolveOrderQuantity } from "@/lib/store-quantity";
@@ -248,6 +249,8 @@ export async function createStoreOrder(input: {
   invoiceEmail?: string;
   /** 商品组内有两个及以上在售地区时必须为 true。 */
   regionConfirmed?: boolean;
+  /** 付款后跳回的地址，开放 API 代客下单用；已校验过，可含 {order_no}。不传回本站订单页。 */
+  returnUrl?: string;
 }) {
   await assertStoreSalesOpen();
   const priced = await quoteCheckoutAmounts(input);
@@ -392,7 +395,9 @@ export async function createStoreOrder(input: {
         : `${localAccount ? "账号" : "CDK"} ${displayName}`,
       moneyCents: invoiceQuote.payCents,
       notifyUrl: `${base}/api/webhooks/epay`,
-      returnUrl: `${base}/shop/order/${orderNo}?qt=${encodeURIComponent(queryToken)}`,
+      returnUrl: input.returnUrl
+        ? buildReturnUrl(input.returnUrl, orderNo)
+        : `${base}/shop/order/${orderNo}?qt=${encodeURIComponent(queryToken)}`,
       channel: input.channel,
       clientIp:
         input.request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||

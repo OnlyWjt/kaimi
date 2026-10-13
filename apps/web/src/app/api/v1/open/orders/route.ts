@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { agents, storeOrders } from "@/db/schema";
 import { isApiKeyContext, requireApiKey } from "@/lib/open-api/auth";
 import { claimIdempotent, storeIdempotent } from "@/lib/open-api/idempotency";
+import { checkReturnUrl } from "@/lib/open-api/return-url";
 import { openFail, openOk } from "@/lib/open-api/respond";
 import { HARD_MAX_ORDER_QUANTITY } from "@/lib/store-quantity-core";
 import { createStoreOrder } from "@/lib/store-orders";
@@ -20,6 +21,7 @@ const createSchema = z.object({
   invoice_tax_no: z.string().max(32).optional(),
   invoice_note: z.string().max(200).optional(),
   invoice_email: z.string().max(254).optional(),
+  return_url: z.string().max(500).optional(),
 });
 
 export async function POST(req: Request) {
@@ -49,6 +51,12 @@ export async function POST(req: Request) {
   } catch {
     return finish(openFail("VALIDATION_FAILED", "下单参数无效"));
   }
+  let returnUrl: string | undefined;
+  if (body.return_url !== undefined) {
+    const check = checkReturnUrl(body.return_url);
+    if (!check.ok) return finish(openFail("VALIDATION_FAILED", check.error));
+    returnUrl = check.url;
+  }
   const agent = await db.query.agents.findFirst({
     where: eq(agents.id, auth.agentId),
     columns: { currentSlug: true },
@@ -69,6 +77,7 @@ export async function POST(req: Request) {
       invoiceTaxNo: body.invoice_tax_no,
       invoiceNote: body.invoice_note,
       invoiceEmail: body.invoice_email,
+      returnUrl,
     });
     return finish(
       openOk({
@@ -99,11 +108,15 @@ export async function GET(req: Request) {
   if (Number.isSafeInteger(cursor) && cursor > 0) filters.push(lt(storeOrders.id, cursor));
   const payStatus = url.searchParams.get("pay_status")?.trim();
   if (payStatus) filters.push(eq(storeOrders.payStatus, payStatus));
+  // 下单时邮箱已转小写存储，这里同样处理，买家大小写写错也能查到。
+  const customerEmail = url.searchParams.get("customer_email")?.trim().toLowerCase();
+  if (customerEmail) filters.push(eq(storeOrders.customerEmail, customerEmail));
   const rows = await db
     .select({
       id: storeOrders.id,
       orderNo: storeOrders.orderNo,
       planKey: storeOrders.planKeySnapshot,
+      paymentCountry: storeOrders.paymentCountrySnapshot,
       productName: storeOrders.productNameSnapshot,
       quantity: storeOrders.quantity,
       grossCents: storeOrders.grossCents,
@@ -125,6 +138,7 @@ export async function GET(req: Request) {
     orders: page.map((row) => ({
       order_no: row.orderNo,
       plan_key: row.planKey,
+      payment_country: row.paymentCountry,
       product_name: row.productName,
       quantity: row.quantity,
       gross_cents: row.grossCents,

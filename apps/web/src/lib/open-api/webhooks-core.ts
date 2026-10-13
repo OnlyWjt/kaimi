@@ -1,7 +1,14 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-export const WEBHOOK_EVENTS = ["redemption.succeeded", "redemption.failed"] as const;
+export const REDEMPTION_WEBHOOK_EVENTS = ["redemption.succeeded", "redemption.failed"] as const;
+/** 店铺销售订单：付款到账、卡密（或成品号）全部发齐。 */
+export const ORDER_WEBHOOK_EVENTS = ["order.paid", "order.delivered"] as const;
+export const WEBHOOK_EVENTS = [...REDEMPTION_WEBHOOK_EVENTS, ...ORDER_WEBHOOK_EVENTS] as const;
 export type WebhookEventName = (typeof WEBHOOK_EVENTS)[number];
+
+export function isWebhookEvent(value: unknown): value is WebhookEventName {
+  return (WEBHOOK_EVENTS as readonly unknown[]).includes(value);
+}
 
 /** 第 1 到第 5 次失败后的等待：1 分钟、5 分钟、30 分钟、2 小时、12 小时。第 5 次之后不再投。 */
 export const WEBHOOK_BACKOFF_MS = [60_000, 300_000, 1_800_000, 7_200_000, 43_200_000];

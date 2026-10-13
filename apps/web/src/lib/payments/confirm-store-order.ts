@@ -9,6 +9,7 @@ import { hashLookupValue } from "@/lib/crypto";
 import { writeAuditLog } from "@/lib/audit";
 import { sanitizeLog } from "@/lib/log";
 import { notifyStoreInvoicePaid } from "@/lib/notify";
+import { enqueueStoreOrderWebhook } from "@/lib/open-api/webhooks";
 import { recordOpsAlert } from "@/lib/ops-health";
 import { epayReady, getEpayConfig } from "@/lib/payments/config";
 import { moneyYuan, parseMoneyYuan, queryEpayOrder } from "@/lib/payments/epay";
@@ -258,6 +259,11 @@ export async function confirmStoreOrderPaid(input: {
     where: eq(storeOrders.id, order.id),
   });
   const paid = latest || (outcome.kind === "paid" ? outcome.order : order);
+  if (newlyPaid) {
+    void enqueueStoreOrderWebhook(paid.id, "order.paid").catch((err) => {
+      console.warn("[kaimi-pay] order.paid webhook skipped", sanitizeLog(err));
+    });
+  }
   if (newlyPaid && paid.invoiceNotifyStatus !== "sent") {
     void notifyStoreInvoicePaid(paid).catch((err) => {
       console.warn("[kaimi-notify] invoice paid skipped", sanitizeLog(err));
