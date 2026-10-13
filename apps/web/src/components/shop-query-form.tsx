@@ -63,8 +63,8 @@ export function ShopQueryForm() {
         {error ? <p className="text-sm text-[var(--km-danger)]">{error}</p> : null}
       </div>
       <div className="space-y-3">
-        {list.map((o) => (
-          <div key={String(o.orderNo)} className="km-panel km-result space-y-1.5">
+        {list.map((o, index) => (
+          <div key={`${String(o.orderNo)}-${index}`} className="km-panel km-result space-y-1.5">
             <p className="font-medium font-mono">{String(o.orderNo)}</p>
             <p className="text-[var(--km-fg-muted)]">
               {String(o.kind)} · {String(o.payStatus)} · {String(o.fulfillStatus)}

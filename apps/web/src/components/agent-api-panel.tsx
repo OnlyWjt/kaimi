@@ -13,7 +13,11 @@ type KeyRow = {
   status: string;
   lastUsedAt: string | null;
   createdAt: string;
+  mode?: string;
 };
+
+/** 测试 Key 能勾的权限，和服务端 TEST_KEY_SCOPES 一致。 */
+const TEST_KEY_SCOPES = ["plans:read", "orders:read", "orders:write", "cdks:reveal"];
 
 const SCOPE_LABEL: Record<string, string> = {
   "plans:read": "查套餐",
@@ -34,6 +38,8 @@ export function AgentApiPanel() {
   const [name, setName] = useState("默认 Key");
   const [picked, setPicked] = useState<string[]>(["plans:read", "orders:read", "cdks:read", "redeem:read"]);
   const [freshToken, setFreshToken] = useState("");
+  const [testMode, setTestMode] = useState(false);
+  const visibleScopes = testMode ? scopes.filter((scope) => TEST_KEY_SCOPES.includes(scope)) : scopes;
 
   async function reload() {
     const response = await fetch("/api/agent/api-keys");
@@ -53,6 +59,9 @@ export function AgentApiPanel() {
         <p className="text-sm text-[var(--km-fg-muted)]">
           请求头带 Authorization: Bearer km_live_... 。明文只在创建时出现一次。代理 Key 只能访问自己店铺的数据，也只能兑换自己卖出的卡。
         </p>
+        <p className="text-sm text-[var(--km-fg-muted)]">
+          对接自己的分销站时，先建一把<strong>测试 Key</strong>（km_test_ 开头）：下单返回的付款链接打开就算付款成功，发的是 TEST- 开头的假卡，回调里 livemode 为 false，不扣钱、不进账本。跑通后再换正式 Key。
+        </p>
         <div className="flex flex-wrap items-end gap-2">
           <label className="text-sm">
             名称
@@ -64,7 +73,11 @@ export function AgentApiPanel() {
               const response = await fetch("/api/agent/api-keys", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, scopes: picked }),
+                body: JSON.stringify({
+                  name,
+                  scopes: testMode ? picked.filter((scope) => TEST_KEY_SCOPES.includes(scope)) : picked,
+                  mode: testMode ? "test" : "live",
+                }),
               });
               const data = await response.json();
               if (!response.ok) {
@@ -79,8 +92,19 @@ export function AgentApiPanel() {
             创建
           </button>
         </div>
+        <label className="flex items-center gap-1 text-sm">
+          <input
+            type="checkbox"
+            checked={testMode}
+            onChange={(event) => {
+              setTestMode(event.target.checked);
+              if (event.target.checked) setPicked(["plans:read", "orders:read", "orders:write", "cdks:reveal"]);
+            }}
+          />
+          测试 Key（沙箱，不产生真实订单）
+        </label>
         <div className="flex flex-wrap gap-3 text-sm">
-          {scopes.map((scope) => (
+          {visibleScopes.map((scope) => (
             <label key={scope} className="flex items-center gap-1">
               <input
                 type="checkbox"
@@ -111,7 +135,10 @@ export function AgentApiPanel() {
           <tbody>
             {keys.map((row) => (
               <tr key={row.id} className="border-t border-[var(--km-border)]">
-                <td className="py-2">{row.name}</td>
+                <td className="py-2">
+                  {row.name}
+                  {row.mode === "test" ? <span className="km-acp-pill warn ml-2">测试</span> : null}
+                </td>
                 <td className="font-mono">{row.keyPrefix}</td>
                 <td>{row.status === "active" ? "有效" : "已吊销"}</td>
                 <td>{formatDateTime(row.lastUsedAt)}</td>
@@ -161,6 +188,7 @@ function WebhookForm() {
   const [secret, setSecret] = useState("");
   const [events, setEvents] = useState<string[]>(WEBHOOK_EVENT_OPTIONS.map((item) => item.value));
   const [list, setList] = useState<Array<{ id: number; url: string; status: string; events: string }>>([]);
+  const [deliveryReload, setDeliveryReload] = useState(0);
 
   async function reload() {
     const response = await fetch("/api/agent/webhooks");
@@ -252,18 +280,137 @@ function WebhookForm() {
             </span>
           </span>
           {row.status === "active" ? (
-            <button
-              className="km-btn km-btn-ghost"
-              onClick={async () => {
-                await fetch(`/api/agent/webhooks?id=${row.id}`, { method: "DELETE" });
-                await reload();
-              }}
-            >
-              停用
-            </button>
+            <span className="flex gap-2">
+              <button
+                className="km-btn km-btn-ghost"
+                onClick={async () => {
+                  const response = await fetch("/api/agent/webhooks/test", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ endpointId: row.id }),
+                  });
+                  const data = await response.json().catch(() => ({}));
+                  if (!response.ok) {
+                    toast(data.error || "发送失败", "err");
+                    return;
+                  }
+                  toast("测试推送已发出，几秒后在下方记录里看结果");
+                  setTimeout(() => setDeliveryReload((n) => n + 1), 3000);
+                }}
+              >
+                发送测试
+              </button>
+              <button
+                className="km-btn km-btn-ghost"
+                onClick={async () => {
+                  await fetch(`/api/agent/webhooks?id=${row.id}`, { method: "DELETE" });
+                  await reload();
+                }}
+              >
+                停用
+              </button>
+            </span>
           ) : null}
         </div>
       ))}
+      {list.length ? <WebhookDeliveries reloadKey={deliveryReload} /> : null}
     </section>
+  );
+}
+
+type DeliveryRow = {
+  id: number;
+  url: string;
+  event: string;
+  attempt: number;
+  lastStatus: number | null;
+  lastError: string;
+  deliveredAt: string | null;
+  nextAttemptAt: string | null;
+  createdAt: string;
+  payload: string;
+};
+
+function deliveryState(row: DeliveryRow) {
+  if (row.deliveredAt) return { text: `成功 ${row.lastStatus ?? ""}`.trim(), tone: "" };
+  if (row.attempt === 0) return { text: "排队中", tone: " mute" };
+  if (row.nextAttemptAt) return { text: `失败，${formatDateTime(row.nextAttemptAt)} 重试`, tone: " warn" };
+  return { text: "失败，不再重试", tone: " bad" };
+}
+
+/** 最近 50 条投递：发没发、对方回了什么，失败的可以手动重发。 */
+function WebhookDeliveries({ reloadKey }: { reloadKey: number }) {
+  const [rows, setRows] = useState<DeliveryRow[]>([]);
+  const [open, setOpen] = useState<number | null>(null);
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const response = await fetch("/api/agent/webhooks/deliveries", { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!cancelled) setRows(data.list || []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey, tick]);
+
+  return (
+    <div className="space-y-2 border-t border-[var(--km-border)] pt-3">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold">最近投递</h3>
+        <button className="km-btn km-btn-ghost" onClick={() => setTick((n) => n + 1)}>
+          刷新
+        </button>
+      </div>
+      {!rows.length ? <p className="text-[var(--km-fg-muted)]">还没有投递记录。点上面的「发送测试」试一下。</p> : null}
+      <div className="overflow-x-auto">
+        <table className="km-acp-price">
+          <tbody>
+            {rows.map((row) => {
+              const state = deliveryState(row);
+              return (
+                <tr key={row.id}>
+                  <td className="whitespace-nowrap text-xs">{formatDateTime(row.createdAt)}</td>
+                  <td className="font-mono text-xs">{row.event}</td>
+                  <td>
+                    <span className={`km-acp-pill${state.tone}`}>{state.text}</span>
+                    {row.lastError ? (
+                      <p className="mt-1 text-xs text-[var(--km-fg-muted)]">{row.lastError}</p>
+                    ) : null}
+                    {open === row.id ? (
+                      <pre className="mt-1 max-w-xl overflow-x-auto rounded bg-[var(--km-bg)] p-2 text-xs">{row.payload}</pre>
+                    ) : null}
+                  </td>
+                  <td className="whitespace-nowrap">
+                    <button className="km-btn km-btn-ghost" onClick={() => setOpen(open === row.id ? null : row.id)}>
+                      {open === row.id ? "收起" : "看内容"}
+                    </button>
+                    <button
+                      className="km-btn km-btn-ghost"
+                      onClick={async () => {
+                        const response = await fetch(`/api/agent/webhooks/deliveries/${row.id}/redeliver`, {
+                          method: "POST",
+                        });
+                        const data = await response.json().catch(() => ({}));
+                        if (!response.ok) {
+                          toast(data.error || "重发失败", "err");
+                          return;
+                        }
+                        toast("已重新发出");
+                        setTimeout(() => setTick((n) => n + 1), 3000);
+                      }}
+                    >
+                      重发
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }

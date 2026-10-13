@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, desc, eq, inArray, lt } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt } from "drizzle-orm";
 import { db } from "@/db";
 import {
   agentPlanPrices,
@@ -18,6 +18,9 @@ import { epayReady, getEpayConfig } from "@/lib/payments/config";
 import type { PaymentChannel } from "@/lib/payments/fees";
 import { assertStoreSalesOpen } from "@/lib/ops-health";
 import { buildReturnUrl } from "@/lib/open-api/return-url";
+import { maskOrderNo } from "@/lib/order-no-mask";
+import { storeOrderQueryUrl } from "@/lib/store-order-links";
+import { shouldCloseUnpaidOrder, type GatewayPaidCheck } from "@/lib/store-order-close-core";
 import { requirePublicBaseUrl } from "@/lib/public-url";
 import { resolveProductName, rowToSettings } from "@/lib/agent-storefront-config";
 import { getMaxOrderQuantity, resolveOrderQuantity } from "@/lib/store-quantity";
@@ -397,7 +400,7 @@ export async function createStoreOrder(input: {
       notifyUrl: `${base}/api/webhooks/epay`,
       returnUrl: input.returnUrl
         ? buildReturnUrl(input.returnUrl, orderNo)
-        : `${base}/shop/order/${orderNo}?qt=${encodeURIComponent(queryToken)}`,
+        : storeOrderQueryUrl(base, orderNo, queryToken),
       channel: input.channel,
       clientIp:
         input.request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
@@ -460,21 +463,37 @@ export async function closeStoreOrder(orderNo: string) {
 /**
  * 批量关闭超时未付款订单并归还优惠券次数。
  * 由 sync-scheduler 每 5 分钟调用一次。
+ *
+ * 传了 checkPaid 时，关单前逐单向网关补查：支付通知丢了的单会在这里被确认成已付款，
+ * 不会被误关；查不清的先留着，超过 STORE_ORDER_GATEWAY_GIVE_UP_MS 才关。
  */
 export async function closeExpiredStoreOrders(options: {
   olderThanMs?: number;
   now?: Date;
   limit?: number;
+  checkPaid?: (orderNo: string) => Promise<GatewayPaidCheck>;
 } = {}) {
   const olderThanMs = options.olderThanMs ?? STORE_ORDER_UNPAID_TTL_MS;
   const now = options.now ?? new Date();
   const cutoff = new Date(now.getTime() - olderThanMs).toISOString();
-  const limit = Math.max(1, Math.min(options.limit ?? 200, 1000));
-  const candidates = await db
-    .select({ id: storeOrders.id })
+  // 要逐单打网关时少取一些，一轮别跑太久。
+  const limit = Math.max(1, Math.min(options.limit ?? (options.checkPaid ? 50 : 200), 1000));
+  const rows = await db
+    .select({ id: storeOrders.id, orderNo: storeOrders.orderNo, createdAt: storeOrders.createdAt })
     .from(storeOrders)
     .where(and(eq(storeOrders.payStatus, "unpaid"), lt(storeOrders.createdAt, cutoff)))
+    .orderBy(asc(storeOrders.id))
     .limit(limit);
+  const candidates: typeof rows = [];
+  // 网关单次查询最多等 15 秒。网关挂了时连着查 50 单会把整个调度器卡住十几分钟，
+  // 连续失败 3 次就停，剩下的下一轮再查。
+  let consecutiveErrors = 0;
+  for (const row of rows) {
+    const check = options.checkPaid ? await options.checkPaid(row.orderNo) : null;
+    if (shouldCloseUnpaidOrder({ check, createdAt: row.createdAt, now })) candidates.push(row);
+    consecutiveErrors = check === "error" ? consecutiveErrors + 1 : 0;
+    if (consecutiveErrors >= 3) break;
+  }
   if (!candidates.length) return { closed: 0, couponsReleased: 0 };
   return db.transaction(async (tx) => {
     const closed = await tx
@@ -532,21 +551,47 @@ export async function listStoreOrdersByEmail(input: {
         .where(inArray(platformPlans.planKey, planKeys))
     : [];
   const planByKey = new Map(planRows.map((plan) => [plan.planKey, plan]));
+  // 只凭邮箱不给完整订单号和查询凭证：知道别人的邮箱不等于能取走他的卡。
+  // 买家要看卡密，用 verifyStoreOrderOwnership 交完整订单号换凭证，或让我们把链接发到邮箱。
   return rows.map((order) => {
     const plan = planByKey.get(order.planKeySnapshot);
     return {
-    orderNo: order.orderNo,
-    productName: order.productNameSnapshot,
-    quantity: order.quantity,
-    amountCents: order.grossCents,
-    payStatus: order.payStatus,
-    fulfillStatus: order.fulfillStatus,
-    createdAt: order.createdAt,
-    paymentCountry: plan?.regionCapable ? order.paymentCountrySnapshot : null,
-    regionLabel: plan?.regionCapable ? plan.regionLabel : null,
-    queryToken: order.queryTokenEncrypted
-      ? decryptSecret(order.queryTokenEncrypted)
-      : "",
+      orderRef: maskOrderNo(order.orderNo),
+      productName: order.productNameSnapshot,
+      quantity: order.quantity,
+      amountCents: order.grossCents,
+      payStatus: order.payStatus,
+      fulfillStatus: order.fulfillStatus,
+      createdAt: order.createdAt,
+      paymentCountry: plan?.regionCapable ? order.paymentCountrySnapshot : null,
+      regionLabel: plan?.regionCapable ? plan.regionLabel : null,
     };
   });
 }
+
+/**
+ * 买家交出完整订单号，证明这一单是自己的，换回查询凭证。
+ * 邮箱也要对上：只有订单号、却填错邮箱的，当作不存在。
+ */
+export async function verifyStoreOrderOwnership(input: {
+  slug: string;
+  email: string;
+  orderNo: string;
+}) {
+  const agent = await db.query.agents.findFirst({
+    where: eq(agents.currentSlug, normalizeAgentSlug(input.slug)),
+    columns: { id: true },
+  });
+  if (!agent) return null;
+  const order = await db.query.storeOrders.findFirst({
+    where: and(
+      eq(storeOrders.agentId, agent.id),
+      eq(storeOrders.orderNo, input.orderNo.trim().toUpperCase()),
+      eq(storeOrders.customerEmail, input.email.trim().toLowerCase()),
+    ),
+    columns: { orderNo: true, queryTokenEncrypted: true },
+  });
+  if (!order?.queryTokenEncrypted) return null;
+  return { orderNo: order.orderNo, queryToken: decryptSecret(order.queryTokenEncrypted) };
+}
+

@@ -38,6 +38,15 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
       ],
     },
     {
+      id: "test-mode",
+      title: "测试模式",
+      blocks: [
+        { kind: "p", text: "对接自己的分销站时，先在「开放 API」页建一把测试 Key（km_test_ 开头）。测试 Key 只能调 GET /plans、POST /orders/quote、POST /orders、GET /orders、GET /orders/{orderNo}，其余接口返回 FORBIDDEN_SCOPE。" },
+        { kind: "p", text: "套餐、价格、优惠券、地区确认都按正式规则校验，测试通过的参数在正式环境同样能下单。但订单只进沙箱：订单号 KT 开头，返回的 pay_url 是模拟付款链接，打开就算付款成功并发出 TEST- 开头的假卡，有 return_url 就跳回去，同时推 order.paid 和 order.delivered 回调。沙箱订单的返回和回调里都有 livemode: false，不扣钱、不进账本、不占库存，30 天后自动清理。" },
+        { kind: "p", text: "跑通后把 Key 换成正式的 km_live_ 即可，代码不用改。建议你的接收端看到 livemode 为 false 时不要真的给买家发货。" },
+      ],
+    },
+    {
       id: "plans",
       title: "GET /plans  查套餐",
       blocks: [
@@ -243,8 +252,11 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
             ["order.delivered", "销售订单的卡密或成品号全部发齐", "同 order.paid。负载不带卡密，收到后用 GET /orders/{orderNo}?reveal=1 取"],
             ["redemption.succeeded", "兑换成功（status=success）", "redemption_no、status、message、plan_key、created_at"],
             ["redemption.failed", "兑换失败（status=failed）", "同上"],
+            ["ping", "在「开放 API」页点「发送测试」", "event、message、sent_at。不能订阅，只用来测通"],
           ],
         },
+        { kind: "p", text: "订单事件的负载里有 livemode：正式订单为 true，测试 Key 的沙箱订单为 false。接收端遇到不认识的事件名请也返回 2xx，以后可能会加新事件。" },
+        { kind: "p", text: "「开放 API」页能看到最近 50 条投递：发没发、对方回了什么状态码、失败原因，可以看内容、手动重发，也可以点「发送测试」推一条 ping 测通地址和验签。" },
         { kind: "p", text: "保存地址时选要推送的事件，会给你一把 whsec_ 密钥，只显示一次。以前保存的地址只订阅了兑换事件，要收订单事件请重新保存一个地址。请求头 X-Kaimi-Event 是事件名，X-Kaimi-Signature 是 t=<unix秒>,v1=<hex>。v1 是用密钥对「时间戳.原始请求体」做 HMAC-SHA256。请用收到的原始 body 验签，不要先 JSON.parse 再重新序列化。时间戳和当前时间相差超过 5 分钟应拒绝。" },
         { kind: "p", text: "投递失败后按 1 分钟、5 分钟、30 分钟、2 小时、12 小时重试，一共 5 次。同一事件可能收到多次，订单用 order_no + event 做幂等，兑换用 redemption_no 做幂等。回调可能丢，关键状态请再用 GET /orders/{orderNo} 核对。" },
         {

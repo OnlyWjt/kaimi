@@ -5,6 +5,7 @@ import { publicShopName } from "@/lib/agent-names";
 import { getSetting, setSetting } from "@/lib/config";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { buildMailFrom, isValidMailFrom, mailDisplayName } from "@/lib/mail-core";
+import { storeOrderQueryUrl } from "@/lib/store-order-links";
 import { and, eq, gte, inArray, lt, or, sql } from "drizzle-orm";
 
 export type MailSettings = {
@@ -226,4 +227,72 @@ export async function retryPendingDeliveryMails(limit = 10) {
     await sendDeliveryMail(row.id);
   }
   return { checked: rows.length };
+}
+
+/** 平台开了订单邮件、代理也没关发货邮件时，才能给买家发查单链接。 */
+export async function orderLinksMailAvailable(agent: { mailDeliveryEnabled: boolean }) {
+  const settings = await readMailSettings();
+  return settings.enabled && settings.orderEnabled && Boolean(settings.host) && agent.mailDeliveryEnabled;
+}
+
+/**
+ * 把这个邮箱在本店最近的订单查单链接发到这个邮箱。
+ * 只有邮箱的主人能收到，所以链接里可以带查询凭证。返回发出的订单数；没订单不发信。
+ */
+export async function sendOrderLinksMail(input: {
+  agentId: number;
+  email: string;
+  baseUrl: string;
+}) {
+  const agent = await db.query.agents.findFirst({ where: eq(agents.id, input.agentId) });
+  if (!agent || !(await orderLinksMailAvailable(agent))) {
+    throw new Error("本店暂时不能发送查单邮件，请用完整订单号查看");
+  }
+  const email = input.email.trim().toLowerCase();
+  const orders = await db.query.storeOrders.findMany({
+    where: and(eq(storeOrders.agentId, agent.id), eq(storeOrders.customerEmail, email)),
+    orderBy: (table, { desc }) => [desc(table.id)],
+    limit: 20,
+  });
+  const lines = orders.flatMap((order) => {
+    if (!order.queryTokenEncrypted) return [];
+    let token = "";
+    try {
+      token = decryptSecret(order.queryTokenEncrypted);
+    } catch {
+      return [];
+    }
+    const url = storeOrderQueryUrl(input.baseUrl, order.orderNo, token);
+    return [`${order.productNameSnapshot}  订单号 ${order.orderNo}`, url, ""];
+  });
+  if (!lines.length) return 0;
+  const { settings, mailer } = await transporter();
+  const shop = publicShopName(agent);
+  const displayName = mailDisplayName(agent.mailFromName || "") || mailDisplayName(settings.fromName) || shop;
+  await mailer.sendMail({
+    from: buildMailFrom(displayName, settings.from || settings.user),
+    replyTo: validReplyTo(agent.mailReplyTo) ? agent.mailReplyTo.trim() : undefined,
+    to: email,
+    subject: `${shop || "订单"} 查单链接`,
+    text: [shop, "下面是你在本店的订单，点链接查看卡密和发货状态。不是你本人操作的请忽略这封邮件。", "", ...lines].join("\n"),
+  });
+  return lines.length / 3;
+}
+
+/**
+ * 代理在后台点「重发发货邮件」。已发过的也重新发一次；仍受平台和代理的邮件开关约束。
+ */
+export async function resendDeliveryMail(orderId: number) {
+  const [reset] = await db
+    .update(storeOrders)
+    .set({ deliveryMailStatus: "pending", deliveryMailAttempts: 0, updatedAt: new Date().toISOString() })
+    .where(and(eq(storeOrders.id, orderId), eq(storeOrders.fulfillStatus, "delivered")))
+    .returning({ id: storeOrders.id });
+  if (!reset) throw new Error("订单还没发齐，不能重发发货邮件");
+  await sendDeliveryMail(orderId);
+  const after = await db.query.storeOrders.findFirst({
+    where: eq(storeOrders.id, orderId),
+    columns: { deliveryMailStatus: true, deliveryMailError: true },
+  });
+  return after;
 }

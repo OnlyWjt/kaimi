@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { agents } from "@/db/schema";
+import { normalizeAgentSlug } from "@/lib/agent-slug";
 import { bootDb } from "@/lib/config";
+import { orderLinksMailAvailable } from "@/lib/mail";
 import { createStoreOrder, listStoreOrdersByEmail } from "@/lib/store-orders";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { HARD_MAX_ORDER_QUANTITY } from "@/lib/store-quantity-core";
@@ -48,7 +53,12 @@ export async function GET(req: Request) {
   }
   try {
     const list = await listStoreOrdersByEmail(parsed.data);
-    return NextResponse.json({ list });
+    const agent = await db.query.agents.findFirst({
+      where: eq(agents.currentSlug, normalizeAgentSlug(parsed.data.slug)),
+      columns: { mailDeliveryEnabled: true },
+    });
+    const canMailLinks = list.length > 0 && agent ? await orderLinksMailAvailable(agent) : false;
+    return NextResponse.json({ list, canMailLinks });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "查单失败" },

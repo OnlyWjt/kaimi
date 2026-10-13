@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, lt } from "drizzle-orm";
 import { db } from "@/db";
 import {
   apiWebhookDeliveries,
@@ -11,14 +11,15 @@ import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { checkWebhookUrl } from "./webhook-url";
 import {
   isWebhookEvent,
+  WEBHOOK_PING_EVENT,
   signWebhookBody,
   webhookBackoffMs,
   webhookEventForStatus,
   type WebhookEventName,
 } from "./webhooks-core";
 
-/** 给订阅了该事件的代理回调地址各排一条投递。 */
-async function enqueueAgentWebhook(
+/** 给订阅了该事件的代理回调地址各排一条投递。沙箱订单也走这里，负载里 livemode=false。 */
+export async function enqueueAgentWebhook(
   agentId: number,
   event: WebhookEventName,
   body: Record<string, unknown>,
@@ -32,7 +33,6 @@ async function enqueueAgentWebhook(
         eq(apiWebhookEndpoints.status, "active"),
       ),
     );
-  const now = new Date().toISOString();
   const payload = JSON.stringify({ event, ...body });
   for (const endpoint of endpoints) {
     let events: string[] = [];
@@ -42,31 +42,57 @@ async function enqueueAgentWebhook(
       events = [];
     }
     if (!events.includes(event)) continue;
-    const [delivery] = await db
-      .insert(apiWebhookDeliveries)
-      .values({
-        endpointId: endpoint.id,
-        event,
-        payloadJson: payload,
-        attempt: 0,
-        nextAttemptAt: now,
-        createdAt: now,
-      })
-      .returning({ id: apiWebhookDeliveries.id });
-    if (!delivery) continue;
-    await db
-      .insert(backgroundJobs)
-      .values({
-        type: "deliver_api_webhook",
-        dedupeKey: `deliver_api_webhook:${delivery.id}:1`,
-        payloadJson: JSON.stringify({ deliveryId: delivery.id }),
-        maxAttempts: 1,
-        runAfter: now,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing({ target: backgroundJobs.dedupeKey });
+    await queueDelivery(endpoint.id, event, payload);
   }
+}
+
+/** 写一条投递记录并排上第一次发送。返回投递 id。 */
+async function queueDelivery(endpointId: number, event: string, payloadJson: string) {
+  const now = new Date().toISOString();
+  const [delivery] = await db
+    .insert(apiWebhookDeliveries)
+    .values({
+      endpointId,
+      event,
+      payloadJson,
+      attempt: 0,
+      nextAttemptAt: now,
+      createdAt: now,
+    })
+    .returning({ id: apiWebhookDeliveries.id });
+  if (!delivery) return null;
+  await db
+    .insert(backgroundJobs)
+    .values({
+      type: "deliver_api_webhook",
+      dedupeKey: `deliver_api_webhook:${delivery.id}:1`,
+      payloadJson: JSON.stringify({ deliveryId: delivery.id }),
+      maxAttempts: 1,
+      runAfter: now,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing({ target: backgroundJobs.dedupeKey });
+  return delivery.id;
+}
+
+/** 代理后台点「发送测试」：不看订阅，直接给这个地址推一条 ping。 */
+export async function queueWebhookPing(endpointId: number) {
+  const payload = JSON.stringify({
+    event: WEBHOOK_PING_EVENT,
+    message: "这是一条测试推送。收到并返回 2xx 说明回调地址和验签都通了。",
+    sent_at: new Date().toISOString(),
+  });
+  return queueDelivery(endpointId, WEBHOOK_PING_EVENT, payload);
+}
+
+/** 原样重发一条历史投递。签名在发送时现算，时间戳是新的。 */
+export async function redeliverWebhook(deliveryId: number) {
+  const original = await db.query.apiWebhookDeliveries.findFirst({
+    where: eq(apiWebhookDeliveries.id, deliveryId),
+  });
+  if (!original) return null;
+  return queueDelivery(original.endpointId, original.event, original.payloadJson);
 }
 
 export async function enqueueRedemptionWebhook(orderNo: string) {
@@ -98,6 +124,7 @@ export async function enqueueStoreOrderWebhook(
   });
   if (!order) return;
   await enqueueAgentWebhook(order.agentId, event, {
+    livemode: true,
     order_no: order.orderNo,
     pay_status: order.payStatus,
     fulfill_status: order.fulfillStatus,
@@ -200,4 +227,15 @@ export function storeWebhookSecret(secret: string) {
 export function parseWebhookEvents(raw: unknown): WebhookEventName[] {
   if (!Array.isArray(raw)) return [];
   return [...new Set(raw.filter(isWebhookEvent))];
+}
+
+/** 投递记录保留 30 天。最慢的一次重试在建立后约 15 小时，30 天前的早已结束。 */
+export const WEBHOOK_DELIVERY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+export async function pruneWebhookDeliveries(now = Date.now()) {
+  const deleted = await db
+    .delete(apiWebhookDeliveries)
+    .where(lt(apiWebhookDeliveries.createdAt, new Date(now - WEBHOOK_DELIVERY_RETENTION_MS).toISOString()))
+    .returning({ id: apiWebhookDeliveries.id });
+  return deleted.length;
 }

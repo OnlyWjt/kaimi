@@ -95,7 +95,7 @@ export function AgentGuide({ slug }: { slug: string }) {
             <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm">
               <p className="font-medium">卡密弄丢了怎么办</p>
               <p className="mt-1 text-[var(--km-fg-muted)]">
-                让他回店铺页查单。只填下单邮箱只能看到卡密后几位；要完整卡密必须用订单号。你也能在「已售卡密」里帮他查。
+                让他回店铺页查单。只填下单邮箱只能看到订单状态，看不到卡密；要看卡密，得再输入完整订单号（在发货邮件或支付宝/微信账单的「商户单号」里），或者点「把查单链接发到这个邮箱」去邮箱里点开。你也可以在「订单」里按他的邮箱找到这一单，点「复制查单链接」发给他。
               </p>
             </div>
           </div>
@@ -104,6 +104,18 @@ export function AgentGuide({ slug }: { slug: string }) {
         <section id="agent-guide-desk" className="km-panel space-y-3">
           <h2 className="text-lg font-semibold">后台几个按钮</h2>
           <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm">
+              <p className="font-medium">订单</p>
+              <p className="mt-1 text-[var(--km-fg-muted)]">
+                店里每一笔单都在这里，按订单号或买家邮箱能搜。「待处理」是付了款还没发齐的单，后面写着该怎么跟客户说。能复制查单链接给客户，也能重发发货邮件。
+              </p>
+            </div>
+            <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm">
+              <p className="font-medium">通知</p>
+              <p className="mt-1 text-[var(--km-fg-muted)]">
+                绑定 Telegram 后，每笔付款都会推给你；付款 10 分钟还没发出卡的单也会单独提醒一次，让你在客户找上门前就知道。
+              </p>
+            </div>
             <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm">
               <p className="font-medium">打开店铺</p>
               <p className="mt-1 text-[var(--km-fg-muted)]">
@@ -171,7 +183,13 @@ export function AgentGuide({ slug }: { slug: string }) {
             <div>
               <dt className="font-medium">「我付了钱，没看到卡密」</dt>
               <dd className="mt-1 text-[var(--km-fg-muted)]">
-                先让他回店铺页，用订单号查。只填邮箱看不到完整卡密。页面写着还在生成就等一下，买多张时可能先出一部分。超过几分钟还没有，把订单号发给平台，别让客户重复付款。
+                先在「订单」里按他的邮箱搜到这一单，看状态。「发货中」「部分发货」等一下就好，买多张时会先出一部分；「待补货」是暂时没货，补上后自动发；「发货待核实」是平台在人工核对，会补发。这几种都别让客户重复付款。已发货的，点「复制查单链接」发给他，或者「重发邮件」。超过十几分钟还卡着，把订单号发给平台。
+              </dd>
+            </div>
+            <div>
+              <dt className="font-medium">「没收到发货邮件」</dt>
+              <dd className="mt-1 text-[var(--km-fg-muted)]">
+                先让他看垃圾箱。还没有就在「订单」里点「重发邮件」，同一单 2 分钟能点一次。提示没发出时，多半是平台没开订单邮件，或你在「通知」里关了发货邮件，这时直接复制查单链接给他。
               </dd>
             </div>
             <div>

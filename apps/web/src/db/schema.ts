@@ -427,6 +427,8 @@ export const storeOrders = sqliteTable(
     agentNotifyError: text("agent_notify_error").notNull().default(""),
     agentNotifiedAt: text("agent_notified_at"),
     agentNotifyAttempts: integer("agent_notify_attempts").notNull().default(0),
+    /** 付了款却迟迟发不出卡时提醒过代理的时间。只提醒一次。 */
+    agentIssueAlertedAt: text("agent_issue_alerted_at"),
     /** pending | sending | sent | failed | skipped。空表示未发货或这单不寄邮件。 */
     deliveryMailStatus: text("delivery_mail_status").notNull().default(""),
     deliveryMailError: text("delivery_mail_error").notNull().default(""),
@@ -999,6 +1001,8 @@ export const apiKeys = sqliteTable(
     scopes: text("scopes").notNull().default("[]"),
     ipAllowlist: text("ip_allowlist").notNull().default("[]"),
     rateLimitPerMin: integer("rate_limit_per_min").notNull().default(60),
+    /** live 正式；test 测试 Key，只能走沙箱订单，不动真实订单和收益。 */
+    mode: text("mode").notNull().default("live"),
     status: text("status").notNull().default("active"),
     lastUsedAt: text("last_used_at"),
     lastUsedIp: text("last_used_ip").notNull().default(""),
@@ -1012,6 +1016,36 @@ export const apiKeys = sqliteTable(
   (t) => ({
     hashIdx: uniqueIndex("api_keys_hash_uq").on(t.keyHash),
     agentIdx: index("api_keys_agent_idx").on(t.agentId),
+  }),
+);
+
+/** 测试 Key 建的沙箱订单。和 store_orders 完全分开：不进账本、不占库存、不发真卡。 */
+export const apiTestOrders = sqliteTable(
+  "api_test_orders",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    keyId: integer("key_id").notNull(),
+    agentId: integer("agent_id").notNull(),
+    orderNo: text("order_no").notNull().unique(),
+    planKey: text("plan_key").notNull(),
+    paymentCountry: text("payment_country").notNull().default(""),
+    productName: text("product_name").notNull(),
+    quantity: integer("quantity").notNull().default(1),
+    grossCents: integer("gross_cents").notNull().default(0),
+    customerEmail: text("customer_email").notNull().default(""),
+    returnUrl: text("return_url").notNull().default(""),
+    payTokenHash: text("pay_token_hash").notNull(),
+    payStatus: text("pay_status").notNull().default("unpaid"),
+    fulfillStatus: text("fulfill_status").notNull().default("pending"),
+    codesJson: text("codes_json").notNull().default("[]"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+    paidAt: text("paid_at"),
+    deliveredAt: text("delivered_at"),
+  },
+  (t) => ({
+    agentIdx: index("api_test_orders_agent_idx").on(t.agentId, t.id),
   }),
 );
 

@@ -151,17 +151,27 @@ Session 预检地址：<https://chatgpt.com/api/auth/session>
 
 ## 数据库备份
 
-本地 SQLite 文件默认在 `apps/web/data/kaimi.db`。上线前先演练一次复制恢复：
+本地 SQLite 文件默认在 `apps/web/data/kaimi.db`。
+
+**自动备份**：应用每天用 `VACUUM INTO` 做一份一致快照，默认写到库文件旁边的 `backups/`（容器里是 `/app/apps/web/data/backups`），文件名 `kaimi-YYYYMMDD-HHmm.db`（UTC），保留最新 7 份。两次备份至少隔 20 小时，频繁重启不会把前几天的挤掉。
+
+| 环境变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `KAIMI_BACKUP_DIR` | 库文件同目录的 `backups/` | 备份目录。指到另一块盘或挂载的对象存储，才防得住整块盘损坏 |
+| `KAIMI_BACKUP_KEEP` | `7` | 保留份数 |
+
+默认目录和库在同一个卷上，只防误操作和坏迁移。生产环境请再由宿主机把这个目录同步到别的机器。
+
+**不要直接 `cp kaimi.db`**：库开着 WAL，最近的写入还在 `kaimi.db-wal` 里，只拷主文件会丢数据。
+
+**恢复**（停服务后）：
 
 ```bash
-# 备份
-cp apps/web/data/kaimi.db apps/web/data/kaimi.db.bak
-
-# 恢复（停服务后）
-cp apps/web/data/kaimi.db.bak apps/web/data/kaimi.db
+cp apps/web/data/backups/kaimi-20261013-0300.db apps/web/data/kaimi.db
+rm -f apps/web/data/kaimi.db-wal apps/web/data/kaimi.db-shm
 ```
 
-生产环境应把该文件纳入定时备份，并至少恢复一次确认可用。
+上线前至少恢复一次确认可用。
 
 ## 安全
 

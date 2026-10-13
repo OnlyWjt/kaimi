@@ -82,3 +82,19 @@ export async function storeIdempotent(input: {
       and(eq(apiIdempotency.keyId, input.keyId), eq(apiIdempotency.idemKey, input.idemKey)),
     );
 }
+
+/**
+ * 处理中途意外抛错、没来得及存结果时，删掉 status=0 的占位行，
+ * 否则调用方用同一个 Key 重试会一直收到「请求处理中」，直到 24 小时后被清理。
+ */
+export async function releaseIdempotent(input: { keyId: number; idemKey: string }) {
+  await db
+    .delete(apiIdempotency)
+    .where(
+      and(
+        eq(apiIdempotency.keyId, input.keyId),
+        eq(apiIdempotency.idemKey, input.idemKey),
+        eq(apiIdempotency.status, 0),
+      ),
+    );
+}

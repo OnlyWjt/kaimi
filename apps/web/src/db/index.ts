@@ -17,6 +17,9 @@ function resolveFileUrl(url: string) {
   return `file:${absolute.replace(/\\/g, "/")}`;
 }
 
-const client = createClient({ url: resolveFileUrl(rawUrl) });
+const resolvedUrl = resolveFileUrl(rawUrl);
+const client = createClient({ url: resolvedUrl });
+/** 本地库文件的绝对路径；远程 libsql 时为空串。备份用。 */
+export const databaseFilePath = resolvedUrl.startsWith("file:") ? resolvedUrl.slice("file:".length) : "";
 export const db = drizzle(client, { schema });
 export { client };

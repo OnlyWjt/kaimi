@@ -302,6 +302,10 @@ button.km-acp-row {
   color: var(--km-fg-muted);
 }
 
+.km-acp-pill.bad {
+  background: color-mix(in oklab, var(--km-danger) 16%, var(--km-bg-muted));
+}
+
 .km-acp-coupons {
   display: grid;
   gap: 0.75rem;

@@ -68,7 +68,7 @@ export function AgentNotify() {
         <div>
           <h2 className="text-xl font-semibold">Telegram</h2>
           <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-            只收你自己店铺的付款通知。内容是购买人、金额、套餐和你的收益，不含平台成本和毛利。
+            只收你自己店铺的通知：每笔付款（购买人、金额、套餐和你的收益，不含平台成本和毛利），以及付款 10 分钟后还没发出卡的订单提醒。
           </p>
         </div>
         <p className="text-sm">

@@ -2,6 +2,12 @@ import { and, asc, eq, gte, inArray, lt, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { agents, storeOrders } from "@/db/schema";
 import { publicShopName } from "@/lib/agent-names";
+import {
+  AGENT_ISSUE_ALERT_AFTER_MS,
+  AGENT_ISSUE_ALERT_WINDOW_MS,
+  formatAgentIssueAlertText,
+} from "@/lib/agent-issue-alert-core";
+import { ATTENTION_FULFILL_STATUSES } from "@/lib/agent-orders-core";
 import { getSetting } from "@/lib/config";
 import { decryptSecret } from "@/lib/crypto";
 import { maskRequestId, sanitizeLog } from "@/lib/log";
@@ -481,4 +487,61 @@ export async function notifyRegionIssueRejected(input: {
     { orderNo: input.orderNo, plan: input.planLabel },
     "region.rejected",
   );
+}
+
+/**
+ * 付了款超过 10 分钟还没发齐的单，给代理推一条 Telegram，让他在买家找上门前知道。
+ * 每单只提醒一次：先条件更新占位再发，发失败也不重试，免得刷屏。
+ */
+export async function alertAgentsOfStuckOrders(limit = 20) {
+  const nowMs = Date.now();
+  const rows = await db
+    .select({
+      id: storeOrders.id,
+      agentId: storeOrders.agentId,
+      orderNo: storeOrders.orderNo,
+      productName: storeOrders.productNameSnapshot,
+      quantity: storeOrders.quantity,
+      customerEmail: storeOrders.customerEmail,
+      payStatus: storeOrders.payStatus,
+      fulfillStatus: storeOrders.fulfillStatus,
+    })
+    .from(storeOrders)
+    .where(
+      and(
+        inArray(storeOrders.payStatus, ["paid", "manual"]),
+        inArray(storeOrders.fulfillStatus, [...ATTENTION_FULFILL_STATUSES]),
+        sql`${storeOrders.agentIssueAlertedAt} IS NULL`,
+        lt(storeOrders.paidAt, new Date(nowMs - AGENT_ISSUE_ALERT_AFTER_MS).toISOString()),
+        gte(storeOrders.paidAt, new Date(nowMs - AGENT_ISSUE_ALERT_WINDOW_MS).toISOString()),
+      ),
+    )
+    .orderBy(asc(storeOrders.id))
+    .limit(limit);
+  let sent = 0;
+  for (const row of rows) {
+    const [claimed] = await db
+      .update(storeOrders)
+      .set({ agentIssueAlertedAt: new Date().toISOString() })
+      .where(and(eq(storeOrders.id, row.id), sql`${storeOrders.agentIssueAlertedAt} IS NULL`))
+      .returning({ id: storeOrders.id });
+    if (!claimed) continue;
+    const agent = await db.query.agents.findFirst({
+      where: eq(agents.id, row.agentId),
+      columns: { telegramChatId: true, telegramNotifyEnabled: true },
+    });
+    if (!agent?.telegramChatId || agent.telegramNotifyEnabled === false) continue;
+    try {
+      const result = await dispatchNotifyText(
+        formatAgentIssueAlertText(row),
+        { audience: "agent", orderNo: row.orderNo },
+        "store.issue.agent",
+        { telegramChatId: agent.telegramChatId, webhookUrl: "" },
+      );
+      if (result.telegram.ok) sent += 1;
+    } catch (error) {
+      console.warn("[kaimi-notify] agent issue alert failed", sanitizeLog(error));
+    }
+  }
+  return { checked: rows.length, sent };
 }

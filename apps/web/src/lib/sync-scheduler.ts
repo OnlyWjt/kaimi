@@ -10,11 +10,15 @@ import { syncDefaultCardplatformPlans } from "@/lib/cardplatform/plans";
 import { syncEnabledAccountProducts } from "@/lib/cardplatform/products";
 import { reconcileIssuedCdkStatuses } from "@/lib/cardplatform/reconcile-issued";
 import { pruneRedeemGuard } from "@/lib/redeem-guard";
+import { backupDatabase } from "@/lib/db-backup";
+import { pruneWebhookDeliveries } from "@/lib/open-api/webhooks";
+import { pruneTestOrders } from "@/lib/open-api/sandbox";
 import { recoverStuckDrawOrders } from "@/lib/agent-draw";
 import { pollTelegramBinds } from "@/lib/telegram-bind";
 import { retryPendingDeliveryMails } from "@/lib/mail";
-import { retryAgentStorePaidNotifies } from "@/lib/notify";
+import { alertAgentsOfStuckOrders, retryAgentStorePaidNotifies } from "@/lib/notify";
 import { closeExpiredStoreOrders } from "@/lib/store-orders";
+import { checkStoreOrderPaidAtGateway } from "@/lib/payments/confirm-store-order";
 
 const DEFAULT_MINUTES = 15;
 const TICK_INTERVAL_MS = 30_000;
@@ -29,12 +33,15 @@ type SchedulerState = {
   lastGuardPruneMs?: number;
   lastDrawRecoverMs?: number;
   lastStoreOrderCloseMs?: number;
+  lastBackupCheckMs?: number;
 };
 
 const ISSUED_RECONCILE_INTERVAL_MS = 120_000;
 const DRAW_RECOVER_INTERVAL_MS = 5 * 60_000;
 /** 超时未付款商城订单关闭频率。 */
 const STORE_ORDER_CLOSE_INTERVAL_MS = 5 * 60_000;
+/** 每小时看一次要不要备份；真正多久备一次由 backupDatabase 按备份文件时间决定。 */
+const BACKUP_CHECK_INTERVAL_MS = 60 * 60_000;
 /** 报文清理一天一次就够。 */
 const PAYLOAD_PRUNE_INTERVAL_MS = 24 * 60 * 60_000;
 
@@ -108,9 +115,22 @@ async function maybeTick() {
         console.warn("[kaimi-sync] draw recover failed", sanitizeLog(err));
       }
       try {
+        if (now - (state.lastBackupCheckMs || 0) >= BACKUP_CHECK_INTERVAL_MS) {
+          state.lastBackupCheckMs = now;
+          const backup = await backupDatabase();
+          if ("file" in backup) {
+            console.log(`[kaimi-sync] database backup: ${backup.file} removed=${backup.removed}`);
+          }
+        }
+      } catch (err) {
+        console.warn("[kaimi-sync] database backup failed", sanitizeLog(err));
+      }
+      try {
         if (now - (state.lastStoreOrderCloseMs || 0) >= STORE_ORDER_CLOSE_INTERVAL_MS) {
           state.lastStoreOrderCloseMs = now;
-          const expired = await closeExpiredStoreOrders();
+          const expired = await closeExpiredStoreOrders({
+            checkPaid: checkStoreOrderPaidAtGateway,
+          });
           if (expired.closed > 0) {
             console.log(
               `[kaimi-sync] expired store orders: closed=${expired.closed} couponsReleased=${expired.couponsReleased}`,
@@ -121,6 +141,12 @@ async function maybeTick() {
         console.warn("[kaimi-sync] expired store order close failed", sanitizeLog(err));
       }
       // 周结已停。对账改走 reconciliation 批次，任务不能再自动占用收益。
+      try {
+        const alerted = await alertAgentsOfStuckOrders();
+        if (alerted.sent > 0) console.log(`[kaimi-sync] agent issue alerts sent=${alerted.sent}`);
+      } catch (err) {
+        console.warn("[kaimi-sync] agent issue alert failed", sanitizeLog(err));
+      }
       try {
         await retryAgentStorePaidNotifies();
       } catch (err) {
@@ -195,6 +221,14 @@ async function maybeTick() {
           await pruneRedeemGuard();
         } catch (err) {
           console.warn("[kaimi-sync] redeem guard prune failed", sanitizeLog(err));
+        }
+        try {
+          const pruned = await pruneWebhookDeliveries();
+          if (pruned > 0) console.log(`[kaimi-sync] pruned webhook deliveries: ${pruned}`);
+          const prunedTest = await pruneTestOrders();
+          if (prunedTest > 0) console.log(`[kaimi-sync] pruned sandbox orders: ${prunedTest}`);
+        } catch (err) {
+          console.warn("[kaimi-sync] webhook delivery prune failed", sanitizeLog(err));
         }
       }
       if (now - state.lastProductSyncMs >= 180_000 || state.lastProductSyncMs === 0) {

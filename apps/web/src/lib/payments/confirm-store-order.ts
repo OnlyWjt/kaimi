@@ -10,6 +10,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { sanitizeLog } from "@/lib/log";
 import { notifyStoreInvoicePaid } from "@/lib/notify";
 import { enqueueStoreOrderWebhook } from "@/lib/open-api/webhooks";
+import { gatewayPaidCheckOutcome, type GatewayPaidCheck } from "@/lib/store-order-close-core";
 import { recordOpsAlert } from "@/lib/ops-health";
 import { epayReady, getEpayConfig } from "@/lib/payments/config";
 import { moneyYuan, parseMoneyYuan, queryEpayOrder } from "@/lib/payments/epay";
@@ -304,4 +305,17 @@ export async function confirmStoreOrderPaidFromGateway(orderNo: string) {
     tradeNo: gateway.tradeNo,
     recordWebhookEvent: false,
   });
+}
+
+/**
+ * 关单前、开放 API 查未付款订单时，向网关补查一次。
+ * 支付通知丢了也不会把已付款的单关掉；查到已付就走正常的付款确认（入队发卡、推 order.paid）。
+ */
+export async function checkStoreOrderPaidAtGateway(orderNo: string): Promise<GatewayPaidCheck> {
+  try {
+    return gatewayPaidCheckOutcome(await confirmStoreOrderPaidFromGateway(orderNo));
+  } catch (error) {
+    console.warn(`[kaimi-pay] 网关补查失败 ${orderNo}`, sanitizeLog(error));
+    return "error";
+  }
 }

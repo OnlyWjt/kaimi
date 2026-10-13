@@ -5,6 +5,8 @@ export const REDEMPTION_WEBHOOK_EVENTS = ["redemption.succeeded", "redemption.fa
 export const ORDER_WEBHOOK_EVENTS = ["order.paid", "order.delivered"] as const;
 export const WEBHOOK_EVENTS = [...REDEMPTION_WEBHOOK_EVENTS, ...ORDER_WEBHOOK_EVENTS] as const;
 export type WebhookEventName = (typeof WEBHOOK_EVENTS)[number];
+/** 测试推送。不能订阅，只在代理后台点「发送测试」时发。接收端遇到不认识的事件也应返回 2xx。 */
+export const WEBHOOK_PING_EVENT = "ping";
 
 export function isWebhookEvent(value: unknown): value is WebhookEventName {
   return (WEBHOOK_EVENTS as readonly unknown[]).includes(value);

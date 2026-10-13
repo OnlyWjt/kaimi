@@ -27,13 +27,13 @@ import { isThemeId, type ThemeId } from "@kaimi/themes";
 type Channel = "alipay" | "wxpay";
 
 type EmailOrder = {
-  orderNo: string;
+  /** 打码的订单号。完整订单号是取卡凭证，只凭邮箱拿不到。 */
+  orderRef: string;
   productName: string;
   quantity?: number;
   amountCents: number;
   payStatus: string;
   fulfillStatus: string;
-  queryToken: string;
   paymentCountry?: string | null;
   regionLabel?: string | null;
 };
@@ -92,14 +92,14 @@ function orderStatusText(order: EmailOrder) {
 }
 
 const DEMO_EMAIL_ORDERS: EmailOrder[] = [
-  { orderNo: "RS20260908001PLUS", productName: "Plus", amountCents: 15000, payStatus: "paid", fulfillStatus: "delivered", queryToken: "" },
-  { orderNo: "RS20260908002PRO", productName: "Pro", amountCents: 115500, payStatus: "paid", fulfillStatus: "delivered", queryToken: "" },
-  { orderNo: "RS20260908003C500", productName: "Codex 点数 500", amountCents: 22200, payStatus: "paid", fulfillStatus: "issuing", queryToken: "" },
-  { orderNo: "RS20260908004PLUS", productName: "Plus", amountCents: 15000, payStatus: "unpaid", fulfillStatus: "pending", queryToken: "" },
-  { orderNo: "RS20260908005PRO", productName: "Pro", amountCents: 115500, payStatus: "unpaid", fulfillStatus: "pending", queryToken: "" },
-  { orderNo: "RS20260908006PLUS", productName: "Plus", amountCents: 13000, payStatus: "unpaid", fulfillStatus: "pending", queryToken: "" },
-  { orderNo: "RS20260908007C250", productName: "Codex 点数 250", amountCents: 11100, payStatus: "unpaid", fulfillStatus: "pending", queryToken: "" },
-  { orderNo: "RS20260908008PLUS", productName: "Plus", amountCents: 15000, payStatus: "refunded", fulfillStatus: "cancelled", queryToken: "" },
+  { orderRef: "RS2026…PLUS", productName: "Plus", amountCents: 15000, payStatus: "paid", fulfillStatus: "delivered" },
+  { orderRef: "RS2026…2PRO", productName: "Pro", amountCents: 115500, payStatus: "paid", fulfillStatus: "delivered" },
+  { orderRef: "RS2026…C500", productName: "Codex 点数 500", amountCents: 22200, payStatus: "paid", fulfillStatus: "issuing" },
+  { orderRef: "RS2026…PLUS", productName: "Plus", amountCents: 15000, payStatus: "unpaid", fulfillStatus: "pending" },
+  { orderRef: "RS2026…5PRO", productName: "Pro", amountCents: 115500, payStatus: "unpaid", fulfillStatus: "pending" },
+  { orderRef: "RS2026…PLUS", productName: "Plus", amountCents: 13000, payStatus: "unpaid", fulfillStatus: "pending" },
+  { orderRef: "RS2026…C250", productName: "Codex 点数 250", amountCents: 11100, payStatus: "unpaid", fulfillStatus: "pending" },
+  { orderRef: "RS2026…PLUS", productName: "Plus", amountCents: 15000, payStatus: "refunded", fulfillStatus: "cancelled" },
 ];
 
 const CHANNEL_LABEL: Record<Channel, { zh: string; en: string }> = {
@@ -117,11 +117,18 @@ const I18N = {
     redeemCta: "去兑换开通",
     searchPlaceholder: "搜索商品名称…",
     queryTitle: "邮箱查单",
-    queryDesc: "输入下单时填写的邮箱，即可查询该邮箱在本店的全部订单与卡密。",
+    queryDesc: "输入下单时填写的邮箱，查看该邮箱在本店的订单和发货状态。",
     queryPlaceholder: "you@example.com",
     queryButton: "查询订单",
     queryBusy: "正在查询…",
-    queryNote: "无需注册账号，用下单时填写的邮箱就能找回订单与卡密",
+    queryNote: "无需注册账号。看卡密需要完整订单号，在付款记录（商户单号）或发货邮件里",
+    verifyTitle: "查看卡密",
+    verifyDesc: "输入完整订单号，在支付宝/微信付款记录的「商户单号」或发货邮件里。",
+    verifyPlaceholder: "完整订单号，例如 KS2026…",
+    verifyButton: "查看",
+    verifyBusy: "正在核对…",
+    mailLinks: "把查单链接发到这个邮箱",
+    mailLinksBusy: "正在发送…",
     queryEmpty: "这个邮箱在本店还没有订单",
     queryScope: "只显示这个邮箱在本店的订单，和其他买家互不影响。",
     queryCount: (n: number) => `共 ${n} 单`,
@@ -213,11 +220,18 @@ const I18N = {
     redeemCta: "Go redeem",
     searchPlaceholder: "Search products…",
     queryTitle: "Track by email",
-    queryDesc: "Enter the email you used at checkout to look up all orders and codes in this shop.",
+    queryDesc: "Enter the email you used at checkout to see your orders and delivery status in this shop.",
     queryPlaceholder: "you@example.com",
     queryButton: "Look up orders",
     queryBusy: "Looking up…",
-    queryNote: "No account needed — use the email from checkout to find your orders and codes",
+    queryNote: "No account needed. To see codes, enter the full order number from your payment record or delivery email",
+    verifyTitle: "View codes",
+    verifyDesc: "Enter the full order number. It is the merchant order number in your payment record, or in the delivery email.",
+    verifyPlaceholder: "Full order number, e.g. KS2026…",
+    verifyButton: "View",
+    verifyBusy: "Checking…",
+    mailLinks: "Email me the order links",
+    mailLinksBusy: "Sending…",
     queryEmpty: "No orders found for this email in this shop",
     queryScope: "Only orders placed with this email in this shop are shown.",
     queryCount: (n: number) => `${n} orders`,
@@ -529,6 +543,11 @@ export function AgentStorefront({
   const [queryError, setQueryError] = useState("");
   const [myOrders, setMyOrders] = useState<EmailOrder[] | null>(null);
   const [ordersOpen, setOrdersOpen] = useState(false);
+  const [canMailLinks, setCanMailLinks] = useState(false);
+  const [verifyOrderNo, setVerifyOrderNo] = useState("");
+  const [verifyBusy, setVerifyBusy] = useState(false);
+  const [mailBusy, setMailBusy] = useState(false);
+  const [verifyMessage, setVerifyMessage] = useState("");
 
   const [active, setActive] = useState<StorefrontProduct | null>(null);
   const [specId, setSpecId] = useState("");
@@ -808,7 +827,7 @@ export function AgentStorefront({
     setQueryError("");
     try {
       window.sessionStorage.setItem("kaimi-store-email", email);
-      const data = await readApiJson<{ list?: EmailOrder[] }>(
+      const data = await readApiJson<{ list?: EmailOrder[]; canMailLinks?: boolean }>(
         await fetch(
           `/api/public/store-orders?slug=${encodeURIComponent(slug)}&email=${encodeURIComponent(email)}`,
           { cache: "no-store" },
@@ -816,6 +835,8 @@ export function AgentStorefront({
       );
       const list = data.list || [];
       setMyOrders(list);
+      setCanMailLinks(Boolean(data.canMailLinks));
+      setVerifyMessage("");
       setOrdersOpen(false);
       if (!list.length) setQueryError(t.queryEmpty);
     } catch (reason) {
@@ -823,6 +844,48 @@ export function AgentStorefront({
       setQueryError(reason instanceof Error ? reason.message : "查单失败");
     } finally {
       setQueryBusy(false);
+    }
+  }
+
+  async function openVerifiedOrder() {
+    const orderNo = verifyOrderNo.trim().toUpperCase();
+    if (!orderNo || !live) return;
+    setVerifyBusy(true);
+    setVerifyMessage("");
+    try {
+      const data = await readApiJson<{ orderNo: string; queryToken: string }>(
+        await fetch("/api/public/store-orders/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slug, email: queryEmail.trim(), orderNo }),
+        }),
+      );
+      window.sessionStorage.setItem(`kaimi-order-token:${data.orderNo}`, data.queryToken);
+      window.location.href = `/shop/order/${encodeURIComponent(data.orderNo)}?qt=${encodeURIComponent(data.queryToken)}`;
+    } catch (reason) {
+      setVerifyMessage(reason instanceof Error ? reason.message : "核对失败");
+    } finally {
+      setVerifyBusy(false);
+    }
+  }
+
+  async function mailOrderLinks() {
+    if (!live) return;
+    setMailBusy(true);
+    setVerifyMessage("");
+    try {
+      const data = await readApiJson<{ message?: string }>(
+        await fetch("/api/public/store-orders/send-links", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slug, email: queryEmail.trim() }),
+        }),
+      );
+      setVerifyMessage(data.message || "");
+    } catch (reason) {
+      setVerifyMessage(reason instanceof Error ? reason.message : "发送失败");
+    } finally {
+      setMailBusy(false);
     }
   }
 
@@ -1110,18 +1173,14 @@ export function AgentStorefront({
                         <p className="km-sf-query-note">{t.queryScope}</p>
                         <p className="km-sf-orders-count">{t.queryCount(myOrders.length)}</p>
                       </div>
-                      {visibleOrders.map((order) => (
-                        <a
-                          key={order.orderNo}
+                      {visibleOrders.map((order, index) => (
+                        <div
+                          key={`${order.orderRef}-${index}`}
                           className={`km-sf-order-row km-sf-order-${orderTone(order)}`}
-                          href={
-                            order.queryToken
-                              ? `/shop/order/${encodeURIComponent(order.orderNo)}?qt=${encodeURIComponent(order.queryToken)}`
-                              : `/shop/order/${encodeURIComponent(order.orderNo)}`
-                          }
                         >
                           <span className="min-w-0">
                             <strong>{order.productName}</strong>
+                            <span className="km-sf-order-status font-mono">{order.orderRef}</span>
                             {order.paymentCountry !== null && order.paymentCountry !== undefined ? (
                               <RegionBadge
                                 country={order.paymentCountry}
@@ -1136,7 +1195,7 @@ export function AgentStorefront({
                           <span className="km-sf-order-amount">
                             ¥{yuanTextFromCents(order.amountCents)}
                           </span>
-                        </a>
+                        </div>
                       ))}
                       {hiddenOrderCount > 0 ? (
                         <button
@@ -1159,6 +1218,38 @@ export function AgentStorefront({
                           {ordersOpen ? t.queryLess : t.queryMore(hiddenOrderCount)}
                         </button>
                       ) : null}
+                      <div className="space-y-1 pt-2">
+                        <p className="km-sf-query-title text-sm">{t.verifyTitle}</p>
+                        <p className="km-sf-query-note">{t.verifyDesc}</p>
+                        <div className="km-sf-query-row">
+                          <input
+                            className="km-input font-mono"
+                            value={verifyOrderNo}
+                            onChange={(event) => setVerifyOrderNo(event.target.value)}
+                            placeholder={t.verifyPlaceholder}
+                            aria-label={t.verifyTitle}
+                          />
+                          <button
+                            type="button"
+                            className="km-btn km-btn-sm km-sf-query-go"
+                            disabled={verifyBusy || !verifyOrderNo.trim()}
+                            onClick={() => void openVerifiedOrder()}
+                          >
+                            {verifyBusy ? t.verifyBusy : t.verifyButton}
+                          </button>
+                        </div>
+                        {canMailLinks ? (
+                          <button
+                            type="button"
+                            className="km-sf-orders-more"
+                            disabled={mailBusy}
+                            onClick={() => void mailOrderLinks()}
+                          >
+                            {mailBusy ? t.mailLinksBusy : t.mailLinks}
+                          </button>
+                        ) : null}
+                        {verifyMessage ? <p className="km-sf-query-note">{verifyMessage}</p> : null}
+                      </div>
                     </div>
                   ) : null}
                 </div>

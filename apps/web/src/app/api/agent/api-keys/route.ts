@@ -13,14 +13,18 @@ import { agentCanSeeDrawApi } from "@/lib/open-api/draw-access";
 const createSchema = z.object({
   name: z.string().trim().min(1).max(64),
   scopes: z.array(z.enum(AGENT_SCOPES)).min(1),
+  mode: z.enum(["live", "test"]).optional(),
 });
 
-function newKey() {
+/** 测试 Key 能勾的权限：套餐、询价、订单，以及看沙箱订单的假卡明文。 */
+const TEST_KEY_SCOPES: readonly string[] = ["plans:read", "orders:read", "orders:write", "cdks:reveal"];
+
+function newKey(mode: "live" | "test") {
   const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   let body = "";
   for (const byte of bytes) body += alphabet[byte % alphabet.length];
-  return `km_live_${body}`;
+  return `km_${mode}_${body}`;
 }
 
 export async function GET() {
@@ -38,6 +42,7 @@ export async function GET() {
       name: apiKeys.name,
       keyPrefix: apiKeys.keyPrefix,
       scopes: apiKeys.scopes,
+      mode: apiKeys.mode,
       status: apiKeys.status,
       lastUsedAt: apiKeys.lastUsedAt,
       createdAt: apiKeys.createdAt,
@@ -69,7 +74,14 @@ export async function POST(req: Request) {
   if (parsed.data.scopes.some((scope) => isDrawScope(scope)) && !(await agentCanSeeDrawApi(session.agentId))) {
     return NextResponse.json({ error: "还没有提卡权限，不能勾提卡接口" }, { status: 400 });
   }
-  const token = newKey();
+  const mode = parsed.data.mode ?? "live";
+  if (mode === "test" && parsed.data.scopes.some((scope) => !TEST_KEY_SCOPES.includes(scope))) {
+    return NextResponse.json(
+      { error: "测试 Key 只能勾查套餐、查订单、代客下单和看卡密明文" },
+      { status: 400 },
+    );
+  }
+  const token = newKey(mode);
   const [created] = await db
     .insert(apiKeys)
     .values({
@@ -79,6 +91,7 @@ export async function POST(req: Request) {
       keyPrefix: token.slice(0, 16),
       keyHash: hashLookupValue(token),
       scopes: JSON.stringify(parsed.data.scopes),
+      mode,
       createdBy: session.id,
     })
     .returning({ id: apiKeys.id, keyPrefix: apiKeys.keyPrefix });
@@ -87,8 +100,9 @@ export async function POST(req: Request) {
     action: "agent_api_key_create",
     targetType: "api_key",
     targetId: created?.id,
+    metadata: { mode },
   });
-  return NextResponse.json({ id: created?.id, keyPrefix: created?.keyPrefix, token });
+  return NextResponse.json({ id: created?.id, keyPrefix: created?.keyPrefix, token, mode });
 }
 
 export async function DELETE(req: Request) {

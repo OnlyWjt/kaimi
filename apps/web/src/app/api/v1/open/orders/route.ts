@@ -3,8 +3,10 @@ import { z } from "zod";
 import { db } from "@/db";
 import { agents, storeOrders } from "@/db/schema";
 import { isApiKeyContext, requireApiKey } from "@/lib/open-api/auth";
-import { claimIdempotent, storeIdempotent } from "@/lib/open-api/idempotency";
+import { claimIdempotent, releaseIdempotent, storeIdempotent } from "@/lib/open-api/idempotency";
 import { checkReturnUrl } from "@/lib/open-api/return-url";
+import { createTestOrder, listTestOrders } from "@/lib/open-api/sandbox";
+import { requirePublicBaseUrl } from "@/lib/public-url";
 import { openFail, openOk } from "@/lib/open-api/respond";
 import { HARD_MAX_ORDER_QUANTITY } from "@/lib/store-quantity-core";
 import { createStoreOrder } from "@/lib/store-orders";
@@ -57,11 +59,40 @@ export async function POST(req: Request) {
     if (!check.ok) return finish(openFail("VALIDATION_FAILED", check.error));
     returnUrl = check.url;
   }
-  const agent = await db.query.agents.findFirst({
-    where: eq(agents.id, auth.agentId),
-    columns: { currentSlug: true },
-  });
+  // 下面 createStoreOrder 的错误都会存成结果；这里是唯一可能意外抛出、留下占位行的地方。
+  const agent = await db.query.agents
+    .findFirst({
+      where: eq(agents.id, auth.agentId),
+      columns: { currentSlug: true },
+    })
+    .catch(async (error: unknown) => {
+      await releaseIdempotent({ keyId: auth.id, idemKey }).catch(() => undefined);
+      throw error;
+    });
   if (!agent?.currentSlug) return finish(openFail("VALIDATION_FAILED", "店铺还没有地址"));
+  if (auth.mode === "test") {
+    try {
+      return finish(
+        openOk(
+          await createTestOrder({
+            keyId: auth.id,
+            agentId: auth.agentId,
+            baseUrl: await requirePublicBaseUrl(req),
+            planKey: body.plan_key,
+            channel: body.channel,
+            customerEmail: body.customer_email,
+            quantity: body.quantity,
+            couponCode: body.coupon_code,
+            invoiceRequested: body.invoice_requested,
+            regionConfirmed: body.region_confirmed,
+            returnUrl,
+          }),
+        ),
+      );
+    } catch (error) {
+      return finish(openFail("VALIDATION_FAILED", error instanceof Error ? error.message : "下单失败"));
+    }
+  }
   try {
     const result = await createStoreOrder({
       request: req,
@@ -100,16 +131,19 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || "20") || 20));
   const cursor = Number(url.searchParams.get("cursor") || 0);
+  const payStatus = url.searchParams.get("pay_status")?.trim();
+  // 下单时邮箱已转小写存储，这里同样处理，买家大小写写错也能查到。
+  const customerEmail = url.searchParams.get("customer_email")?.trim().toLowerCase();
+  if (auth.mode === "test" && auth.agentId) {
+    return openOk(await listTestOrders({ agentId: auth.agentId, limit, cursor, payStatus, customerEmail }));
+  }
   const filters = [];
   if (auth.ownerType === "agent") {
     if (!auth.agentId) return openOk({ orders: [] });
     filters.push(eq(storeOrders.agentId, auth.agentId));
   }
   if (Number.isSafeInteger(cursor) && cursor > 0) filters.push(lt(storeOrders.id, cursor));
-  const payStatus = url.searchParams.get("pay_status")?.trim();
   if (payStatus) filters.push(eq(storeOrders.payStatus, payStatus));
-  // 下单时邮箱已转小写存储，这里同样处理，买家大小写写错也能查到。
-  const customerEmail = url.searchParams.get("customer_email")?.trim().toLowerCase();
   if (customerEmail) filters.push(eq(storeOrders.customerEmail, customerEmail));
   const rows = await db
     .select({

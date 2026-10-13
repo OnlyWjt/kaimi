@@ -6,6 +6,7 @@ import { bootDb } from "@/lib/config";
 import { getStatusHistory, pollRechargeIfNeeded } from "@/lib/orders";
 import { getOrderTimelines, getUpstreamSnapshots } from "@/lib/order-timeline";
 import { maskCode } from "@/lib/crypto";
+import { maskOrderNo } from "@/lib/order-no-mask";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
 export async function GET(req: Request) {
@@ -66,7 +67,8 @@ export async function GET(req: Request) {
       const rawCode = codeByOrder.get(o.id) || "";
       const snapshot = snapshots.get(o.id);
       return {
-        orderNo: o.orderNo,
+        // 只按邮箱查时订单号也打码：完整订单号能单独查出明文卡密，等于取卡凭证。
+        orderNo: fullCodesAllowed ? o.orderNo : maskOrderNo(o.orderNo),
         kind: o.kind,
         email: o.accountEmail || o.email || "",
         accountEmail: o.accountEmail || o.email || "",

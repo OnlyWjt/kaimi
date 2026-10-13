@@ -28,7 +28,12 @@ export type ApiKeyContext = {
   agentId: number | null;
   scopes: string[];
   ip: string;
+  /** test 时下单、查单都走沙箱表。 */
+  mode: "live" | "test";
 };
+
+/** 测试 Key 能调的权限。其余接口会动真卡或真钱，测试 Key 一律拒绝。 */
+export const TEST_MODE_SCOPES: readonly OpenApiScope[] = ["plans:read", "orders:read", "orders:write"];
 
 export async function requireApiKey(req: Request, scope: OpenApiScope) {
   await bootDb();
@@ -53,6 +58,10 @@ export async function requireApiKey(req: Request, scope: OpenApiScope) {
     return openFail("UNAUTHORIZED", "API Key 配置损坏");
   }
   if (!scopes.includes(scope)) return openFail("FORBIDDEN_SCOPE", "API Key 没有该权限");
+  const mode = row.mode === "test" ? "test" : "live";
+  if (mode === "test" && !TEST_MODE_SCOPES.includes(scope)) {
+    return openFail("FORBIDDEN_SCOPE", "测试 Key 只能调用 /plans、/orders、/orders/quote，其余接口请用正式 Key");
+  }
   if (row.ownerType === "agent") {
     if (!row.agentId) return openFail("UNAUTHORIZED", "API Key 无效");
     const agent = await db.query.agents.findFirst({
@@ -84,6 +93,7 @@ export async function requireApiKey(req: Request, scope: OpenApiScope) {
     agentId: row.agentId,
     scopes,
     ip,
+    mode,
   };
   return context;
 }

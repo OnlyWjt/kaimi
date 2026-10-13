@@ -57,8 +57,8 @@ export const PLATFORM_HERO: HeroSettings = {
   chip: { zh: "自动发货 · 正品保障", en: "Auto delivery · 100% genuine" },
   title: { zh: "AI 工具 · 一站式自助发货", en: "AI tools, self-serve instant delivery" },
   sub: {
-    zh: "主流 AI 会员与效率工具官方直充，付款成功后立即出卡，用下单邮箱随时查回。",
-    en: "Official top-ups for mainstream AI memberships and productivity tools. Codes are issued instantly after payment and can be retrieved anytime with your order email.",
+    zh: "主流 AI 会员与效率工具官方直充，付款成功后立即出卡，凭下单邮箱和订单号随时查回。",
+    en: "Official top-ups for mainstream AI memberships and productivity tools. Codes are issued instantly after payment and can be retrieved anytime with your order email and order number.",
   },
 };
 
@@ -524,14 +524,14 @@ export function planToProduct(
     ? {
         zh:
           plan.description ||
-          "付款成功后立即发送成品账号（邮箱、密码和 Session），用下单邮箱可随时查回。无需兑换。",
+          "付款成功后立即发送成品账号（邮箱、密码和 Session），凭下单邮箱和订单号可随时查回。无需兑换。",
         en:
           plan.description ||
-          "A finished account is delivered right after payment. Retrieve it anytime with your order email. No redeem step.",
+          "A finished account is delivered right after payment. Retrieve it anytime with your order email and order number. No redeem step.",
       }
     : {
-        zh: plan.description || "付款成功后即时出卡，用下单时填写的邮箱可随时查回。",
-        en: plan.description || "Codes are issued instantly after payment and retrievable with your order email.",
+        zh: plan.description || "付款成功后即时出卡，凭下单邮箱和订单号可随时查回。",
+        en: plan.description || "Codes are issued instantly after payment and retrievable with your order email and order number.",
       };
 
   return {

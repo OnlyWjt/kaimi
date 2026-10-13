@@ -119,6 +119,7 @@ export const openApiSpec = {
                 type: "object",
                 properties: {
                   event: { type: "string", enum: ["order.paid", "order.delivered"] },
+                  livemode: { type: "boolean", description: "正式订单 true；测试 Key 的沙箱订单 false" },
                   order_no: { type: "string" },
                   pay_status: { type: "string" },
                   fulfill_status: { type: "string" },
@@ -253,7 +254,8 @@ export const openApiSpec = {
       },
       post: {
         summary: "代客下单，按代理零售价返回易支付链接",
-        description: "未付款订单 30 分钟后自动关闭（pay_status=closed）。",
+        description:
+          "未付款订单 30 分钟后自动关闭（pay_status=closed）。测试 Key（km_test_）下单只进沙箱：订单号 KT 开头，pay_url 打开即模拟付款成功并发假卡，返回里 livemode=false。",
         parameters: [{ name: "Idempotency-Key", in: "header", required: true, schema: { type: "string" } }],
         requestBody: { required: true, content: { "application/json": { schema: orderInputSchema(true) } } },
         responses: {

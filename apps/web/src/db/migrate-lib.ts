@@ -1327,6 +1327,7 @@ async function ensureOrderLedgerSchema() {
   await addColumn("ALTER TABLE store_orders ADD COLUMN delivery_mail_status TEXT NOT NULL DEFAULT ''");
   await addColumn("ALTER TABLE store_orders ADD COLUMN delivery_mail_error TEXT NOT NULL DEFAULT ''");
   await addColumn("ALTER TABLE store_orders ADD COLUMN delivery_mail_attempts INTEGER NOT NULL DEFAULT 0");
+  await addColumn("ALTER TABLE store_orders ADD COLUMN agent_issue_alerted_at TEXT");
   await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS agent_telegram_bind_codes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1634,7 +1635,33 @@ async function ensureRedeemGuardSchema() {
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS api_webhook_deliveries_endpoint_idx ON api_webhook_deliveries(endpoint_id);
+    CREATE TABLE IF NOT EXISTS api_test_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      key_id INTEGER NOT NULL,
+      agent_id INTEGER NOT NULL,
+      order_no TEXT NOT NULL UNIQUE,
+      plan_key TEXT NOT NULL,
+      payment_country TEXT NOT NULL DEFAULT '',
+      product_name TEXT NOT NULL,
+      quantity INTEGER NOT NULL DEFAULT 1,
+      gross_cents INTEGER NOT NULL DEFAULT 0,
+      customer_email TEXT NOT NULL DEFAULT '',
+      return_url TEXT NOT NULL DEFAULT '',
+      pay_token_hash TEXT NOT NULL,
+      pay_status TEXT NOT NULL DEFAULT 'unpaid',
+      fulfill_status TEXT NOT NULL DEFAULT 'pending',
+      codes_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      paid_at TEXT,
+      delivered_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS api_test_orders_agent_idx ON api_test_orders(agent_id, id);
   `);
+  try {
+    await client.execute("ALTER TABLE api_keys ADD COLUMN mode TEXT NOT NULL DEFAULT 'live'");
+  } catch (error) {
+    if (!/duplicate column/i.test(String(error))) throw error;
+  }
   await ensureReconciliationSchema();
 }
 
