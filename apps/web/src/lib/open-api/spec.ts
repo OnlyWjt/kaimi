@@ -425,6 +425,43 @@ export const openApiSpec = {
         },
       },
     },
+    "/sessions/check": {
+      post: {
+        summary: "兑换前让卡台按卡密预检买家的 Session，不消耗卡密、不开通",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["session", "code"],
+                properties: {
+                  session: { type: "string", description: "chatgpt.com/api/auth/session 的整页内容" },
+                  code: { type: "string", description: "要兑换的卡密，必须是本店卖出的" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": ok({
+            type: "object",
+            properties: {
+              ok: { type: "boolean" },
+              email: { type: ["string", "null"] },
+              plan_hint: { type: ["string", "null"] },
+              has_active_subscription: { type: ["boolean", "null"] },
+              error_code: { type: ["string", "null"], enum: [null, "SESSION_INVALID", "CARDPLATFORM_ERROR"] },
+              errors: { type: "array", items: { type: "string" } },
+              warnings: { type: "array", items: { type: "string" } },
+            },
+          }),
+          "400": errorResponse,
+          "403": errorResponse,
+          "429": errorResponse,
+        },
+      },
+    },
     "/redemptions": {
       post: {
         summary: "提交兑换，只能兑本店卖出的卡",

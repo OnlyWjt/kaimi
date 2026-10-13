@@ -232,6 +232,44 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
       ],
     },
     {
+      id: "session-check",
+      title: "POST /sessions/check  校验 Session",
+      blocks: [
+        { kind: "p", text: "权限 redeem:write，和提交兑换同一把 Key。买家提交兑换前，拿他贴的 Session 和要兑的卡密让卡台预检一次，和店铺兑换页的「校验 Session」是同一个检查。预检不消耗卡密，也不会开通；不对就当场让买家重贴，不用等兑换失败。" },
+        {
+          kind: "table",
+          headers: ["字段", "必填", "说明"],
+          rows: [
+            ["session", "是", "买家从 chatgpt.com/api/auth/session 复制的整页内容"],
+            ["code", "是", "要兑换的卡密，必须是本店卖出的"],
+          ],
+        },
+        { kind: "p", text: "校验没过是正常结果：HTTP 200，data.ok 为 false，errors 里的话可以直接给买家看。只有参数不对、卡密不是本店卖出的才返回错误。拿不属于本店的卡密反复调用，会和提交兑换一样计入失败次数并被暂时封禁。Session 含登录凭证，本站不保存也不记日志。" },
+        {
+          kind: "code",
+          text: `curl -X POST ${base}/sessions/check \\
+  -H "Authorization: Bearer km_live_你的Key" \\
+  -H "Content-Type: application/json" \\
+  -d '{"session":"{...}","code":"KM...."}'`,
+        },
+        {
+          kind: "code",
+          text: `{
+  "data": {
+    "ok": true,
+    "email": "buyer@example.com",
+    "plan_hint": "free",
+    "has_active_subscription": false,
+    "error_code": null,
+    "errors": [],
+    "warnings": ["当前账号没有有效订阅。"]
+  },
+  "request_id": "req_..."
+}`,
+        },
+      ],
+    },
+    {
       id: "redeem-get",
       title: "GET /redemptions/{no}  查兑换",
       blocks: [
