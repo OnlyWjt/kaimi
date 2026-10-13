@@ -21,7 +21,7 @@ import { buildReturnUrl } from "@/lib/open-api/return-url";
 import { maskOrderNo } from "@/lib/order-no-mask";
 import { storeOrderQueryUrl } from "@/lib/store-order-links";
 import { shouldCloseUnpaidOrder, type GatewayPaidCheck } from "@/lib/store-order-close-core";
-import { requirePublicBaseUrl } from "@/lib/public-url";
+import { requireCallbackBaseUrl, requirePublicBaseUrl } from "@/lib/public-url";
 import { resolveProductName, rowToSettings } from "@/lib/agent-storefront-config";
 import { getMaxOrderQuantity, resolveOrderQuantity } from "@/lib/store-quantity";
 import {
@@ -327,7 +327,11 @@ export async function createStoreOrder(input: {
 
   const orderNo = newOrderNo("KS");
   const queryToken = crypto.randomBytes(24).toString("base64url");
-  const base = await requirePublicBaseUrl(input.request);
+  // 买家跳回的订单页用公网地址；易支付的异步通知走回调地址（可以是不经 Cloudflare 的域名）。
+  const [base, callbackBase] = await Promise.all([
+    requirePublicBaseUrl(input.request),
+    requireCallbackBaseUrl(input.request),
+  ]);
   const fulfillmentIdempotencyKey = `kaimi-order-${orderNo}`;
   const createdAt = new Date().toISOString();
   const order = await db.transaction(async (tx) => {
@@ -397,7 +401,7 @@ export async function createStoreOrder(input: {
         ? `${localAccount ? "账号" : "CDK"} ${displayName} ×${quantity}`
         : `${localAccount ? "账号" : "CDK"} ${displayName}`,
       moneyCents: invoiceQuote.payCents,
-      notifyUrl: `${base}/api/webhooks/epay`,
+      notifyUrl: `${callbackBase}/api/webhooks/epay`,
       returnUrl: input.returnUrl
         ? buildReturnUrl(input.returnUrl, orderNo)
         : storeOrderQueryUrl(base, orderNo, queryToken),

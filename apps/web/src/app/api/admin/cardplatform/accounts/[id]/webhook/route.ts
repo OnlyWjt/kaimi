@@ -16,7 +16,7 @@ import {
 } from "@/lib/cardplatform/urls";
 import { bootDb } from "@/lib/config";
 import { encryptSecret } from "@/lib/crypto";
-import { getPublicBaseUrl } from "@/lib/public-url";
+import { getCallbackBaseUrl } from "@/lib/public-url";
 
 const schema = z.object({
   webhookUrl: z.string().trim().max(512).optional(),
@@ -78,7 +78,7 @@ export async function POST(
     return NextResponse.json({
       account: presentCardplatformAccount(
         updated,
-        await getPublicBaseUrl(req),
+        await getCallbackBaseUrl(req),
       ),
     });
   } catch (error) {

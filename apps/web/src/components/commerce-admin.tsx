@@ -85,7 +85,8 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
     pid: "",
     key: "",
     signMode: "append" as "append" | "key_param",
-    publicBaseUrl: "",
+    callbackBaseUrl: "",
+    resolvedPublicBaseUrl: "",
     notifyUrl: "",
     channels: {
       alipay: { ...emptyRule },
@@ -178,7 +179,8 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
         apiBase: paymentData.apiBase || "",
         pid: paymentData.pid || "",
         signMode: paymentData.signMode || "append",
-        publicBaseUrl: paymentData.publicBaseUrl || paymentData.resolvedPublicBaseUrl || "",
+        callbackBaseUrl: paymentData.callbackBaseUrl || "",
+        resolvedPublicBaseUrl: paymentData.publicBaseUrl || paymentData.resolvedPublicBaseUrl || "",
         notifyUrl: paymentData.notifyUrl || "",
         channels: {
           alipay: byChannel.alipay || { ...emptyRule },
@@ -812,24 +814,29 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
           易支付会从外网访问「异步通知地址」。这里不能填 localhost，否则支付成功也不会发卡。
         </p>
         <label className="block space-y-1 text-sm">
-          <span>本站公网地址</span>
+          <span>支付回调地址</span>
           <input
             className="km-input w-full"
-            placeholder="https://你的域名"
-            value={payment.publicBaseUrl}
+            placeholder={payment.resolvedPublicBaseUrl || "https://不走代理的域名"}
+            value={payment.callbackBaseUrl}
             onChange={(event) =>
               setPayment((current) => ({
                 ...current,
-                publicBaseUrl: event.target.value,
+                callbackBaseUrl: event.target.value,
               }))
             }
           />
+          <span className="block text-xs text-[var(--km-fg-muted)]">
+            给易支付和卡台回调用，可以填一个不经 Cloudflare 的域名。留空就用「即时发卡」里的本站公网地址。买家看到的订单、兑换链接不用这个地址。
+          </span>
         </label>
         <p className="break-all font-mono text-xs text-[var(--km-fg-muted)]">
           将发给易支付的异步通知：
-          {payment.publicBaseUrl.trim()
-            ? `${payment.publicBaseUrl.trim().replace(/\/+$/, "")}/api/webhooks/epay`
-            : payment.notifyUrl || "（还没填公网地址）"}
+          {payment.callbackBaseUrl.trim()
+            ? `${payment.callbackBaseUrl.trim().replace(/\/+$/, "")}/api/webhooks/epay`
+            : payment.resolvedPublicBaseUrl
+              ? `${payment.resolvedPublicBaseUrl.replace(/\/+$/, "")}/api/webhooks/epay`
+              : payment.notifyUrl || "（还没填地址）"}
         </p>
         <div className="grid gap-3 md:grid-cols-3">
           <input

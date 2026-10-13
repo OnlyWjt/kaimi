@@ -9,7 +9,7 @@ import {
   presentCardplatformAccount,
 } from "@/lib/cardplatform/accounts";
 import { bootDb } from "@/lib/config";
-import { getPublicBaseUrl } from "@/lib/public-url";
+import { getCallbackBaseUrl } from "@/lib/public-url";
 
 function accountId(params: { id: string }) {
   const id = Number(params.id);
@@ -29,7 +29,7 @@ export async function GET(
   try {
     const account = await getCardplatformAccountOrThrow(id);
     return NextResponse.json({
-      account: presentCardplatformAccount(account, await getPublicBaseUrl(req)),
+      account: presentCardplatformAccount(account, await getCallbackBaseUrl(req)),
     });
   } catch (error) {
     return NextResponse.json(

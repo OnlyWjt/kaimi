@@ -8,6 +8,8 @@ import { requireAdmin } from "@/lib/auth";
 import { bootDb, getSetting, setSetting } from "@/lib/config";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import {
+  CALLBACK_BASE_URL_SETTING,
+  getCallbackBaseUrl,
   getPublicBaseUrl,
   isPublicHttpUrl,
   normalizePublicBaseUrl,
@@ -19,6 +21,8 @@ const schema = z.object({
   key: z.string().trim().max(256).optional(),
   signMode: z.enum(["append", "key_param"]).default("append"),
   publicBaseUrl: z.string().trim().max(256).optional(),
+  /** 支付回调地址。传空串表示清掉，回到沿用公网地址。 */
+  callbackBaseUrl: z.string().trim().max(256).optional(),
   channels: z.object({
     alipay: z.object({
       enabled: z.boolean(),
@@ -46,26 +50,30 @@ export async function GET() {
   const { denied } = await authorize();
   if (denied) return denied;
   await bootDb();
-  const [apiBase, pid, storedKey, signMode, storedPublicBase, channels] =
+  const [apiBase, pid, storedKey, signMode, storedPublicBase, storedCallbackBase, channels] =
     await Promise.all([
       getSetting("epay_api_base", ""),
       getSetting("epay_pid", ""),
       getSetting("epay_key", ""),
       getSetting("epay_sign_mode", "append"),
       getSetting("public_base_url", ""),
+      getSetting(CALLBACK_BASE_URL_SETTING, ""),
       db.query.paymentChannelConfigs.findMany(),
     ]);
   const key = decryptSecret(storedKey);
   const publicBaseUrl = normalizePublicBaseUrl(storedPublicBase);
   const resolvedPublicBaseUrl = await getPublicBaseUrl();
+  const resolvedCallbackBaseUrl = await getCallbackBaseUrl();
   return NextResponse.json({
     apiBase,
     pid,
     signMode,
     publicBaseUrl,
     resolvedPublicBaseUrl,
-    notifyUrl: resolvedPublicBaseUrl
-      ? `${resolvedPublicBaseUrl}/api/webhooks/epay`
+    callbackBaseUrl: normalizePublicBaseUrl(storedCallbackBase),
+    resolvedCallbackBaseUrl,
+    notifyUrl: resolvedCallbackBaseUrl
+      ? `${resolvedCallbackBaseUrl}/api/webhooks/epay`
       : "",
     keyConfigured: Boolean(key),
     keyHint: key ? `${key.slice(0, 3)}…${key.slice(-3)}` : "",
@@ -91,6 +99,16 @@ export async function POST(req: Request) {
       );
     }
     if (publicBaseUrl) await setSetting("public_base_url", publicBaseUrl);
+  }
+  if (data.callbackBaseUrl !== undefined) {
+    const callbackBaseUrl = normalizePublicBaseUrl(data.callbackBaseUrl);
+    if (callbackBaseUrl && !isPublicHttpUrl(callbackBaseUrl)) {
+      return NextResponse.json(
+        { error: "支付回调地址不能是 localhost，易支付无法回调本地地址" },
+        { status: 400 },
+      );
+    }
+    await setSetting(CALLBACK_BASE_URL_SETTING, callbackBaseUrl);
   }
   await setSetting("epay_api_base", data.apiBase.replace(/\/+$/, ""));
   await setSetting("epay_pid", data.pid);

@@ -33,6 +33,7 @@ import {
 import { getOrderTimeline, getUpstreamSnapshot } from "@/lib/order-timeline";
 import { getDefaultCardplatformAccount } from "@/lib/cardplatform/config";
 import {
+  getCallbackBaseUrl,
   getPublicBaseUrl,
   isPublicHttpUrl,
   normalizePublicBaseUrl,
@@ -225,6 +226,7 @@ export async function GET(req: Request) {
     const cardAccount = await getDefaultCardplatformAccount();
     return NextResponse.json({
       publicBaseUrl: publicBase.replace(/\/+$/, ""),
+      callbackBaseUrl: (await getCallbackBaseUrl(req)).replace(/\/+$/, ""),
       setupCompleted: cfg.setupCompleted,
       paymentMode: "manual",
       hasCardplatform: Boolean(cardAccount),

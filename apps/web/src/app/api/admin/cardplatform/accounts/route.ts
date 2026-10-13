@@ -13,7 +13,7 @@ import {
 import { normalizeCardplatformProtocol } from "@/lib/cardplatform/protocol";
 import { bootDb } from "@/lib/config";
 import { encryptSecret } from "@/lib/crypto";
-import { getPublicBaseUrl } from "@/lib/public-url";
+import { getCallbackBaseUrl } from "@/lib/public-url";
 
 const schema = z.object({
   id: z.number().int().positive().optional(),
@@ -33,7 +33,7 @@ export async function GET(req: Request) {
   const auth = await authorizeAdmin();
   if (auth.error) return auth.error;
   await bootDb();
-  const origin = await getPublicBaseUrl(req);
+  const origin = await getCallbackBaseUrl(req);
   const rows = await listCardplatformAccounts();
   return NextResponse.json({
     list: rows.map((row) => presentCardplatformAccount(row, origin)),
@@ -63,7 +63,7 @@ export async function POST(req: Request) {
   const normalizedBase = normalizeSiteBase(data.siteBase);
   const protocol = normalizeCardplatformProtocol(data.protocol);
   const now = new Date().toISOString();
-  const origin = await getPublicBaseUrl(req);
+  const origin = await getCallbackBaseUrl(req);
 
   try {
     const account = await db.transaction(async (tx) => {

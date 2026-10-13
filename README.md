@@ -62,7 +62,8 @@ pnpm dev
 
 | 变量 | 说明 |
 | --- | --- |
-| `KAIMI_PUBLIC_BASE_URL` | 本站公网地址 |
+| `KAIMI_PUBLIC_BASE_URL` | 本站公网地址：买家看到的订单页、兑换链接、查单邮件都用它 |
+| `KAIMI_CALLBACK_BASE_URL` | 可选。易支付和卡台回调本站用的地址，比如不经 Cloudflare 的域名；不填同公网地址。后台「即时发卡」里也能改 |
 | `KAIMI_SECRET_KEY` | 本地加密用，请改成足够长的随机串 |
 | `KAIMI_CRON_SECRET` | 后台任务 Cron 的 Bearer 密钥（至少 24 位）；外部调度器每分钟 `POST /api/internal/jobs` |
 | `KAIMI_DATABASE_URL` | 默认 `file:./data/kaimi.db`（SQLite） |

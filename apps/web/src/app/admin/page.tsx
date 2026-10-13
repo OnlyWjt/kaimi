@@ -62,6 +62,8 @@ type Overview = {
 
 type Integration = {
   publicBaseUrl: string;
+  /** 卡台 Webhook 要填的地址前缀：配了支付回调地址就是它，否则同公网地址。 */
+  callbackBaseUrl?: string;
   paymentMode: string;
   hasCardplatform?: boolean;
   cardplatformSiteBase?: string;
@@ -1064,7 +1066,7 @@ export default function AdminPage() {
 
         {tab === "integration" && integration ? (
           <div className="space-y-4">
-            <CardIntegration publicBaseUrl={integForm.publicBaseUrl} />
+            <CardIntegration publicBaseUrl={integration.callbackBaseUrl || integForm.publicBaseUrl} />
             <div className="km-panel space-y-3">
               <label className="block space-y-1 text-sm">
                 <span>本站公网地址</span>
@@ -1075,7 +1077,7 @@ export default function AdminPage() {
                   onChange={(e) => setIntegForm((s) => ({ ...s, publicBaseUrl: e.target.value }))}
                 />
                 <span className="text-xs text-[var(--km-fg-muted)]">
-                  给易支付和卡台回调用，不能填 localhost。通知页改的是同一项。
+                  买家看到的订单页、兑换链接、查单邮件都用这个地址，填代理店铺的正式域名。不能填 localhost。通知页改的是同一项。易支付和卡台回调可以在「即时发卡」里另配一个回调地址。
                 </span>
               </label>
               <button className="km-btn" disabled={busy} onClick={() => void saveIntegration()}>
@@ -1106,7 +1108,7 @@ export default function AdminPage() {
                     onChange={(e) => setIntegForm((s) => ({ ...s, publicBaseUrl: e.target.value }))}
                   />
                   <span className="text-xs text-[var(--km-fg-muted)]">
-                    给易支付和卡台回调用，不能填 localhost。即时发卡页也会改同一项。
+                    买家看到的订单页、兑换链接、查单邮件都用这个地址，不能填 localhost。卡台页改的是同一项。易支付和卡台回调可以在「即时发卡」里另配一个回调地址。
                   </span>
                 </label>
                 <label className="block space-y-1 text-sm">

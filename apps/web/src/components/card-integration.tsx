@@ -576,7 +576,7 @@ export function CardIntegration({ publicBaseUrl = "" }: { publicBaseUrl?: string
           </div>
         ) : (
           <p className="text-sm text-[var(--km-fg-muted)]">
-            公网地址 {publicBaseUrl || "（先在下方保存本站公网地址）"}
+            回调地址 {publicBaseUrl || "（先在下方保存本站公网地址）"}
             /api/v1/webhooks/cardplatform/账户ID
           </p>
         )}
