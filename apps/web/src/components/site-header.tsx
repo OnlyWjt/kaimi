@@ -24,6 +24,10 @@ function isActivePath(href: string, pathname: string) {
 export function SiteHeader(props: {
   siteName: string;
   links?: NavLink[];
+  /** 点店名回到哪里。代理店铺的订单页回店铺首页。 */
+  homeHref?: string;
+  /** 店名前的字母徽标，默认 K。 */
+  brandLetter?: string;
 }) {
   const pathname = usePathname() || "/";
   const links = props.links ?? buildPublicNavLinks();
@@ -31,9 +35,9 @@ export function SiteHeader(props: {
   return (
     <header className="km-header">
       <div className="km-shell km-header-inner">
-        <Link href="/" className="km-brand">
+        <Link href={props.homeHref || "/"} className="km-brand">
           <span className="km-brand-mark" aria-hidden>
-            K
+            {props.brandLetter || "K"}
           </span>
           <span className="km-brand-name">{props.siteName}</span>
         </Link>

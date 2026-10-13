@@ -737,6 +737,57 @@ select.km-input option {
   white-space: nowrap;
 }
 
+/* —— 后台「卡密」列表：一行一张卡，操作横排不撑高行 —— */
+.km-cdk-table {
+  min-width: 60rem;
+}
+
+.km-cdk-table td p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.km-cdk-code {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.km-cdk-code code {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 0.8125rem;
+  letter-spacing: 0.02em;
+}
+
+.km-cdk-link {
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.12rem 0.5rem;
+  background: var(--km-bg-muted);
+  color: var(--km-fg-muted);
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.km-cdk-link:hover {
+  color: var(--km-fg);
+}
+
+.km-cdk-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.km-admin .km-cdk-actions .km-btn {
+  padding: 0.28rem 0.7rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
 .km-guide-steps {
   counter-reset: km-guide;
   margin: 0;
@@ -912,6 +963,246 @@ select.km-input option {
 
 .km-rise-delay {
   animation-delay: 90ms;
+}
+
+/* —— 买家订单页：一张卡片，先说拿到没有，再给卡密，最后指向兑换 —— */
+.km-order-card {
+  display: grid;
+  gap: 1.35rem;
+  width: min(100%, 38rem);
+  margin-inline: auto;
+  padding: 1.6rem 1.6rem 1.35rem;
+  border: 1px solid var(--km-border);
+  border-radius: 1.4rem;
+  background: var(--km-bg-elevated);
+  box-shadow: 0 24px 60px -40px color-mix(in oklab, var(--km-fg) 40%, transparent);
+}
+
+.km-order-head {
+  display: grid;
+  gap: 0.55rem;
+  padding-bottom: 1.2rem;
+  border-bottom: 1px solid var(--km-border);
+}
+
+.km-order-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: fit-content;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.km-order-status::before {
+  content: "";
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.km-order-status-ok {
+  color: var(--km-success);
+  background: color-mix(in oklab, var(--km-success) 12%, var(--km-bg-elevated));
+}
+
+.km-order-status-wait {
+  color: var(--km-warning);
+  background: color-mix(in oklab, var(--km-warning) 12%, var(--km-bg-elevated));
+}
+
+.km-order-status-muted {
+  color: var(--km-fg-muted);
+  background: var(--km-bg-muted);
+}
+
+.km-order-title {
+  margin: 0;
+  font-family: var(--font-sora), var(--km-font-display);
+  font-size: clamp(1.4rem, 3.4vw, 1.75rem);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.km-order-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1.6rem;
+  margin: 0.2rem 0 0;
+}
+
+.km-order-meta div {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.km-order-meta dt {
+  font-size: 0.72rem;
+  color: var(--km-fg-muted);
+}
+
+.km-order-meta dd {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.km-order-meta-no dd {
+  font-size: 0.8rem;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.km-order-section {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.km-order-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.km-order-section h2,
+.km-order-next h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.km-order-codes {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.km-order-codes li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.6rem 0.6rem 0.95rem;
+  border: 1px dashed color-mix(in oklab, var(--km-fg) 22%, var(--km-border));
+  border-radius: 0.9rem;
+  background: var(--km-bg-muted);
+}
+
+.km-order-codes code {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 0.98rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
+}
+
+.km-order-copy {
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.42rem 0.95rem;
+  background: var(--km-fg);
+  color: var(--km-bg);
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.km-order-copy:hover {
+  opacity: 0.88;
+}
+
+.km-order-chip {
+  flex-shrink: 0;
+  border: 1px solid var(--km-border);
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  background: transparent;
+  color: var(--km-fg-muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.km-order-chip:hover {
+  color: var(--km-fg);
+  border-color: var(--km-fg);
+}
+
+.km-order-note {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.6;
+  color: var(--km-fg-muted);
+}
+
+.km-order-next {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem 1.1rem;
+  border-radius: 1rem;
+  background: color-mix(in oklab, var(--km-accent) 7%, var(--km-bg-elevated));
+  border: 1px solid color-mix(in oklab, var(--km-accent) 20%, var(--km-border));
+}
+
+.km-order-next p {
+  margin: 0.2rem 0 0;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  color: var(--km-fg-muted);
+}
+
+.km-order-next-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+.km-order-next-actions .km-btn {
+  width: 100%;
+}
+
+.km-order-foot {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.6;
+  color: var(--km-fg-muted);
+  text-align: center;
+}
+
+.km-order-account {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  border-radius: 1rem;
+  background: var(--km-bg-muted);
+}
+
+.km-order-account p {
+  margin: 0;
+}
+
+@media (max-width: 520px) {
+  .km-order-card {
+    padding: 1.25rem 1.05rem 1.1rem;
+    border-radius: 1.1rem;
+  }
+
+  .km-order-next-actions {
+    grid-template-columns: 1fr;
+  }
 }
 
 .km-order-wait {

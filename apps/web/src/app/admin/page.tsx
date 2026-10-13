@@ -887,7 +887,7 @@ export default function AdminPage() {
             <div className="km-toolbar">
               <input
                 className="km-input max-w-xs font-mono"
-                placeholder="订单号 / 完整卡密 / 套餐"
+                placeholder="订单号 / 完整卡密 / 套餐键"
                 value={cdkQ}
                 onChange={(e) => setCdkQ(e.target.value)}
                 onKeyDown={(e) => {
@@ -936,104 +936,117 @@ export default function AdminPage() {
               </span>
             </div>
 
-            <table className="km-table">
-              <colgroup>
-                <col style={{ width: "28%" }} />
-                <col style={{ width: "10%" }} />
-                <col style={{ width: "12%" }} />
-                <col style={{ width: "18%" }} />
-                <col style={{ width: "12%" }} />
-                <col style={{ width: "10%" }} />
-                <col style={{ width: "10%" }} />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th>卡密</th>
-                  <th>状态</th>
-                  <th>套餐</th>
-                  <th>订单</th>
-                  <th>代理</th>
-                  <th>更新</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cdks.map((c) => {
-                  const status = String(c.status);
-                  const id = Number(c.id);
-                  const code = revealed[id] || "";
-                  const display = code || String(c.codeMasked || "");
-                  return (
-                    <tr key={String(c.id)}>
-                      <td>
-                        <div className="flex min-w-0 items-center gap-2">
-                          <code className="km-clip font-mono text-sm tracking-wide" title={display}>
-                            {display}
-                          </code>
-                          {code ? (
+            <div className="overflow-x-auto">
+              <table className="km-table km-cdk-table">
+                <colgroup>
+                  <col style={{ width: "24%" }} />
+                  <col style={{ width: "18%" }} />
+                  <col style={{ width: "22%" }} />
+                  <col style={{ width: "11%" }} />
+                  <col style={{ width: "8%" }} />
+                  <col style={{ width: "8%" }} />
+                  <col style={{ width: "9%" }} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>卡密</th>
+                    <th>商品</th>
+                    <th>订单 / 买家</th>
+                    <th>代理</th>
+                    <th>状态</th>
+                    <th>更新</th>
+                    <th className="text-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cdks.map((c) => {
+                    const status = String(c.status);
+                    const id = Number(c.id);
+                    const code = revealed[id] || "";
+                    const display = code || String(c.codeMasked || "");
+                    const planKey = String(c.planKey || "");
+                    const productName = String(c.productName || "") || planKey || "—";
+                    const canVoid = status !== "used" && status !== "disabled" && status !== "locked";
+                    const canDisable = status === "unused" || status === "sold";
+                    return (
+                      <tr key={String(c.id)}>
+                        <td>
+                          <div className="km-cdk-code">
+                            <code className="km-clip" title={display}>
+                              {display}
+                            </code>
                             <button
                               type="button"
-                              className="shrink-0 text-[10px] uppercase tracking-wider text-[var(--km-fg-muted)] hover:underline"
-                              onClick={() => void copyCdkCode(id, code)}
+                              className="km-cdk-link"
+                              onClick={() => void (code ? copyCdkCode(id, code) : revealCdk(id))}
                             >
-                              {copiedId === id ? "已复制" : "复制"}
+                              {code ? (copiedId === id ? "已复制" : "复制") : "显示"}
                             </button>
-                          ) : (
-                            <button
-                              type="button"
-                              className="shrink-0 text-[10px] uppercase tracking-wider text-[var(--km-fg-muted)] hover:underline"
-                              onClick={() => void revealCdk(id)}
-                            >
-                              显示
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                      <td>
-                        <StatusBadge status={status} />
-                      </td>
-                      <td className="km-clip font-mono" title={String(c.planKey || "")}>
-                        {String(c.planKey || "—")}
-                      </td>
-                      <td className="km-clip font-mono text-xs" title={String(c.orderNo || "")}>
-                        {String(c.orderNo || "—")}
-                      </td>
-                      <td className="km-clip" title={String(c.agentName || "")}>
-                        {String(c.agentName || "—")}
-                      </td>
-                      <td className="km-clip text-[var(--km-fg-muted)]" title={String(c.updatedAt || "")}>
-                        {formatWhen(c.updatedAt)}
-                      </td>
-                      <td>
-                        <div className="flex flex-wrap gap-2">
-                          {status !== "used" && status !== "disabled" && status !== "locked" ? (
-                            <button className="km-btn km-btn-ghost" onClick={() => void cdkOp("void_cdk", id)}>
-                              核销
-                            </button>
+                          </div>
+                        </td>
+                        <td>
+                          <p className="km-clip font-medium" title={productName}>
+                            {productName}
+                          </p>
+                          {planKey && planKey !== productName ? (
+                            <p className="km-clip font-mono text-xs text-[var(--km-fg-muted)]" title={planKey}>
+                              {planKey}
+                            </p>
                           ) : null}
-                          {status === "unused" || status === "sold" ? (
-                            <button
-                              className="km-btn km-btn-ghost text-[var(--km-danger)]"
-                              onClick={() => void cdkOp("disable_cdk", id)}
-                            >
-                              禁用
-                            </button>
+                        </td>
+                        <td>
+                          <p className="km-clip font-mono text-xs" title={String(c.orderNo || "")}>
+                            {String(c.orderNo || "—")}
+                          </p>
+                          {c.customerEmail ? (
+                            <p className="km-clip text-xs text-[var(--km-fg-muted)]" title={String(c.customerEmail)}>
+                              {String(c.customerEmail)}
+                            </p>
                           ) : null}
-                          {status === "disabled" ? (
-                            <button
-                              className="km-btn km-btn-ghost text-[var(--km-success)]"
-                              onClick={() => void cdkOp("enable_cdk", id)}
-                            >
-                              启用
-                            </button>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        </td>
+                        <td className="km-clip" title={String(c.agentName || "")}>
+                          {String(c.agentName || "—")}
+                        </td>
+                        <td>
+                          <StatusBadge status={status} />
+                        </td>
+                        <td className="whitespace-nowrap text-xs text-[var(--km-fg-muted)]" title={String(c.updatedAt || "")}>
+                          {formatWhen(c.updatedAt)}
+                        </td>
+                        <td>
+                          <div className="km-cdk-actions">
+                            {canVoid ? (
+                              <button className="km-btn km-btn-ghost km-btn-sm" onClick={() => void cdkOp("void_cdk", id)}>
+                                核销
+                              </button>
+                            ) : null}
+                            {canDisable ? (
+                              <button
+                                className="km-btn km-btn-ghost km-btn-sm text-[var(--km-danger)]"
+                                onClick={() => void cdkOp("disable_cdk", id)}
+                              >
+                                禁用
+                              </button>
+                            ) : null}
+                            {status === "disabled" ? (
+                              <button
+                                className="km-btn km-btn-ghost km-btn-sm text-[var(--km-success)]"
+                                onClick={() => void cdkOp("enable_cdk", id)}
+                              >
+                                启用
+                              </button>
+                            ) : null}
+                            {!canVoid && !canDisable && status !== "disabled" ? (
+                              <span className="text-xs text-[var(--km-fg-muted)]">—</span>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
             {!cdks.length ? (
               <p className="py-8 text-center text-[var(--km-fg-muted)]">还没有店铺售出的卡密</p>
             ) : null}

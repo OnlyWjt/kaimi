@@ -6,7 +6,6 @@ import { toast } from "@/components/toast";
 import { copyText } from "@/lib/copy-text";
 import { readApiJson } from "@/lib/http-error";
 import { yuanTextFromCents } from "@/lib/money";
-import { publicStatusLabel } from "@/lib/status-labels";
 import { RegionBadge } from "@/components/region-badge";
 import { regionDisplay } from "@/lib/cardplatform/regions";
 import { isExternalRedeemUrl } from "@/lib/agent-redeem-core";
@@ -180,10 +179,17 @@ export function StoreOrderResultPanel({
     }
   }
 
-  if (error) return <div className="km-panel mx-auto max-w-[560px]">{error}</div>;
+  if (error) {
+    return (
+      <div className="km-order-card">
+        <h1 className="km-order-title">订单 {orderNo}</h1>
+        <p className="km-order-note">{error}</p>
+      </div>
+    );
+  }
   if (!order) {
     return (
-      <div className="km-panel mx-auto max-w-[560px]">
+      <div className="km-order-card">
         <OrderWait
           orderNo={orderNo}
           title="正在确认订单"
@@ -217,39 +223,53 @@ export function StoreOrderResultPanel({
   const region = showRegion
     ? regionDisplay(order.paymentCountry || "", order.regionLabel || "")
     : null;
-  const regionHint = region
-    ? region.country
-      ? `这是${region.zh}卡密，兑换时按${region.zh}结账。`
-      : `这是${region.zh}卡密。`
-    : "";
+
+  const status = orderHeadline(order, finished, pending);
 
   return (
-    <div className="km-panel km-rise mx-auto max-w-[560px] space-y-5">
-      <div>
-        <h2 className="text-xl font-semibold">{order.productName}</h2>
-        {region ? (
-          <p className="mt-2 flex items-center gap-2 text-sm">
-            付款地区 <RegionBadge country={region.country} regionLabel={region.zh} size="md" />
-          </p>
-        ) : null}
-        <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-          ¥{yuanTextFromCents(order.amountCents)}
-          {quantity > 1 ? ` · ${quantity} ${unit}` : ""} · 支付{" "}
-          {publicStatusLabel(order.payStatus, "pay")} · 发货{" "}
-          {publicStatusLabel(order.fulfillStatus, "fulfill")}
-        </p>
-        <p className="mt-1 font-mono text-xs text-[var(--km-fg-muted)]">{order.orderNo}</p>
-      </div>
+    <div className="km-order-card km-rise">
+      <header className="km-order-head">
+        <span className={`km-order-status km-order-status-${status.tone}`}>{status.label}</span>
+        <h1 className="km-order-title">{order.productName}</h1>
+        <dl className="km-order-meta">
+          <div>
+            <dt>实付</dt>
+            <dd>¥{yuanTextFromCents(order.amountCents)}</dd>
+          </div>
+          <div>
+            <dt>数量</dt>
+            <dd>
+              {quantity} {unit}
+            </dd>
+          </div>
+          {region ? (
+            <div>
+              <dt>地区</dt>
+              <dd>
+                <RegionBadge country={region.country} regionLabel={region.zh} />
+              </dd>
+            </div>
+          ) : null}
+          <div className="km-order-meta-no">
+            <dt>订单号</dt>
+            <dd>
+              <span className="font-mono">{order.orderNo}</span>
+              <button type="button" className="km-order-chip" onClick={() => void copy(order.orderNo, "订单号已复制")}>
+                复制
+              </button>
+            </dd>
+          </div>
+        </dl>
+      </header>
+
       {delivered ? (
         <>
           {finished ? (
-            <div className="space-y-4">
-              <p className="font-medium">
-                成品账号{quantity > 1 ? `（已出 ${accounts.length}/${quantity}）` : ""}
-              </p>
-              <p className="text-sm text-[var(--km-fg-muted)]">
-                这不是卡密，无需兑换。请保存，丢失后只能用本页或邮箱查单找回。
-              </p>
+            <section className="km-order-section">
+              <div className="km-order-section-head">
+                <h2>成品账号{quantity > 1 ? `（已出 ${accounts.length}/${quantity}）` : ""}</h2>
+              </div>
+              <p className="km-order-note">这不是卡密，不用兑换，直接登录使用。</p>
               {accounts.map((item, index) => (
                 <FinishedAccountCard
                   key={`${item.email}-${index}`}
@@ -258,103 +278,101 @@ export function StoreOrderResultPanel({
                   onCopy={copy}
                 />
               ))}
-            </div>
+            </section>
           ) : (
-            <div className="space-y-2">
-              <p className="font-medium">
-                卡密{quantity > 1 ? `（已出 ${codes.length}/${quantity}）` : ""}
-              </p>
-              <p className="text-sm text-[var(--km-fg-muted)]">请保存，丢失后只能用本页或邮箱查单找回。</p>
-              {codes.map((item, index) => {
-                const country = order.codeCountries?.[index] ?? order.paymentCountry ?? "";
-                return (
-                <div
-                  key={item}
-                  className="flex items-center justify-between gap-2 break-all rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 font-mono text-sm"
-                >
-                  <span>{item}</span>
-                  {region ? <RegionBadge country={country} /> : null}
-                </div>
-                );
-              })}
-              {regionHint ? <p className="text-sm text-[var(--km-fg-muted)]">{regionHint}</p> : null}
-              <button
-                type="button"
-                className="km-btn km-btn-ghost w-full"
-                onClick={() =>
-                  void copy(
-                    codes.join("\n"),
-                    codes.length > 1 ? `${codes.length} 张卡密已复制` : "卡密已复制",
-                  )
-                }
-              >
-                {codes.length > 1 ? "复制全部卡密" : "复制卡密"}
-              </button>
-            </div>
+            <section className="km-order-section">
+              <div className="km-order-section-head">
+                <h2>卡密{quantity > 1 ? `（已出 ${codes.length}/${quantity}）` : ""}</h2>
+                {codes.length > 1 ? (
+                  <button
+                    type="button"
+                    className="km-order-chip"
+                    onClick={() => void copy(codes.join("\n"), `${codes.length} 张卡密已复制`)}
+                  >
+                    复制全部
+                  </button>
+                ) : null}
+              </div>
+              <ul className="km-order-codes">
+                {codes.map((item, index) => {
+                  const country = order.codeCountries?.[index] ?? order.paymentCountry ?? "";
+                  const mixed = Boolean(region) && (order.codeCountries || []).some((c) => c !== order.paymentCountry);
+                  return (
+                    <li key={item}>
+                      <code>{item}</code>
+                      {mixed ? <RegionBadge country={country} /> : null}
+                      <button type="button" className="km-order-copy" onClick={() => void copy(item, "卡密已复制")}>
+                        复制
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+              {region?.country ? <p className="km-order-note">兑换时按{region.zh}结账。</p> : null}
+            </section>
           )}
           {pending > 0 ? (
             order.fulfillStatus === "unknown" ? (
-              <p className="text-sm text-[var(--km-fg-muted)]">
+              <p className="km-order-note">
                 上面这几{unit}已经可以用了。剩下 {pending} {unit}我们正在确认，确认好会显示在本页。请不要重复付款。
               </p>
             ) : (
               <OrderWait
                 orderNo={orderNo}
                 title={`还有 ${pending} ${unit}正在发放`}
-                detail={
-                  order.message ||
-                  "上面这些已经可以用了。剩下的出好会自动显示在本页，不用刷新。"
-                }
+                detail={order.message || "上面这些已经可以用了。剩下的出好会自动显示在本页，不用刷新。"}
               />
             )
           ) : null}
           {!finished && rechargePath ? (
-            <div className="space-y-2">
-              <p className="font-medium">兑换链接</p>
-              <p className="text-sm text-[var(--km-fg-muted)]">
-                {codes.length > 1
-                  ? `打开后会带上这一单的 ${codes.length} 张卡密，填一次账号就能一起兑换。`
-                  : "打开后会带上这张卡密，直接校验即可兑换。"}
-              </p>
-              <div className="break-all rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 font-mono text-xs">
-                {rechargeUrl}
+            <section className="km-order-next">
+              <div>
+                <h2>下一步：兑换开通</h2>
+                <p>
+                  {codes.length > 1
+                    ? `兑换页会带上这一单的 ${codes.length} 张卡密，填一次账号就能一起开通。`
+                    : "兑换页会自动带上这张卡密，校验后填 Session 就能开通。"}
+                </p>
               </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <button
-                  type="button"
-                  className="km-btn km-btn-ghost w-full"
-                  onClick={() => void copy(rechargeUrl, "兑换链接已复制")}
-                >
+              <div className="km-order-next-actions">
+                <Link href={rechargePath} className="km-btn km-btn-primary">
+                  去兑换开通
+                </Link>
+                <button type="button" className="km-btn km-btn-ghost" onClick={() => void copy(rechargeUrl, "兑换链接已复制")}>
                   复制兑换链接
                 </button>
-                <Link href={rechargePath} className="km-btn km-btn-primary w-full">
-                  去兑换
-                </Link>
               </div>
-            </div>
+            </section>
           ) : null}
+          <p className="km-order-foot">请保存好{finished ? "账号" : "卡密"}。丢失后凭下单邮箱和订单号在店铺「邮箱查单」找回，发货邮件里也有。</p>
         </>
       ) : order.fulfillStatus === "unknown" ? (
-        <p className="text-sm text-[var(--km-fg-muted)]">
-          {order.message ||
-            "已收到你的付款，这一笔我们正在确认，确认好会把内容显示在本页。请不要重复付款。"}
+        <p className="km-order-note">
+          {order.message || "已收到你的付款，这一笔我们正在确认，确认好会把内容显示在本页。请不要重复付款。"}
         </p>
       ) : order.payStatus === "paid" ? (
         <OrderWait
           orderNo={orderNo}
           title={finished ? "正在发送账号，请稍候" : "正在生成卡密，请稍候"}
-          detail={
-            order.message ||
-            "一般几十秒，最多一两分钟。出好了会自动显示在本页，不用刷新。"
-          }
+          detail={order.message || "一般几十秒，最多一两分钟。出好了会自动显示在本页，不用刷新。"}
         />
       ) : (
-        <p className="text-sm text-[var(--km-fg-muted)]">
-          {order.message || "等待支付完成。"}
-        </p>
+        <p className="km-order-note">{order.message || "等待支付完成。付款后本页会自动刷新。"}</p>
       )}
     </div>
   );
+}
+
+/** 卡片顶上那颗状态：买家只关心「拿到没有」，不用分别看支付和发货两个字段。 */
+function orderHeadline(order: StoreOrderResult, finished: boolean, pending: number) {
+  if (order.payStatus === "refunded") return { label: "已退款", tone: "muted" };
+  if (order.payStatus === "closed") return { label: "已关闭", tone: "muted" };
+  if (order.payStatus !== "paid" && order.payStatus !== "manual") return { label: "等待付款", tone: "wait" };
+  if (order.fulfillStatus === "unknown") return { label: "付款成功 · 正在核对", tone: "wait" };
+  if (order.fulfillStatus === "delivered" && pending <= 0) {
+    return { label: finished ? "付款成功 · 账号已发" : "付款成功 · 卡密已发", tone: "ok" };
+  }
+  return { label: "付款成功 · 正在发货", tone: "wait" };
 }
 
 function FinishedAccountCard({
@@ -372,7 +390,7 @@ function FinishedAccountCard({
     { label: "邮箱密码", value: account.mailboxPassword, copy: "邮箱密码已复制" },
   ];
   return (
-    <div className="space-y-3 rounded-2xl bg-[var(--km-bg-muted)] px-3 py-3">
+    <div className="km-order-account">
       {index ? (
         <p className="text-xs text-[var(--km-fg-muted)]">账号 {index}</p>
       ) : null}
