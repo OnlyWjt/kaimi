@@ -1308,6 +1308,28 @@ async function ensureAgentTelegramChatUniqueIndex() {
   );
 }
 
+/**
+ * 手续费回填只取要用的列。全新的库走到这里时，后面迁移才加的列（地区快照等）还不存在，
+ * 不指定列的 findMany 会去查全部 schema 列，直接让启动失败。
+ */
+const LEDGER_ORDER_COLUMNS = {
+  id: true,
+  orderNo: true,
+  grossCents: true,
+  invoiceSurchargeCents: true,
+  agentCostTotalCents: true,
+  feeRatePpm: true,
+  fixedFeeCents: true,
+  finalPaymentFeeCents: true,
+} as const;
+
+const LEDGER_EARNING_COLUMNS = {
+  id: true,
+  orderId: true,
+  status: true,
+  feeFieldsVersion: true,
+} as const;
+
 async function ensureOrderLedgerSchema() {
   const addColumn = async (sqlText: string) => {
     try {
@@ -1316,6 +1338,9 @@ async function ensureOrderLedgerSchema() {
       if (!/duplicate column/i.test(String(error))) throw error;
     }
   };
+  // 提卡表正式在 ensureAgentDrawSchema 里建，那一步排在后面。全新的库走到这里时表还不存在，
+  // ALTER 会直接报错让启动失败；先按原样建一次表（IF NOT EXISTS，老库无影响）。
+  await client.executeMultiple(AGENT_DRAW_DDL);
   await addColumn("ALTER TABLE agent_draw_items ADD COLUMN manual_used_at TEXT");
   await addColumn("ALTER TABLE agent_draw_items ADD COLUMN manual_used_by INTEGER");
   await addColumn("ALTER TABLE agent_draw_items ADD COLUMN manual_note TEXT NOT NULL DEFAULT ''");
@@ -1384,7 +1409,7 @@ async function ensureOrderLedgerSchema() {
     where: eq(settings.key, "migration_order_ledger_fees_v1"),
   });
   if (flag?.value !== "done") {
-  const orders = await db.query.storeOrders.findMany();
+  const orders = await db.query.storeOrders.findMany({ columns: LEDGER_ORDER_COLUMNS });
   const feeByOrder = new Map<number, { agentFeeCents: number; finalFeeCents: number }>();
   for (const order of orders) {
     try {
@@ -1419,7 +1444,7 @@ async function ensureOrderLedgerSchema() {
     }
   }
 
-  const earnings = await db.query.agentEarnings.findMany();
+  const earnings = await db.query.agentEarnings.findMany({ columns: LEDGER_EARNING_COLUMNS });
   for (const row of earnings) {
     const fee = feeByOrder.get(row.orderId);
     if (!fee) continue;
@@ -1453,9 +1478,9 @@ async function ensureFeeFieldsVersion() {
     where: eq(settings.key, "migration_order_ledger_fee_fields_version_v1"),
   });
   if (flag?.value === "done") return;
-  const orders = await db.query.storeOrders.findMany();
+  const orders = await db.query.storeOrders.findMany({ columns: LEDGER_ORDER_COLUMNS });
   const byId = new Map(orders.map((order) => [order.id, order]));
-  const rows = await db.query.agentEarnings.findMany();
+  const rows = await db.query.agentEarnings.findMany({ columns: LEDGER_EARNING_COLUMNS });
   for (const row of rows) {
     if (row.feeFieldsVersion !== 0) continue;
     const order = byId.get(row.orderId);
