@@ -830,7 +830,7 @@ export async function retryPendingStoreOrders(limit = 10) {
 }
 
 /** 整单发齐后通知买家（邮件）和代理（order.delivered 回调）。只在切到 delivered 的那次调用。 */
-function announceDelivered(orderId: number) {
+export function announceDelivered(orderId: number) {
   void import("@/lib/mail")
     .then(({ sendDeliveryMail }) => sendDeliveryMail(orderId))
     .catch((error) => {

@@ -276,7 +276,7 @@ export const openApiSpec = {
     },
     "/orders/quote": {
       post: {
-        summary: "询价：算实付金额、校验优惠券，不建单不占券",
+        summary: "询价：算实付金额、校验优惠券，不建单不占券。需要 orders:read",
         requestBody: { required: true, content: { "application/json": { schema: orderInputSchema(false) } } },
         responses: {
           "200": ok({

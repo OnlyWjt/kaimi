@@ -17,7 +17,7 @@ const quoteSchema = z.object({
 
 /** 下单前算实付金额、校验优惠券。不建单、不占券，按 Key 限流。 */
 export async function POST(req: Request) {
-  const auth = await requireApiKey(req, "orders:write");
+  const auth = await requireApiKey(req, "orders:read");
   if (!isApiKeyContext(auth)) return auth;
   if (auth.ownerType !== "agent" || !auth.agentId) {
     return openFail("FORBIDDEN_SCOPE", "只有代理 Key 可以询价");

@@ -153,7 +153,7 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
       id: "quote",
       title: "POST /orders/quote  询价",
       blocks: [
-        { kind: "p", text: "权限 orders:write。参数和 POST /orders 一样（plan_key、channel、quantity、coupon_code、invoice_requested），只算钱，不建单、不占券，不需要 Idempotency-Key。用它在下单前显示实付金额，或校验买家输入的优惠券：券不能用时返回 VALIDATION_FAILED，message 可以直接给买家看。" },
+        { kind: "p", text: "权限 orders:read。参数和 POST /orders 一样（plan_key、channel、quantity、coupon_code、invoice_requested），只算钱，不建单、不占券，不需要 Idempotency-Key。用它在下单前显示实付金额，或校验买家输入的优惠券：券不能用时返回 VALIDATION_FAILED，message 可以直接给买家看。" },
         { kind: "code", text: `curl -X POST ${base}/orders/quote \\\n  -H "Authorization: Bearer km_live_你的Key" \\\n  -H "Content-Type: application/json" \\\n  -d "{\\"plan_key\\":\\"plus\\",\\"channel\\":\\"alipay\\",\\"quantity\\":2,\\"coupon_code\\":\\"NEW10\\"}"` },
         { kind: "code", text: `{ "data": { "list_goods_cents": 35000, "discount_cents": 1000, "goods_cents": 34000, "invoice_surcharge_cents": 0, "pay_cents": 34000, "coupon_code": "NEW10", "currency": "CNY" }, "request_id": "req_..." }` },
       ],

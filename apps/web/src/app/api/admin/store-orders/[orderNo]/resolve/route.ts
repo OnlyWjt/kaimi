@@ -18,6 +18,7 @@ import {
   isLocalAccountPlan,
   parseFinishedAccountLine,
 } from "@/lib/finished-account-core";
+import { announceDelivered } from "@/lib/fulfillment/fulfill-store-order";
 import {
   FULFILLMENT_ABANDONED_RESULT,
   FULFILLMENT_FAILED_RESULTS,
@@ -139,6 +140,7 @@ export async function PATCH(
         );
       }
     }
+    let becameDelivered = false;
     try {
       await db.transaction(async (tx) => {
         const freshOrder = await tx.query.storeOrders.findFirst({
@@ -244,6 +246,9 @@ export async function PATCH(
           .set({
             fulfillStatus: complete ? "delivered" : "partially_delivered",
             deliveredAt: complete ? now : freshOrder.deliveredAt,
+            // 和自动发卡一致：补齐时把发货邮件排上，否则 sendDeliveryMail 认领不到。
+            deliveryMailStatus:
+              complete && !freshOrder.deliveryMailStatus ? "pending" : freshOrder.deliveryMailStatus,
             lastErrorCode: complete ? "" : "CARDPLATFORM_PARTIAL_ISSUE",
             lastErrorMessage: complete
               ? localAccount
@@ -260,6 +265,7 @@ export async function PATCH(
           )
           .returning();
         if (!updated) throw new Error("订单状态已变化");
+        becameDelivered = complete;
       });
     } catch (error) {
       return NextResponse.json(
@@ -267,6 +273,8 @@ export async function PATCH(
         { status: 409 },
       );
     }
+    // 事务提交后再通知买家和代理，回滚的补录不会发出去。
+    if (becameDelivered) announceDelivered(order.id);
   }
   await writeAuditLog({
     actor: session,
