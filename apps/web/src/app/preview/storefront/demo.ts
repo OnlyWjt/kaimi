@@ -62,7 +62,7 @@ function demoProduct(input: {
 }): StorefrontProduct {
   const name = { zh: input.name, en: input.name };
   const desc = {
-    zh: "官方渠道直充，付款成功后立即出卡，用下单邮箱随时查回。",
+    zh: "官方渠道直充，付款成功后立即出卡，凭下单邮箱和订单号随时查回。",
     en: "Official channel. Codes are issued instantly after payment.",
   };
   return {
@@ -186,7 +186,7 @@ export const DEMO_STOREFRONT_CONFIG: StorefrontConfig = {
       en: "AI tools, self-serve instant delivery",
     },
     sub: {
-      zh: "主流 AI 会员与效率工具官方直充，付款成功后立即出卡，用下单邮箱随时查回。",
+      zh: "主流 AI 会员与效率工具官方直充，付款成功后立即出卡，凭下单邮箱和订单号随时查回。",
       en: "Official top-ups for mainstream AI tools. Codes are issued instantly after payment.",
     },
   },

@@ -26,3 +26,5 @@ canvases
 /ref-*.png
 /shot*.png
 kaimi-db-backup-*/
+.claude/plans/myagents/
+myagents_files/

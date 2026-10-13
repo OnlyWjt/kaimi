@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>对账设计稿 · 管理员 / 代理</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Sora:wght@500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --km-bg: #f5f3ef;
+      --km-bg-elevated: #fffdfb;
+      --km-bg-muted: #ece7e0;
+      --km-fg: #171717;
+      --km-fg-muted: #6b6560;
+      --km-border: #e4ded6;
+      --km-accent: #171717;
+      --km-accent-fg: #fffdfb;
+      --km-success: #5c7a5e;
+      --km-danger: #b85c4a;
+      --km-warning: #b8863a;
+      --km-radius: 22px;
+      --km-shadow: 0 18px 50px -28px rgb(23 23 23 / 28%);
+      --km-font-display: "Sora", "Segoe UI", sans-serif;
+      --km-font-body: "IBM Plex Sans", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      background: var(--km-bg);
+      color: var(--km-fg);
+      font-family: var(--km-font-body);
+      font-size: 16px;
+      line-height: 1.5;
+    }
+    button, input, select { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    .draft-bar {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 18px;
+      background: #171717;
+      color: #fffdfb;
+    }
+    .draft-bar b { font-weight: 600; font-size: 13px; }
+    .draft-bar span { color: #c8c2ba; font-size: 12px; }
+    .draft-switch { display: flex; gap: 6px; }
+    .draft-switch button {
+      border: 0;
+      border-radius: 999px;
+      padding: 6px 12px;
+      background: transparent;
+      color: #fffdfb;
+      font-size: 13px;
+    }
+    .draft-switch button.is-on { background: #fffdfb; color: #171717; }
+    .screen-gap {
+      padding: 14px 18px;
+      background: #171717;
+      color: #c8c2ba;
+      font-size: 13px;
+    }
+    .km-acp {
+      min-height: 100vh;
+      background:
+        radial-gradient(1200px 480px at 12% -10%, color-mix(in oklab, var(--km-accent) 10%, transparent), transparent 60%),
+        var(--km-bg);
+    }
+
+    .km-shell-wide { width: min(1200px, calc(100% - 2.5rem)); margin-inline: auto; }
+    .km-header {
+      position: sticky;
+      top: 41px;
+      z-index: 40;
+      border-bottom: 1px solid color-mix(in oklab, var(--km-border) 80%, transparent);
+      background: color-mix(in oklab, var(--km-bg) 72%, transparent);
+      backdrop-filter: blur(18px) saturate(1.15);
+    }
+    .km-brand { display: inline-flex; align-items: center; gap: 0.65rem; }
+    .km-brand-mark {
+      display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 0.85rem;
+      background: var(--km-accent); color: var(--km-accent-fg);
+      font-family: var(--km-font-display); font-size: 0.82rem; font-weight: 700;
+    }
+    .km-brand-name { font-family: var(--km-font-display); font-size: 1.02rem; font-weight: 600; letter-spacing: -0.03em; }
+    .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .between { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+    .stack { display: grid; gap: 16px; }
+    .muted { color: var(--km-fg-muted); }
+    .tiny { font-size: 12px; color: var(--km-fg-muted); }
+    .danger { color: var(--km-danger); font-size: 13px; }
+    .km-btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+      border-radius: 999px; padding: 0.5rem 0.85rem; background: var(--km-accent); color: var(--km-accent-fg);
+      font-weight: 600; font-size: 0.8125rem; border: 0;
+    }
+    .km-btn-ghost {
+      background: color-mix(in oklab, var(--km-bg-elevated) 80%, transparent);
+      color: var(--km-fg); border: 1px solid var(--km-border);
+    }
+    .km-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .group-pill, .km-tab {
+      border-radius: 999px; padding: 0.35rem 0.85rem; border: 0; background: var(--km-bg-muted);
+      color: var(--km-fg); font-size: 0.875rem;
+    }
+    .group-pill.is-on { background: var(--km-fg); color: var(--km-bg); }
+    .km-tabs { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+    .km-tab { background: transparent; color: var(--km-fg-muted); border: 1px solid transparent; padding: 0.5rem 0.95rem; }
+    .km-tab.is-on { background: var(--km-accent); color: var(--km-accent-fg); }
+    .km-panel {
+      border: 1px solid color-mix(in oklab, var(--km-border) 88%, transparent);
+      background: color-mix(in oklab, var(--km-bg-elevated) 94%, transparent);
+      border-radius: var(--km-radius); padding: 1.15rem 1.25rem;
+      box-shadow: var(--km-shadow);
+    }
+    .km-stat {
+      border: 1px solid color-mix(in oklab, var(--km-border) 88%, transparent);
+      background: color-mix(in oklab, var(--km-bg-elevated) 94%, transparent);
+      border-radius: 16px; padding: 1rem 1.15rem;
+    }
+    .km-stat-value {
+      margin: 0.2rem 0 0; font-family: var(--km-font-display);
+      font-size: 1.7rem; font-weight: 600; letter-spacing: -0.04em; line-height: 1.1;
+    }
+    .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .split { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; align-items: start; }
+    .agent-btn {
+      display: block; width: 100%; border: 0; border-radius: 12px; background: transparent;
+      text-align: left; padding: 10px 12px;
+    }
+    .agent-btn.is-on, .agent-btn:hover { background: var(--km-bg-muted); }
+    .agent-btn b { font-size: 14px; }
+    .agent-btn .amt { display: block; margin-top: 4px; font-size: 13px; font-weight: 600; }
+    .mini {
+      border-radius: 12px; background: var(--km-bg-muted); padding: 8px 12px;
+    }
+    .mini b { display: block; font-size: 14px; margin-top: 2px; }
+    .minis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
+    th, td { padding: 8px 12px 8px 0; border-bottom: 1px solid var(--km-border); vertical-align: middle; }
+    th { font-size: 12px; font-weight: 600; color: var(--km-fg-muted); }
+    .mono { font-family: ui-monospace, "Cascadia Code", monospace; font-size: 12px; }
+    .km-input {
+      width: 100%; border-radius: 14px; border: 1px solid var(--km-border);
+      background: var(--km-bg-elevated); padding: 0.7rem 0.9rem; outline: none;
+    }
+    .fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .field label { display: block; font-size: 12px; color: var(--km-fg-muted); margin-bottom: 6px; }
+    .settle-box { border: 1px solid var(--km-border); border-radius: 16px; padding: 16px; }
+    .page { padding: 24px 0 64px; }
+    h1 { margin: 4px 0 0; font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; }
+    h2 { margin: 0; font-size: 1.15rem; font-weight: 600; }
+
+    .km-acp-frame {
+      display: grid; grid-template-columns: 15.5rem minmax(0, 1fr); gap: 1.5rem;
+      width: min(1180px, calc(100% - 2rem)); margin: 0 auto; padding: 1.4rem 0 3.5rem;
+    }
+    .km-acp-side { position: sticky; top: 58px; align-self: start; display: grid; gap: 1rem; }
+    .km-acp-brand small { display: block; color: var(--km-fg-muted); font-size: 0.75rem; margin-top: 0.2rem; }
+    .km-acp-nav { display: grid; gap: 0.2rem; }
+    .km-acp-nav-label {
+      padding: 0.7rem 0.7rem 0.25rem; color: var(--km-fg-muted); font-size: 0.7rem;
+      font-weight: 650; letter-spacing: 0.08em;
+    }
+    .km-acp-nav a {
+      display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
+      border-radius: 12px; color: var(--km-fg); padding: 0.62rem 0.75rem; text-decoration: none;
+    }
+    .km-acp-nav a.is-on {
+      background: color-mix(in oklab, var(--km-accent) 12%, var(--km-bg-elevated));
+      box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--km-accent) 28%, transparent);
+    }
+    .km-acp-nav em { font-style: normal; color: var(--km-fg-muted); font-size: 0.72rem; }
+    .km-acp-shopchip, .km-acp-kpi, .km-acp-row {
+      border: 1px solid var(--km-border); background: var(--km-bg-elevated);
+    }
+    .km-acp-shopchip { display: grid; gap: 0.35rem; border-radius: 16px; padding: 0.9rem 1rem; }
+    .km-acp-shopchip code { font-size: 0.78rem; }
+    .km-acp-main { display: grid; gap: 1.1rem; min-width: 0; align-content: start; }
+    .km-acp-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 0.8rem; }
+    .km-acp-head h1 { margin: 0; font-size: clamp(1.55rem, 2.6vw, 2rem); font-weight: 650; letter-spacing: -0.02em; }
+    .km-acp-head p { margin: 0.35rem 0 0; max-width: 46ch; color: var(--km-fg-muted); font-size: 0.92rem; }
+    .km-acp-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; }
+    .km-acp-kpi { border-radius: 18px; padding: 1rem 1.05rem; }
+    .km-acp-kpi span { color: var(--km-fg-muted); font-size: 0.78rem; }
+    .km-acp-kpi strong {
+      display: block; margin-top: 0.35rem; font-family: var(--km-font-display);
+      font-size: 1.55rem; letter-spacing: -0.04em; font-weight: 600;
+    }
+    .km-acp-kpi small { display: block; margin-top: 0.2rem; color: var(--km-fg-muted); font-size: 0.75rem; }
+    .km-acp-section-title { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.85rem; }
+    .km-acp-section-title h2 { margin: 0; font-size: 1.05rem; }
+    .km-acp-section-title p { margin: 0.2rem 0 0; color: var(--km-fg-muted); font-size: 0.8rem; }
+    .km-acp-list { display: grid; gap: 0.55rem; }
+    .km-acp-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 0.8rem;
+      border-radius: 14px; background: color-mix(in oklab, var(--km-bg-muted) 45%, var(--km-bg-elevated));
+      padding: 0.75rem 0.9rem;
+    }
+    .km-acp-row b { display: block; font-weight: 600; }
+    .km-acp-row span { color: var(--km-fg-muted); font-size: 0.78rem; }
+    .km-acp-pill {
+      display: inline-flex; border-radius: 999px; padding: 0.15rem 0.5rem;
+      background: color-mix(in oklab, var(--km-success) 12%, var(--km-bg-muted)); font-size: 0.72rem;
+    }
+    .km-acp-price { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    .km-acp-price th, .km-acp-price td {
+      padding: 0.7rem 0.55rem;
+      border-bottom: 1px solid var(--km-border);
+      text-align: left;
+      vertical-align: middle;
+    }
+    .km-acp-price th { color: var(--km-fg-muted); font-size: 0.75rem; font-weight: 550; }
+    .km-acp-tools { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+    .range.is-on { background: var(--km-accent); color: var(--km-accent-fg); border-color: transparent; }
+    @media (max-width: 900px) {
+      .split, .km-acp-frame, .stats, .fields, .minis, .km-acp-kpis { grid-template-columns: 1fr; }
+      .km-acp-side { position: static; }
+    }
+  </style>
+</head>
+<body>
+  <div class="draft-bar">
+    <div>
+      <b>设计稿</b>
+      <span>两版都在这一页。代理账本在上面，管理员对账在下面。</span>
+    </div>
+    <div class="draft-switch">
+      <button type="button" id="tab-agent" class="is-on">代理 · 账本</button>
+      <button type="button" id="tab-admin">管理员 · 对账</button>
+    </div>
+  </div>
+
+  <div id="screen-agent"></div>
+  <div class="screen-gap">下面是管理员界面。代理登录后看不到这一页。</div>
+  <div id="screen-admin"></div>
+
+  <script>
+    const AGENTS = [
+      {
+        id: "aming",
+        name: "阿明的小店",
+        username: "aming",
+        storeCents: 128000,
+        storeCount: 18,
+        drawCents: 200000,
+        drawCount: 12,
+        held: [
+          ["KS202610101102ABCD", "手续费待核对"],
+          ["KS202610091844EFGH", "手续费待核对"],
+        ],
+        storeLines: [
+          ["10-10 11:20", "KS202610101120A1", "Pro · 月卡", 14500, 188, 3120],
+          ["10-10 09:04", "KS202610100904B2", "Pro · 月卡", 12600, 164, 1860],
+          ["10-09 21:16", "KS202610092116C3", "Plus · 季卡", 39800, 520, 6400],
+          ["10-09 16:02", "KS202610091602D4", "Pro · 月卡", 14500, 188, 2480],
+        ],
+        drawLines: [
+          ["10-10 14:12", "DB202610101412", "Pro · 月卡", 2, 25000],
+          ["10-09 18:40", "DB202610091840", "Plus · 季卡", 4, 72000],
+          ["10-08 11:05", "DB202610081105", "Pro · 月卡", 6, 103000],
+        ],
+        history: [
+          { at: "10-03 15:20", no: "ST202610031520A1", dir: "平台转给代理", method: "支付宝", ref: "20261003152088", amount: 40000 },
+        ],
+      },
+      {
+        id: "xiaoyu",
+        name: "小鱼",
+        username: "xiaoyu",
+        storeCents: 340000,
+        storeCount: 26,
+        drawCents: 90000,
+        drawCount: 6,
+        held: [],
+        storeLines: [
+          ["10-10 13:11", "KS202610101311E5", "Pro · 月卡", 14500, 188, 4200],
+          ["10-10 10:22", "KS202610101022F6", "Plus · 季卡", 39800, 520, 8100],
+        ],
+        drawLines: [
+          ["10-09 20:18", "DB202610092018", "Pro · 月卡", 6, 90000],
+        ],
+        history: [],
+      },
+      {
+        id: "kabu",
+        name: "kabuqinoo",
+        username: "kabuqinoo",
+        storeCents: 80000,
+        storeCount: 5,
+        drawCents: 80000,
+        drawCount: 4,
+        held: [],
+        storeLines: [
+          ["10-08 19:40", "KS202610081940G7", "Pro · 月卡", 14500, 188, 2100],
+        ],
+        drawLines: [
+          ["10-08 12:06", "DB202610081206", "Pro · 月卡", 4, 80000],
+        ],
+        history: [],
+      },
+    ];
+
+    const state = {
+      screen: "admin",
+      agentId: "aming",
+      detail: "store",
+      settleOpen: false,
+      method: "支付宝",
+      ref: "",
+      notes: "",
+      error: "",
+      range: "7d",
+    };
+
+    function yuan(cents) {
+      const neg = cents < 0;
+      const text = (Math.abs(cents) / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+      return (neg ? "-" : "") + "¥" + text;
+    }
+    function agent() {
+      return AGENTS.find((item) => item.id === state.agentId) || AGENTS[0];
+    }
+    function aming() {
+      return AGENTS[0];
+    }
+    function net(item) {
+      return item.storeCents - item.drawCents;
+    }
+    function direction(cents) {
+      if (cents > 0) return "你转给他";
+      if (cents < 0) return "他转给你";
+      return "两边抵平";
+    }
+    function agentDirection(cents) {
+      if (cents > 0) return "平台转给我";
+      if (cents < 0) return "我转给平台";
+      return "两边抵平";
+    }
+    function confirmLabel(item) {
+      const n = net(item);
+      if (n > 0) return "确认已转出 " + yuan(n);
+      if (n < 0) return "确认已收到 " + yuan(-n);
+      return "确认结清";
+    }
+
+    function render() {
+      document.getElementById("screen-admin").innerHTML = adminHtml();
+      document.getElementById("screen-agent").innerHTML = agentHtml();
+      bind();
+    }
+
+    function adminHtml() {
+      const item = agent();
+      const n = net(item);
+      const open = item.storeCents + item.drawCents > 0;
+      return `
+        <header class="km-header">
+          <div class="km-shell-wide" style="padding:12px 0 14px">
+            <div class="between">
+              <div class="km-brand">
+                <span class="km-brand-mark">A</span>
+                <div>
+                  <div class="km-brand-name">Kaimi Admin</div>
+                  <div class="tiny">admin</div>
+                </div>
+              </div>
+              <div class="row">
+                <button class="km-btn km-btn-ghost" type="button">前台</button>
+                <button class="km-btn km-btn-ghost" type="button">代理登录</button>
+                <button class="km-btn km-btn-ghost" type="button">退出</button>
+              </div>
+            </div>
+            <div class="row" style="margin-top:12px">
+              <button class="group-pill" type="button">日常</button>
+              <button class="group-pill" type="button">卖卡</button>
+              <button class="group-pill is-on" type="button">代理</button>
+              <button class="group-pill" type="button">系统</button>
+            </div>
+            <nav class="km-tabs" style="margin-top:10px">
+              <button class="km-tab" type="button">代理管理</button>
+              <button class="km-tab" type="button">提卡账本</button>
+              <button class="km-tab is-on" type="button">对账</button>
+              <button class="km-tab" type="button">收益统计</button>
+            </nav>
+          </div>
+        </header>
+        <section class="km-shell-wide page stack">
+          <div>
+            <p class="tiny">替换现在的「每周收益」。不再按周一出单。</p>
+            <h1>对账</h1>
+          </div>
+          <section class="km-panel" style="font-size:14px">
+            <h2>上线时旧账怎么进这次</h2>
+            <p class="tiny" style="margin:8px 0 0">商店收益按「有没有点过已返佣」算，提卡按每张卡的状态算。已经结过的提卡不会再进净额。</p>
+            <table style="margin-top:12px">
+              <thead><tr><th>账</th><th>现在库里的状态</th><th>进这次该转的数</th></tr></thead>
+              <tbody>
+                <tr><td>商店收益</td><td>还没进周结单，待结算</td><td>进</td></tr>
+                <tr><td>商店收益</td><td>周一自动生成了待返佣，钱还没转</td><td>进。先把这些单退回未结，再和提卡抵</td></tr>
+                <tr><td>商店收益</td><td>已经点过已返佣</td><td>不进</td></tr>
+                <tr><td>提卡</td><td>未结算</td><td>进。这个人没结的卡都在</td></tr>
+                <tr><td>提卡</td><td>已结算，账单没撤销</td><td>不进。结过的人和结过的卡都排除</td></tr>
+                <tr><td>提卡</td><td>已作废，或账单已撤销</td><td>作废不进。撤销的卡回到未结算，进</td></tr>
+              </tbody>
+            </table>
+          </section>
+          <div class="split">
+            <div class="km-panel">
+              <h2 style="margin-bottom:8px">代理</h2>
+              ${AGENTS.map((row) => {
+                const amount = net(row);
+                return `<button type="button" class="agent-btn ${row.id === item.id ? "is-on" : ""}" data-agent="${row.id}">
+                  <span class="between"><b>${row.name}</b><span class="tiny">${direction(amount)}</span></span>
+                  <span class="amt">${yuan(Math.abs(amount))}</span>
+                  <span class="tiny">商店 ${yuan(row.storeCents)}</span>
+                  <span class="tiny">提卡 ${yuan(row.drawCents)}</span>
+                </button>`;
+              }).join("")}
+            </div>
+            <div class="stack">
+              <div class="km-panel">
+                <div class="between">
+                  <div>
+                    <h2>${item.name}</h2>
+                    <p class="tiny" style="margin:6px 0 0">上次已结算之后，一直累到现在。</p>
+                  </div>
+                  <div class="row">
+                    <button class="km-btn km-btn-ghost" type="button">导出</button>
+                    <button class="km-btn" type="button" id="open-settle" ${open ? "" : "disabled"}>${open ? "登记已结算" : "这批已结清"}</button>
+                  </div>
+                </div>
+                <div class="minis">
+                  <div class="mini"><p class="tiny">${open ? direction(n) : "已结清"}</p><b>${open ? yuan(Math.abs(n)) : "¥0.00"}</b></div>
+                  <div class="mini"><p class="tiny">商店待结</p><b>${yuan(item.storeCents)}</b><p class="tiny">${item.storeCount} 笔 · 你要转的</p></div>
+                  <div class="mini"><p class="tiny">提卡未结</p><b>${yuan(item.drawCents)}</b><p class="tiny">${item.drawCount} 张 · 他要转的</p></div>
+                </div>
+              </div>
+              ${state.settleOpen && open ? settleBox(item, n) : ""}
+              <div class="km-tabs">
+                <button class="km-tab ${state.detail === "store" ? "is-on" : ""}" type="button" data-detail="store">商店收益</button>
+                <button class="km-tab ${state.detail === "draw" ? "is-on" : ""}" type="button" data-detail="draw">提卡未结</button>
+                <button class="km-tab ${state.detail === "history" ? "is-on" : ""}" type="button" data-detail="history">已结算</button>
+              </div>
+              <section class="km-panel" style="overflow-x:auto">
+                ${detailTable(item)}
+              </section>
+              ${item.held.length ? `<section class="km-panel stack" style="gap:8px">
+                <h2>不进这次的 ${item.held.length} 笔</h2>
+                <p class="tiny">手续费还没定稿。核对完会自己出现在下一次未结里。</p>
+                ${item.held.map((row) => `<p class="tiny" style="color:var(--km-fg)">${row[0]} · ${item.name} · ${row[1]}</p>`).join("")}
+              </section>` : ""}
+            </div>
+          </div>
+        </section>`;
+    }
+
+    function settleBox(item, n) {
+      return `<div class="settle-box stack" style="gap:12px">
+        <p style="margin:0;font-weight:600">登记已结算 · ${item.name} · ${direction(n)} ${yuan(Math.abs(n))}</p>
+        <p class="tiny" style="margin:0">商店 ${item.storeCount} 笔 ${yuan(item.storeCents)}　提卡 ${item.drawCount} 张 ${yuan(item.drawCents)}</p>
+        <div class="fields">
+          <div class="field"><label>方式</label>
+            <select class="km-input" id="pay-method">
+              ${["支付宝", "微信", "USDT", "银行卡", "其他"].map((name) => `<option ${name === state.method ? "selected" : ""}>${name}</option>`).join("")}
+            </select>
+          </div>
+          <div class="field"><label>流水号${n === 0 ? "（抵平可空）" : ""}</label><input class="km-input" id="pay-ref" value="${escapeAttr(state.ref)}" /></div>
+          <div class="field"><label>备注</label><input class="km-input" id="pay-notes" value="${escapeAttr(state.notes)}" /></div>
+        </div>
+        ${state.error ? `<p class="danger">${state.error}</p>` : ""}
+        <div class="row">
+          <button class="km-btn km-btn-ghost" type="button" id="cancel-settle">取消</button>
+          <button class="km-btn" type="button" id="confirm-settle">${confirmLabel(item)}</button>
+        </div>
+      </div>`;
+    }
+
+    function detailTable(item) {
+      if (state.detail === "draw") {
+        if (!item.drawLines.length || item.drawCents === 0) return `<p class="tiny">没有未结算的提卡。</p>`;
+        return `<table>
+          <thead><tr><th>时间</th><th>提卡单</th><th>套餐</th><th>张数</th><th>金额</th></tr></thead>
+          <tbody>${item.drawLines.map((row) => `<tr><td>${row[0]}</td><td class="mono">${row[1]}</td><td>${row[2]}</td><td>${row[3]}</td><td>${yuan(row[4])}</td></tr>`).join("")}</tbody>
+        </table><p class="tiny">共 ${item.drawCount} 张，上面是摘录。</p>`;
+      }
+      if (state.detail === "history") {
+        if (!item.history.length) return `<p class="tiny">还没有结算记录。</p>`;
+        return `<table>
+          <thead><tr><th>时间</th><th>单号</th><th>方向</th><th>方式</th><th>流水号</th><th>金额</th></tr></thead>
+          <tbody>${item.history.map((row) => `<tr><td>${row.at}</td><td class="mono">${row.no}</td><td>${row.dir}</td><td>${row.method}</td><td class="mono">${row.ref || "—"}</td><td>${yuan(row.amount)}</td></tr>`).join("")}</tbody>
+        </table>`;
+      }
+      if (!item.storeLines.length || item.storeCents === 0) return `<p class="tiny">没有待结算的商店收益。</p>`;
+      return `<table>
+        <thead><tr><th>时间</th><th>订单</th><th>套餐</th><th>货款</th><th>手续费</th><th>代理收益</th></tr></thead>
+        <tbody>${item.storeLines.map((row) => `<tr><td>${row[0]}</td><td class="mono">${row[1]}</td><td>${row[2]}</td><td>${yuan(row[3])}</td><td>${yuan(row[4])}</td><td>${yuan(row[5])}</td></tr>`).join("")}</tbody>
+      </table><p class="tiny">共 ${item.storeCount} 笔，收益合计 ${yuan(item.storeCents)}。开票加价不在这列里。</p>`;
+    }
+
+    function agentHtml() {
+      const item = aming();
+      const n = net(item);
+      const open = item.storeCents + item.drawCents > 0;
+      const ranges = [["today", "今天"], ["7d", "近 7 天"], ["month", "本月"], ["all", "全部"]];
+      const deals = [
+        ["10-10 11:20", "KS202610101120A1", "Pro · 月卡", 14500, 11000, 188, 3120, "已按估算"],
+        ["10-10 09:04", "KS202610100904B2", "Pro · 月卡 · SAVE19", 12600, 11000, 164, 1860, "已按网关"],
+        ["10-09 21:16", "KS202610092116C3", "Plus · 季卡", 39800, 32000, 520, 6400, "已按估算"],
+        ["10-09 16:02", "KS202610091602D4", "Pro · 月卡", 14500, 11000, 188, 2480, "已按估算"],
+      ];
+      return `
+        <div class="km-acp"><div class="km-acp-frame">
+          <aside class="km-acp-side">
+            <div class="km-acp-brand"><strong>阿明的小店 的店</strong><small>登录账号 aming</small></div>
+            <nav class="km-acp-nav">
+              <div class="km-acp-nav-label">每天看</div>
+              <a>概览<em>店况</em></a>
+              <a>公告<em>平台</em></a>
+              <a>通知<em>绑定</em></a>
+              <div class="km-acp-nav-label">怎么卖</div>
+              <a>售价与优惠<em>定价</em></a>
+              <a>店铺<em>装修</em></a>
+              <div class="km-acp-nav-label">钱和量</div>
+              <a class="is-on">账本<em>收益</em></a>
+              <a>自助提卡<em>进货</em></a>
+              <a>已售卡密<em>售后</em></a>
+              <a>开放 API<em>对接</em></a>
+              <div class="km-acp-nav-label">工具</div>
+              <a>使用说明<em>第一次</em></a>
+              <a>兑换卡密<em>开通</em></a>
+              <a>批量兑换<em>工具</em></a>
+            </nav>
+            <div class="km-acp-shopchip">
+              <span class="tiny">店铺一直在手边</span>
+              <code>/s/aming</code>
+              <div class="row"><button class="km-btn km-btn-ghost" type="button">打开</button><button class="km-btn km-btn-ghost" type="button">复制</button></div>
+            </div>
+            <div class="stack" style="gap:6px">
+              <button class="km-btn km-btn-ghost" type="button">修改密码</button>
+              <button class="km-btn km-btn-ghost" type="button">退出登录</button>
+            </div>
+          </aside>
+          <div class="km-acp-main">
+            <header class="km-acp-head">
+              <div>
+                <h1>账本</h1>
+                <p>钱和量用同一段时间。上面先看这次该转多少，下面才是明细。</p>
+              </div>
+              <div class="km-acp-tools">
+                ${ranges.map(([id, label]) => `<button type="button" class="km-btn km-btn-ghost range ${state.range === id ? "is-on" : ""}" data-range="${id}">${label}</button>`).join("")}
+                <button class="km-btn km-btn-ghost" type="button">导出</button>
+              </div>
+            </header>
+            <section class="km-panel">
+              <div class="km-acp-section-title">
+                <div>
+                  <h2>这次对账</h2>
+                  <p>${open ? "和平台看到的是同一个数。转完等平台登记，这里归零。" : "平台已登记。新的店单和提卡从现在重新累。"}</p>
+                </div>
+                <span class="km-acp-pill">${open ? agentDirection(n) : "已结清"}</span>
+              </div>
+              <div class="km-acp-kpis" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+                <div class="km-acp-kpi"><span>这次该转</span><strong>${open ? yuan(Math.abs(n)) : "¥0.00"}</strong><small>${open ? agentDirection(n) : "这批已清"}</small></div>
+                <div class="km-acp-kpi"><span>商店收益</span><strong>${yuan(item.storeCents)}</strong><small>${item.storeCount} 笔 · 平台要转的</small></div>
+                <div class="km-acp-kpi"><span>提卡欠款</span><strong>${yuan(item.drawCents)}</strong><small>${item.drawCount} 张 · 我要转的</small></div>
+              </div>
+              ${item.held.length ? `<p class="tiny" style="margin:12px 0 0">另有 ${item.held.length} 笔手续费待核对，合计 ¥40.00，不进这次。</p>` : ""}
+            </section>
+            <div class="km-acp-kpis">
+              <div class="km-acp-kpi"><span>成交额</span><strong>¥8,640.00</strong><small>26 笔</small></div>
+              <div class="km-acp-kpi"><span>通道费</span><strong>¥60.48</strong></div>
+              <div class="km-acp-kpi"><span>待结算</span><strong>${yuan(item.storeCents)}</strong><small>商店收益，还没抵提卡</small></div>
+              <div class="km-acp-kpi"><span>券减免</span><strong>¥190.00</strong></div>
+            </div>
+            <section class="km-panel">
+              <div class="km-acp-section-title">
+                <div>
+                  <h2>这段时间的单</h2>
+                  <p>用量不再另开一页。下单、已付、未兑放在账本里，一眼能对上钱。</p>
+                </div>
+              </div>
+              <div class="km-acp-kpis">
+                <div class="km-acp-kpi"><span>下单</span><strong>31</strong></div>
+                <div class="km-acp-kpi"><span>已付</span><strong>26</strong></div>
+                <div class="km-acp-kpi"><span>已发齐</span><strong>24</strong></div>
+                <div class="km-acp-kpi"><span>未兑换</span><strong>7</strong><small>当前积压，不只看这一段</small></div>
+              </div>
+            </section>
+            <section class="km-panel">
+              <div class="km-acp-section-title">
+                <div>
+                  <h2>成交明细</h2>
+                  <p>已按代理成本和支付通道费算过收益。开票加价归平台、不计入佣金。</p>
+                </div>
+              </div>
+              <div style="overflow-x:auto">
+                <table class="km-acp-price">
+                  <thead><tr><th>时间</th><th>订单</th><th>套餐</th><th>实付</th><th>成本</th><th>手续费</th><th>收益</th><th>手续费口径</th></tr></thead>
+                  <tbody>${deals.map((row) => `<tr><td>${row[0]}</td><td>${row[1]}</td><td>${row[2]}</td><td>${yuan(row[3])}</td><td>${yuan(row[4])}</td><td>${yuan(row[5])}</td><td>${yuan(row[6])}</td><td>${row[7]}</td></tr>`).join("")}</tbody>
+                </table>
+              </div>
+            </section>
+            <section class="km-panel">
+              <div class="km-acp-section-title"><div><h2>结算</h2><p>打过款的单独成行，不要和每天的收益表混成一张。</p></div></div>
+              <div class="km-acp-list">
+                ${item.history.length ? item.history.map((row) => `<div class="km-acp-row"><div><b>${row.no}</b><span>${row.at} · ${row.dir} · ${row.method}</span></div><div style="text-align:right"><b>${yuan(row.amount)}</b><span class="km-acp-pill">已结算</span></div></div>`).join("") : `<p class="tiny">暂无结算记录</p>`}
+              </div>
+            </section>
+          </div>
+        </div></div>`;
+    }
+
+    function escapeAttr(value) {
+      return String(value).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+    }
+
+    function bind() {
+      document.querySelectorAll("[data-agent]").forEach((node) => {
+        node.addEventListener("click", () => {
+          state.agentId = node.getAttribute("data-agent");
+          state.settleOpen = false;
+          state.error = "";
+          render();
+        });
+      });
+      document.querySelectorAll("[data-detail]").forEach((node) => {
+        node.addEventListener("click", () => {
+          state.detail = node.getAttribute("data-detail");
+          render();
+        });
+      });
+      document.querySelectorAll("[data-range]").forEach((node) => {
+        node.addEventListener("click", () => {
+          state.range = node.getAttribute("data-range");
+          render();
+        });
+      });
+      const open = document.getElementById("open-settle");
+      if (open) open.addEventListener("click", () => { state.settleOpen = true; state.error = ""; render(); });
+      const cancel = document.getElementById("cancel-settle");
+      if (cancel) cancel.addEventListener("click", () => { state.settleOpen = false; state.error = ""; render(); });
+      const method = document.getElementById("pay-method");
+      const ref = document.getElementById("pay-ref");
+      const notes = document.getElementById("pay-notes");
+      if (method) method.addEventListener("change", () => { state.method = method.value; });
+      if (ref) ref.addEventListener("input", () => { state.ref = ref.value; });
+      if (notes) notes.addEventListener("input", () => { state.notes = notes.value; });
+      const confirm = document.getElementById("confirm-settle");
+      if (confirm) confirm.addEventListener("click", () => {
+        const item = agent();
+        const n = net(item);
+        if (n !== 0 && !state.ref.trim()) {
+          state.error = "填写流水号后再标记";
+          render();
+          return;
+        }
+        item.history.unshift({
+          at: "10-10 16:40",
+          no: "ST202610101640" + item.id.slice(0, 2).toUpperCase(),
+          dir: n > 0 ? "平台转给代理" : n < 0 ? "代理转给平台" : "抵平结清",
+          method: n === 0 ? "—" : state.method,
+          ref: state.ref.trim(),
+          amount: Math.abs(n),
+        });
+        item.storeCents = 0;
+        item.storeCount = 0;
+        item.drawCents = 0;
+        item.drawCount = 0;
+        item.storeLines = [];
+        item.drawLines = [];
+        state.settleOpen = false;
+        state.ref = "";
+        state.notes = "";
+        state.error = "";
+        state.detail = "history";
+        render();
+      });
+    }
+
+    document.getElementById("tab-admin").addEventListener("click", () => {
+      document.getElementById("screen-admin").scrollIntoView({ behavior: "smooth" });
+    });
+    document.getElementById("tab-agent").addEventListener("click", () => {
+      document.getElementById("screen-agent").scrollIntoView({ behavior: "smooth" });
+    });
+    render();
+  </script>
+</body>
+</html>

@@ -574,12 +574,12 @@ export function planToProduct(
           {
             text: account
               ? {
-                  zh: "支付成功后账号显示在订单页，四个字段可分别复制。这不是卡密，不要去兑换页。用下单邮箱在本页「邮箱查单」可随时找回。",
-                  en: "The account appears on the order page after payment. Copy each field separately. This is not a redeem code. Find it again via “Track by email”.",
+                  zh: "支付成功后账号显示在订单页，四个字段可分别复制。这不是卡密，不要去兑换页。之后凭下单邮箱和订单号在本页「邮箱查单」找回，发货邮件里也有。",
+                  en: "The account appears on the order page after payment. Copy each field separately. This is not a redeem code. Find it again via “Track by email” with your order email and order number, or in the delivery email.",
                 }
               : {
-                  zh: "支付成功后立即出卡，卡密直接显示在订单页；用下单时填写的邮箱在本页「邮箱查单」可随时找回。",
-                  en: "The code appears on the order page right after payment, and you can always find it again via “Track by email” on this page using your order email.",
+                  zh: "支付成功后立即出卡，卡密直接显示在订单页；之后凭下单邮箱和订单号在本页「邮箱查单」找回，发货邮件里也有。",
+                  en: "The code appears on the order page right after payment. Find it again via “Track by email” on this page with your order email and order number, or in the delivery email.",
                 },
           },
         ],

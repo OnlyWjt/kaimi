@@ -124,7 +124,8 @@ function regionState(row: RegionRow) {
   return { text: "未启用", tone: "text-[var(--km-fg-muted)] bg-[var(--km-bg-muted)]" };
 }
 
-export function PlanPricesPreview() {
+/** embedded: rendered inside another panel, so skip the page-level padding and heading. */
+export function PlanPricesPreview({ embedded = false }: { embedded?: boolean } = {}) {
   const [category, setCategory] = useState<(typeof CATEGORIES)[number]>("全部");
   const [openKey, setOpenKey] = useState("plus");
   const [plans, setPlans] = useState(PLANS);
@@ -148,14 +149,16 @@ export function PlanPricesPreview() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4 px-4 py-8">
-      <div>
-        <p className="text-xs text-[var(--km-fg-muted)]">静态设计稿 · 不保存、不连数据</p>
-        <h1 className="mt-1 text-2xl font-semibold">默认成本价</h1>
-        <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-          先按品类看。每张套餐上直接标出各地区是已启用、未启用还是待定价，点开才改价格。
-        </p>
-      </div>
+    <div className={embedded ? "space-y-4" : "mx-auto max-w-5xl space-y-4 px-4 py-8"}>
+      {embedded ? null : (
+        <div>
+          <p className="text-xs text-[var(--km-fg-muted)]">静态设计稿 · 不保存、不连数据</p>
+          <h1 className="mt-1 text-2xl font-semibold">默认成本价</h1>
+          <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
+            先按品类看。每张套餐上直接标出各地区是已启用、未启用还是待定价，点开才改价格。
+          </p>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         {CATEGORIES.map((name) => {

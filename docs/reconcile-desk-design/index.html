@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>对账 · 名单设计</title>
+<style>
+  :root {
+    --bg: #f5f3ef;
+    --elev: #fffdfb;
+    --muted: #ece7e0;
+    --fg: #171717;
+    --fg-muted: #6b6560;
+    --line: #e4ded6;
+    --warn: #b8863a;
+    --danger: #b85c4a;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    color: var(--fg);
+    background: var(--bg);
+    background-image:
+      radial-gradient(920px 520px at 12% -10%, #f3c9b870, transparent 58%),
+      radial-gradient(860px 460px at 90% -4%, #d7c6f070, transparent 56%),
+      radial-gradient(760px 420px at 50% 108%, #f0dc9a55, transparent 52%);
+    background-attachment: fixed;
+    font: 15px/1.5 "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  .shell { width: min(1200px, calc(100% - 40px)); margin: 0 auto; }
+  header {
+    position: sticky; top: 0; z-index: 5;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+    background: color-mix(in srgb, var(--bg) 72%, transparent);
+    backdrop-filter: blur(18px);
+  }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px; }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .mark {
+    width: 32px; height: 32px; border-radius: 14px;
+    display: grid; place-items: center; background: var(--fg); color: var(--elev);
+    font-weight: 700; font-size: 13px;
+  }
+  .brand b { display: block; font-size: 16px; letter-spacing: -0.03em; }
+  .brand span { display: block; color: var(--fg-muted); font-size: 12px; }
+  .ghosts { display: flex; gap: 8px; }
+  .btn {
+    border: 0; border-radius: 999px; background: var(--fg); color: var(--elev);
+    font-weight: 600; font-size: 13px; padding: 8px 14px;
+  }
+  .btn.ghost { background: color-mix(in srgb, var(--elev) 80%, transparent); color: var(--fg); border: 1px solid var(--line); }
+  .btn.sm { padding: 6px 12px; font-size: 13px; }
+  .btn:disabled { opacity: 0.45; cursor: default; }
+  .groups, .tabs { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 10px; }
+  .pill, .tab {
+    border: 0; border-radius: 999px; background: var(--muted); color: var(--fg);
+    padding: 4px 12px; font-size: 14px;
+  }
+  .pill.on { background: var(--fg); color: var(--elev); }
+  .tab { background: transparent; color: var(--fg-muted); padding: 8px 14px; }
+  .tab.on { background: var(--fg); color: var(--elev); }
+  main { padding: 22px 0 28px; }
+  .title-row, .sum-row, .work { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+  h1 { margin: 2px 0 0; font-size: 28px; letter-spacing: -0.03em; font-weight: 650; }
+  .quiet { margin: 0; color: var(--fg-muted); font-size: 12px; }
+  .sums { display: flex; gap: 10px; margin: 16px 0 14px; }
+  .sum {
+    flex: 1; text-align: left; border: 1px solid var(--line); background: color-mix(in srgb, var(--elev) 94%, transparent);
+    border-radius: 16px; padding: 14px 16px;
+  }
+  .sum.on { border-color: var(--fg); }
+  .sum span { display: block; color: var(--fg-muted); font-size: 12px; }
+  .sum strong { display: block; margin-top: 4px; font-size: 26px; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
+  .sum small { color: var(--fg-muted); font-size: 12px; }
+  .work { align-items: stretch; height: calc(100vh - 292px); min-height: 460px; }
+  .pane {
+    background: var(--elev); border: 1px solid var(--line); border-radius: 22px;
+    min-width: 0; display: flex; flex-direction: column; overflow: hidden;
+  }
+  .list-pane { width: 340px; flex: none; }
+  .pane-head { padding: 12px 12px 8px; display: flex; flex-direction: column; gap: 8px; }
+  .search {
+    width: 100%; border: 1px solid var(--line); background: var(--elev); border-radius: 14px;
+    padding: 9px 12px; outline: none;
+  }
+  .search:focus { border-color: #8d877f; }
+  .chips { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .chip {
+    border: 1px solid var(--line); background: transparent; border-radius: 999px;
+    padding: 4px 10px; font-size: 12px; color: var(--fg-muted);
+  }
+  .chip.on { background: var(--fg); color: var(--elev); border-color: var(--fg); }
+  .rows { overflow: auto; padding: 0 8px 8px; }
+  .row {
+    width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    border: 1px solid transparent; background: transparent; border-radius: 12px;
+    padding: 8px 8px; text-align: left;
+  }
+  .row:hover { background: var(--muted); }
+  .row.on { border-color: var(--fg); background: var(--muted); }
+  .who { min-width: 0; }
+  .who b { display: block; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .who i { display: block; margin-top: 1px; font-style: normal; color: var(--warn); font-size: 11px; }
+  .money { flex: none; text-align: right; font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .money.pay { color: var(--fg); }
+  .money.owe { color: var(--warn); }
+  .money.zero { color: var(--fg-muted); font-weight: 500; }
+  .demo { color: var(--fg-muted); font-weight: 500; font-size: 11px; margin-left: 4px; }
+  .detail { flex: 1; padding: 16px 18px 18px; overflow: auto; }
+  .detail-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .detail h2 { margin: 0; font-size: 22px; }
+  .views { display: flex; gap: 6px; }
+  .net { margin: 14px 0 4px; font-size: 22px; font-weight: 650; letter-spacing: -0.03em; }
+  .formula { margin: 0 0 12px; color: var(--fg-muted); font-size: 13px; }
+  .lock {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    background: var(--muted); border-radius: 12px; padding: 8px 12px; font-size: 12px; margin-bottom: 12px;
+  }
+  .tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--fg-muted); font-size: 12px; font-weight: 600; padding: 6px 0; }
+  td { border-top: 1px solid var(--line); padding: 9px 0; font-variant-numeric: tabular-nums; }
+  td.no { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .neg { color: var(--warn); }
+  .empty { color: var(--fg-muted); padding: 28px 4px; }
+  .foot {
+    margin-top: 18px; color: var(--fg-muted); font-size: 12px; line-height: 1.7;
+  }
+  .foot b { color: var(--fg); font-weight: 600; }
+  .badge { border-radius: 999px; background: var(--muted); color: var(--fg-muted); font-size: 12px; padding: 2px 8px; font-weight: 600; }
+  .badge.cancel { color: var(--danger); }
+  .sheet-no { margin: 12px 0 0; font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+  .audit { margin-top: 14px; }
+  .audit summary { cursor: pointer; color: var(--fg-muted); font-size: 13px; }
+  .audit li { margin: 6px 0 0 16px; font-size: 12px; color: var(--fg-muted); }
+  .toast {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    background: var(--fg); color: var(--elev); border-radius: 12px; padding: 10px 16px;
+    font-size: 13px; display: none;
+  }
+  @media (max-width: 860px) {
+    .work { height: auto; flex-direction: column; }
+    .list-pane { width: auto; max-height: 360px; }
+    .sums { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="shell">
+    <div class="top">
+      <div class="brand">
+        <span class="mark">A</span>
+        <div><b>Kaimi Admin</b><span>admin</span></div>
+      </div>
+      <div class="ghosts">
+        <button class="btn ghost sm" type="button">前台</button>
+        <button class="btn ghost sm" type="button">代理登录</button>
+        <button class="btn ghost sm" type="button">退出</button>
+      </div>
+    </div>
+    <div class="groups">
+      <button class="pill" type="button">日常</button>
+      <button class="pill" type="button">卖卡</button>
+      <button class="pill on" type="button">代理</button>
+      <button class="pill" type="button">系统</button>
+    </div>
+    <nav class="tabs">
+      <button class="tab" type="button">代理管理</button>
+      <button class="tab" type="button">提卡账本</button>
+      <button class="tab on" type="button">对账</button>
+      <button class="tab" type="button">历史周结</button>
+      <button class="tab" type="button">收益统计</button>
+    </nav>
+  </div>
+</header>
+<main class="shell">
+  <div class="title-row">
+    <div>
+      <p class="quiet">截止 2026-10-10 23:37（北京时间）。名单按金额从大到小。</p>
+      <h1>对账</h1>
+    </div>
+    <button class="btn" type="button" id="refresh">刷新到现在</button>
+  </div>
+  <div class="sums">
+    <button class="sum" type="button" id="sum-pay" data-side="pay">
+      <span>平台应付代理</span>
+      <strong id="pay-total">¥466.60</strong>
+      <small>点一下只看要付给代理的</small>
+    </button>
+    <button class="sum" type="button" id="sum-owe" data-side="owe">
+      <span>代理应付平台</span>
+      <strong id="owe-total">¥1,992.18</strong>
+      <small>点一下只看代理要付来的</small>
+    </button>
+  </div>
+  <div class="work">
+    <section class="pane list-pane" aria-label="代理名单">
+      <div class="pane-head">
+        <input class="search" id="q" placeholder="搜索代理" aria-label="搜索代理">
+        <div class="chips">
+          <button class="chip" type="button" id="lock-only">只看有锁定</button>
+          <span class="quiet" id="count">11 个</span>
+        </div>
+      </div>
+      <div class="rows" id="rows"></div>
+    </section>
+    <section class="pane detail" id="detail" aria-label="代理明细"></section>
+  </div>
+  <p class="foot">
+    拿掉的：状态下拉、排序下拉、筛选按钮、待生成代理、待核对订单（大于 0 才在标题下出现）、名单上的公式、明细条数、异常 0、批次号。<br>
+    留下的：两个合计、锁定金额、右边的公式、旧周结提示、生成批次、明细。历史是短名单，自己滚动；页签只写「历史」，不放批次号。没有未结也没有锁定的代理不进名单。<br>
+    <button class="chip" type="button" id="more">按 36 个代理看</button>
+    <span id="more-note">现在是生产里这 12 个有数的代理。</span>
+  </p>
+</main>
+<div class="toast" id="toast" role="status"></div>
+<script>
+const yuan = (cents) => "¥" + (Math.abs(cents) / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const real = [
+  { name: "huyazhou", store: 454, adj: 0, draw: 125000, locked: 130, earnN: 3, drawN: 3, lines: [
+    ["earn", 416, "KS202609270958JAQ6L6GMTE"],
+    ["earn", 19, "KS2026100708353HV8AWG8X3"],
+    ["earn", 19, "KS202610080924TA3ZSEKFL7"],
+    ["draw", 11500, "DR202610081207D7P6CC97V2"],
+    ["draw", 102000, "DR202610090658YVFPFNDMEW"],
+    ["draw", 11500, "DR2026101003462MJKLRRPGP"]
+  ], lockNos: "ST202610041413XPTMEJNCMS、ST2026100508028VSSG9KKBK" },
+  { name: "For-Vibe-Coding", store: 2828, adj: 0, draw: 77500, locked: 0, earnN: 4, drawN: 2 },
+  { name: "YIJIANG115", store: 25536, adj: 0, draw: 0, locked: 0, earnN: 2, drawN: 0 },
+  { name: "gpt代充站", store: 9381, adj: 0, draw: 0, locked: 13509, earnN: 4, drawN: 0, lockNos: "三张旧周结单" },
+  { name: "海雅代充站", store: 2976, adj: 0, draw: 0, locked: 0, earnN: 2, drawN: 0 },
+  { name: "HelloAI", store: 2402, adj: 0, draw: 0, locked: 22726, earnN: 1, drawN: 0, lockNos: "旧周结单" },
+  { name: "小浣熊的店", store: 2402, adj: 0, draw: 0, locked: 97, earnN: 1, drawN: 0, lockNos: "旧周结单" },
+  { name: "Daniel", store: 2244, adj: 0, draw: 0, locked: 0, earnN: 1, drawN: 0 },
+  { name: "floppy", store: 1603, adj: 0, draw: 0, locked: 1905, earnN: 3, drawN: 0, lockNos: "旧周结单" },
+  { name: "Polus", store: 86, adj: 0, draw: 0, locked: 705, earnN: 3, drawN: 0, lockNos: "旧周结单" },
+  { name: "zhouyi", store: 30, adj: 0, draw: 0, locked: 515, earnN: 2, drawN: 0, lockNos: "旧周结单" },
+  { name: "kabuqinoo", store: 0, adj: 0, draw: 0, locked: 19, earnN: 0, drawN: 0, lockNos: "旧周结单" }
+];
+let extra = [];
+let selected = "huyazhou";
+let side = "";
+let lockOnly = false;
+let view = "preview";
+let type = "";
+let openBatch = "RC202610101537NKMSG9B5B5";
+const batches = [
+  { id: "RC202610101537NKMSG9B5B5", status: "已取消", net: -124546, at: "10-10 23:37", cancel: "已于 2026-10-10 23:30 取消，明细已回到未结，可重新生成。", real: true },
+  { id: "示意-1010-02", status: "已付款", net: -88000, at: "10-03 16:12", pay: "支付宝 · 流水 2026100316128841" },
+  { id: "示意-0926-01", status: "已付款", net: 12600, at: "09-26 11:04", pay: "微信 · 流水 2026092611042201" },
+  { id: "示意-0919-01", status: "已抵平", net: 0, at: "09-19 15:40" },
+  { id: "示意-0912-03", status: "已取消", net: -42000, at: "09-12 09:18", cancel: "已取消，明细已回到未结。" },
+  { id: "示意-0905-01", status: "已付款", net: -210000, at: "09-05 18:02", pay: "银行卡 · 流水 2026090518020091" },
+  { id: "示意-0829-02", status: "已付款", net: 5400, at: "08-29 10:11", pay: "支付宝 · 流水 2026082910117730" },
+  { id: "示意-0822-01", status: "已付款", net: -96000, at: "08-22 14:27", pay: "微信 · 流水 2026082214276612" },
+  { id: "示意-0815-01", status: "已取消", net: 3100, at: "08-15 09:46", cancel: "已取消，明细已回到未结。" },
+  { id: "示意-0808-04", status: "已付款", net: -153000, at: "08-08 17:55", pay: "支付宝 · 流水 2026080817554408" },
+  { id: "示意-0801-01", status: "已抵平", net: 0, at: "08-01 12:20" },
+  { id: "示意-0725-02", status: "已付款", net: -67000, at: "07-25 16:08", pay: "微信 · 流水 2026072516081190" },
+  { id: "示意-0718-01", status: "已付款", net: 8900, at: "07-18 11:33", pay: "支付宝 · 流水 2026071811335521" },
+  { id: "示意-0711-01", status: "已取消", net: -28000, at: "07-11 09:02", cancel: "已取消，明细已回到未结。" },
+  { id: "示意-0704-03", status: "已付款", net: -112000, at: "07-04 19:14", pay: "银行卡 · 流水 2026070419148802" },
+  { id: "示意-0627-01", status: "已付款", net: 2400, at: "06-27 10:45", pay: "微信 · 流水 2026062710453317" },
+  { id: "示意-0620-01", status: "已付款", net: -74000, at: "06-20 15:16", pay: "支付宝 · 流水 2026062015162294" },
+  { id: "示意-0613-02", status: "已付款", net: -36000, at: "06-13 13:58", pay: "微信 · 流水 2026061313580176" }
+];
+
+function netOf(a) { return a.store + a.adj - a.draw; }
+function sideOf(n) { return n > 0 ? "pay" : n < 0 ? "owe" : "zero"; }
+function words(n) { return n > 0 ? "平台应付代理" : n < 0 ? "代理应付平台" : "抵平"; }
+function shortWords(n) { return n > 0 ? "你付他" : n < 0 ? "他付你" : "抵平"; }
+function visible() {
+  const q = document.getElementById("q").value.trim().toLowerCase();
+  return [...real, ...extra].filter((a) => {
+    const net = netOf(a);
+    if (q && !a.name.toLowerCase().includes(q)) return false;
+    if (lockOnly && !a.locked) return false;
+    if (side === "pay" && net <= 0) return false;
+    if (side === "owe" && net >= 0) return false;
+    return net !== 0 || a.locked;
+  }).sort((a, b) => Math.abs(netOf(b)) - Math.abs(netOf(a)) || b.locked - a.locked);
+}
+function paintList() {
+  const list = visible();
+  if (list.length && !list.some((a) => a.name === selected)) selected = list[0].name;
+  document.getElementById("count").textContent = list.length + " 个";
+  document.getElementById("rows").innerHTML = list.map((a) => {
+    const net = netOf(a);
+    const s = sideOf(net);
+    return `<button class="row ${a.name === selected ? "on" : ""}" type="button" data-name="${a.name}">
+      <span class="who"><b>${a.name}${a.demo ? '<span class="demo">示意</span>' : ""}</b>${a.locked ? `<i>锁定 ${yuan(a.locked)}</i>` : ""}</span>
+      <span class="money ${s}">${shortWords(net)} ${yuan(net)}</span>
+    </button>`;
+  }).join("") || `<p class="empty">没有符合的代理。</p>`;
+  paintDetail();
+}
+function paintDetail() {
+  const a = [...real, ...extra].find((row) => row.name === selected);
+  const box = document.getElementById("detail");
+  if (!a) { box.innerHTML = `<p class="empty">先选一个代理。</p>`; return; }
+  const net = netOf(a);
+  const s = sideOf(net);
+  if (view === "batch") {
+    box.innerHTML = head(a) + batchSheet(a);
+    return;
+  }
+  if (view === "history") {
+    box.innerHTML = head(a) + historyList(a);
+    return;
+  }
+  const lines = (a.lines || []).filter((line) => !type || line[0] === type);
+  const table = a.lines
+    ? `<table><thead><tr><th>对净额影响</th><th>类型</th><th>单号</th></tr></thead><tbody>${
+        lines.map((line) => {
+          const neg = line[0] === "draw";
+          return `<tr><td class="${neg ? "neg" : ""}">${neg ? "−" : "+"}${yuan(line[1])}</td><td>${line[0] === "draw" ? "提卡" : "商店收益"}</td><td class="no">${line[2]}</td></tr>`;
+        }).join("") || `<tr><td colspan="3">这一类没有明细。</td></tr>`
+      }</tbody></table>`
+    : `<table><thead><tr><th>对净额影响</th><th>类型</th><th>笔数</th></tr></thead><tbody>
+        ${a.earnN ? `<tr><td>+${yuan(a.store)}</td><td>商店收益</td><td>${a.earnN} 笔</td></tr>` : ""}
+        ${a.drawN ? `<tr><td class="neg">−${yuan(a.draw)}</td><td>提卡</td><td>${a.drawN} 笔</td></tr>` : ""}
+        ${!a.earnN && !a.drawN ? `<tr><td colspan="3">没有可纳入的未结明细。</td></tr>` : ""}
+      </tbody></table>`;
+  box.innerHTML = head(a) + `
+    <p class="net ${s === "owe" ? "neg" : ""}">${words(net)} ${yuan(net)}</p>
+    <p class="formula">商店 ${yuan(a.store)} + 调整 ${yuan(a.adj)} − 提卡 ${yuan(a.draw)} = ${words(net)} ${yuan(net)}</p>
+    ${a.locked ? `<div class="lock"><span>${a.earnN || a.lines ? "" : ""}${lockText(a)}</span><button class="btn ghost sm" type="button" id="go-week">去历史周结</button></div>` : ""}
+    <div class="tools">
+      <button class="btn sm" type="button" id="make" ${net === 0 && !a.earnN && !a.drawN && !(a.lines || []).length ? "disabled" : ""}>生成批次（${(a.lines || []).length || a.earnN + a.drawN} 笔）</button>
+      <button class="chip ${type === "" ? "on" : ""}" type="button" data-type="">全部</button>
+      <button class="chip ${type === "earn" ? "on" : ""}" type="button" data-type="earn">商店 ${a.earnN || (a.lines || []).filter((l) => l[0] === "earn").length}</button>
+      <button class="chip ${type === "draw" ? "on" : ""}" type="button" data-type="draw">提卡 ${a.drawN || (a.lines || []).filter((l) => l[0] === "draw").length}</button>
+    </div>
+    ${table}`;
+}
+function lockText(a) {
+  const count = a.name === "huyazhou" ? "4 笔、" : "";
+  return `${count}${words(a.locked)} ${yuan(a.locked)} 在旧周结单 ${a.lockNos || ""} 中，核验后再对账。`;
+}
+function historyOf(a) { return a.name === "huyazhou" ? batches : []; }
+function historyList(a) {
+  const list = historyOf(a);
+  if (!list.length) return `<p class="empty">这个代理还没有对账批次。已结过的提卡留在提卡账本。</p>`;
+  return `<p class="quiet" style="margin-top:12px">${list.length} 批，按时间从新到旧。点一行看这一批，快照不叠在名单下面。</p>
+    <div class="rows" style="padding:8px 0 0">${list.map((b) => {
+      const s = sideOf(b.net);
+      return `<button class="row ${b.id === openBatch ? "on" : ""}" type="button" data-batch="${b.id}">
+        <span class="who"><b>${b.at} <span class="badge ${b.status === "已取消" ? "cancel" : ""}">${b.status}</span>${b.real ? "" : '<span class="demo">示意</span>'}</b><i style="color:var(--fg-muted)">${b.id}</i></span>
+        <span class="money ${s}">${shortWords(b.net)} ${yuan(b.net)}</span>
+      </button>`;
+    }).join("")}</div>`;
+}
+function batchSheet(a) {
+  const list = historyOf(a);
+  const b = list.find((row) => row.id === openBatch);
+  if (!b) return `<p class="empty">没有正在处理的批次。未付款的才会出现在这里；已结束的在历史里点开。</p>`;
+  const s = sideOf(b.net);
+  const lines = b.real ? [
+    ["earn", 416, "KS202609270958JAQ6L6GMTE"],
+    ["earn", 19, "KS2026100708353HV8AWG8X3"],
+    ["earn", 19, "KS202610080924TA3ZSEKFL7"],
+    ["draw", 11500, "DR202610081207D7P6CC97V2"],
+    ["draw", 102000, "DR202610090658YVFPFNDMEW"],
+    ["draw", 11500, "DR2026101003462MJKLRRPGP"]
+  ] : [];
+  return `<p class="sheet-no">${b.id} <span class="badge ${b.status === "已取消" ? "cancel" : ""}">${b.status}</span></p>
+    <p class="net ${s === "owe" ? "neg" : ""}">${words(b.net)} ${yuan(b.net)}</p>
+    <p class="formula">${b.cancel || b.pay || "净额为零，当时只确认抵平，没有付款流水。"} · 生成 ${b.at}</p>
+    ${b.real ? `<table><thead><tr><th>对净额影响</th><th>类型</th><th>单号</th></tr></thead><tbody>${lines.map((line) => {
+      const neg = line[0] === "draw";
+      return `<tr><td class="${neg ? "neg" : ""}">${neg ? "−" : "+"}${yuan(line[1])}</td><td>${neg ? "提卡" : "商店收益"}</td><td class="no">${line[2]}</td></tr>`;
+    }).join("")}</tbody></table>
+    <details class="audit"><summary>审计 2 条</summary><ul>
+      <li>取消批次 2026-10-10 23:30 · 管理员 · 待核对 → 已取消</li>
+      <li>生成批次 2026-10-10 23:37 · 管理员 · 待核对</li>
+    </ul></details>` : `<p class="empty">示意批次。正式页面同样只展开这一批的快照，审计默认收起。</p>`}`;
+}
+function head(a) {
+  const n = historyOf(a).length;
+  const batchLabel = view === "batch" && openBatch ? "这一批" : "批次";
+  return `<div class="detail-top"><h2>${a.name}</h2><div class="views">
+    <button class="btn sm ${view === "preview" ? "" : "ghost"}" type="button" data-view="preview">未结预览</button>
+    <button class="btn sm ${view === "batch" ? "" : "ghost"}" type="button" data-view="batch">${batchLabel}</button>
+    <button class="btn sm ${view === "history" ? "" : "ghost"}" type="button" data-view="history">历史${n ? " " + n : ""}</button>
+  </div></div>`;
+}
+function toast(text) {
+  const el = document.getElementById("toast");
+  el.textContent = text;
+  el.style.display = "block";
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => { el.style.display = "none"; }, 2200);
+}
+document.getElementById("rows").addEventListener("click", (event) => {
+  const row = event.target.closest(".row");
+  if (!row) return;
+  selected = row.dataset.name;
+  view = "preview";
+  type = "";
+  paintList();
+});
+document.getElementById("detail").addEventListener("click", (event) => {
+  const batchBtn = event.target.closest("[data-batch]");
+  if (batchBtn) { openBatch = batchBtn.dataset.batch; view = "batch"; paintDetail(); return; }
+  const viewBtn = event.target.closest("[data-view]");
+  if (viewBtn) { view = viewBtn.dataset.view; paintDetail(); return; }
+  const typeBtn = event.target.closest("[data-type]");
+  if (typeBtn) { type = typeBtn.dataset.type; paintDetail(); return; }
+  if (event.target.id === "make") toast("这是设计稿，不会生成批次。");
+  if (event.target.id === "go-week") toast("正式页面会去历史周结核验这张旧单。");
+});
+document.getElementById("q").addEventListener("input", paintList);
+document.getElementById("lock-only").addEventListener("click", (event) => {
+  lockOnly = !lockOnly;
+  event.currentTarget.classList.toggle("on", lockOnly);
+  paintList();
+});
+function setSide(next) {
+  side = side === next ? "" : next;
+  document.getElementById("sum-pay").classList.toggle("on", side === "pay");
+  document.getElementById("sum-owe").classList.toggle("on", side === "owe");
+  paintList();
+}
+document.getElementById("sum-pay").addEventListener("click", () => setSide("pay"));
+document.getElementById("sum-owe").addEventListener("click", () => setSide("owe"));
+document.getElementById("refresh").addEventListener("click", () => toast("正式页面会把截止时间拨到现在。"));
+document.getElementById("more").addEventListener("click", (event) => {
+  if (extra.length) {
+    extra = [];
+    event.currentTarget.textContent = "按 36 个代理看";
+    document.getElementById("more-note").textContent = "现在是生产里这 12 个有数的代理。";
+  } else {
+    extra = Array.from({ length: 24 }, (_, i) => {
+      const n = i + 13;
+      const store = (n % 5) * 180 + 40;
+      const draw = n % 4 === 0 ? 5000 + n * 20 : 0;
+      return { name: "示意代理 " + n, store, adj: 0, draw, locked: n % 6 === 0 ? 320 : 0, earnN: 1, drawN: draw ? 1 : 0, demo: true };
+    });
+    event.currentTarget.textContent = "回到现在这 12 个";
+    document.getElementById("more-note").textContent = "多出来的 24 个是示意，用来看名单变长以后左边自己滚、右边不动。";
+  }
+  paintList();
+});
+paintList();
+</script>
+</body>
+</html>

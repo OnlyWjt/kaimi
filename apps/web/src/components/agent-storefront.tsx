@@ -146,6 +146,40 @@ const I18N = {
     allRegions: "全部地区",
     regionEmpty: "这个地区暂时没有在售商品",
     seeAllRegions: "看全部地区",
+    allProducts: "全部商品",
+    stepsLabel: "购买流程",
+    steps: [
+      { title: "选商品付款", desc: "支付宝或微信" },
+      { title: "立刻拿到卡密", desc: "页面直接显示，也发到邮箱" },
+      { title: "去兑换开通", desc: "校验卡密，填 Session 就开" },
+    ],
+    stepsAccount: [
+      { title: "选商品付款", desc: "支付宝或微信" },
+      { title: "立刻拿到账号", desc: "页面直接显示，也发到邮箱" },
+      { title: "直接登录使用", desc: "不用兑换" },
+    ],
+    ticketLabel: "示意：付款后卡密显示的样子",
+    ticketCover: "付款后显示",
+    ticketNote: "付款后卡密直接出现在页面上，同时发到你的下单邮箱。",
+    groups: {
+      cdk: { title: "会员卡密", desc: "付款后出卡密，再去兑换页开通到你的账号" },
+      account: { title: "成品账号", desc: "付款后直接发能登录的账号，不用兑换" },
+    },
+    faqTitle: "买之前常问",
+    faq: {
+      noCode: {
+        q: "付完款没看到卡密怎么办？",
+        a: "先别重复付款。页面写着还在生成就等一下，买多张时会先出一部分。几分钟后还没有，用「邮箱查单」看状态，或把订单号发给店主。",
+      },
+      kinds: {
+        q: "会员卡密和成品账号有什么区别？",
+        a: "卡密要拿去兑换页，开通到你自己的账号上；成品账号是付款后直接给你一个能登录的账号，不用兑换。",
+      },
+      regions: {
+        q: "不同地区怎么选？",
+        a: "地区是开通时使用的付款地区，价格不同。不确定选哪个，先问店主再下单。",
+      },
+    },
     detail: {
       crumbHome: "首页",
       crumbProducts: "商品中心",
@@ -249,6 +283,40 @@ const I18N = {
     allRegions: "All regions",
     regionEmpty: "Nothing on sale in this region right now",
     seeAllRegions: "See all regions",
+    allProducts: "All products",
+    stepsLabel: "How buying works",
+    steps: [
+      { title: "Pick and pay", desc: "Alipay or WeChat Pay" },
+      { title: "Get your code", desc: "Shown on the page and emailed to you" },
+      { title: "Redeem it", desc: "Validate the code and add your Session" },
+    ],
+    stepsAccount: [
+      { title: "Pick and pay", desc: "Alipay or WeChat Pay" },
+      { title: "Get your account", desc: "Shown on the page and emailed to you" },
+      { title: "Sign in", desc: "No redeem step" },
+    ],
+    ticketLabel: "Example: where your code appears after payment",
+    ticketCover: "Revealed after payment",
+    ticketNote: "Your code shows up right on the page after payment, and is emailed to your order address.",
+    groups: {
+      cdk: { title: "Membership codes", desc: "Get a code after payment, then redeem it onto your account" },
+      account: { title: "Ready-made accounts", desc: "Get a working account after payment. No redeem step" },
+    },
+    faqTitle: "Before you buy",
+    faq: {
+      noCode: {
+        q: "I paid but don't see a code",
+        a: "Don't pay again. If the page says it is still issuing, wait a moment; multi-code orders may arrive in parts. If nothing shows after a few minutes, check “Track by email” or send your order number to the shop owner.",
+      },
+      kinds: {
+        q: "Codes vs. ready-made accounts?",
+        a: "A code is redeemed onto your own account on the redeem page. A ready-made account is a working login delivered after payment, with no redeem step.",
+      },
+      regions: {
+        q: "Which region should I pick?",
+        a: "The region is the billing region used to activate the plan, and prices differ by region. If you're not sure, ask the shop owner before ordering.",
+      },
+    },
     detail: {
       crumbHome: "Home",
       crumbProducts: "Products",
@@ -326,14 +394,6 @@ function IconSearch() {
     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8">
       <circle cx="11" cy="11" r="6.2" />
       <path d="M16.2 16.2 20 20" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconOrders() {
-  return (
-    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M7 7h10M7 12h10M7 17h6" strokeLinecap="round" />
     </svg>
   );
 }
@@ -532,7 +592,7 @@ export function AgentStorefront({
     isThemeId(config.themeId) ? config.themeId : "snow",
   );
   const [lang, setLang] = useState<Lang>(config.defaultLang);
-  const [nav, setNav] = useState<"home" | "products" | "query" | "contact">("home");
+  const [nav, setNav] = useState<"home" | "products" | "query" | "contact">("products");
   const [filter, setFilter] = useState("all");
   const [regionFilter, setRegionFilter] = useState("");
   const [regionSwitchNote, setRegionSwitchNote] = useState("");
@@ -622,6 +682,21 @@ export function AgentStorefront({
       return inCategory && inRegion && inKeyword;
     });
   }, [products, filter, keyword, regionFilter]);
+
+  // 卡密和成品账号拿到手之后的用法完全不同，分开摆。只卖一类时不出组标题。
+  const sellsCodes = products.some((item) => item.kind !== "account");
+  const sellsAccounts = products.some((item) => item.kind === "account");
+  const productGroups = useMemo(
+    () =>
+      [
+        { id: "cdk" as const, items: visible.filter((item) => item.kind !== "account") },
+        { id: "account" as const, items: visible.filter((item) => item.kind === "account") },
+      ].filter((group) => group.items.length),
+    [visible],
+  );
+  // 首屏示意卡用店里第一个卡密商品的真名和价格，买家一眼看到的就是真东西。
+  const ticketProduct = products.find((item) => item.kind !== "account") ?? null;
+  const ticketSpec = ticketProduct?.specs[0] ?? null;
 
   const activeSpec = active?.specs.find((spec) => spec.id === specId) ?? active?.specs[0] ?? null;
   const listGoodsCents = activeSpec ? activeSpec.priceCents * qty : 0;
@@ -1015,10 +1090,80 @@ export function AgentStorefront({
   const announcement = pickText(config.announcement.text, lang);
 
   const NAV_ITEMS = [
-    { id: "home", label: t.nav.home, show: true },
+    { id: "products", label: t.nav.products, show: true },
     { id: "query", label: t.nav.query, show: config.queryEnabled },
     { id: "contact", label: t.nav.contact, show: config.contacts.length > 0 },
   ].filter((item) => item.show);
+
+  /** 商品卡片：沿用原来的样子，分组后每组都用它。 */
+  function renderProductCard(product: StorefrontProduct) {
+    const matched = regionFilter
+      ? product.specs.find((spec) => spec.region?.code.toLowerCase() === regionFilter)
+      : null;
+    const minCents = matched
+      ? matched.priceCents
+      : Math.min(...product.specs.map((spec) => spec.priceCents));
+    const badges = product.specs.filter((spec) => spec.region);
+    const shownBadges = matched ? badges.filter((spec) => spec.id === matched.id) : badges;
+    return (
+      <button
+        key={product.id}
+        type="button"
+        className="km-sf-card2"
+        onClick={() => openProduct(product)}
+      >
+        <div
+          className="km-sf-card2-art"
+          style={
+            product.cover
+              ? undefined
+              : { background: `hsl(${product.hue} 18% 96%)` }
+          }
+        >
+          <CoverPhoto
+            src={product.cover}
+            fallback={<ProductIcon product={product} />}
+          />
+        </div>
+        <div className="km-sf-card2-body">
+          <div className="km-sf-card2-top">
+            <span className="km-sf-card2-kicker">
+              {product.categoryLabel || pickText(product.subtitle, lang)}
+            </span>
+            <span
+              className={`km-sf-stock${productAvailable(product) ? "" : " km-sf-stock-wait"}`}
+            >
+              {productAvailabilityLabel(product, t)}
+            </span>
+          </div>
+          <h3 className="km-sf-card2-title">{pickText(product.name, lang)}</h3>
+          {shownBadges.length ? (
+            <span style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              {shownBadges.slice(0, 4).map((spec) => (
+                <RegionBadge
+                  key={spec.id}
+                  country={spec.region?.country || ""}
+                  regionLabel={spec.region?.zh}
+                  compact
+                />
+              ))}
+            </span>
+          ) : null}
+          <div className="km-sf-card2-foot">
+            <span className="km-sf-price2">
+              {!matched && product.specs.length > 1
+                ? t.priceFrom(yuanTextFromCents(minCents))
+                : `¥${yuanTextFromCents(minCents)}`}
+            </span>
+            <span className="km-sf-buy">
+              {productAvailable(product) ? t.buyNow : t.restocking}
+              <IconArrow />
+            </span>
+          </div>
+        </div>
+      </button>
+    );
+  }
 
   return (
     <div data-theme={themeId} className={`km-sf km-themed-page${preview ? " is-preview" : ""}`}>
@@ -1075,16 +1220,6 @@ export function AgentStorefront({
               </a>
             </nav>
             <div className="km-sf-tools">
-              {config.queryEnabled ? (
-                <button
-                  type="button"
-                  className="km-sf-icon-btn"
-                  aria-label={t.nav.query}
-                  onClick={() => jump("query")}
-                >
-                  <IconOrders />
-                </button>
-              ) : null}
               {multiLang ? (
                 <button
                   type="button"
@@ -1111,11 +1246,77 @@ export function AgentStorefront({
       <div id="km-sf-top" className="km-shell-wide space-y-12 py-6 md:py-8">
         {!active || !activeSpec ? (
           <>
-            {config.hero.enabled ? (
-              <section className="km-sf-hero2 km-rise">
-                {heroChip ? <span className="km-sf-chip">{heroChip}</span> : null}
-                <h1 className="km-sf-hero-title">{heroTitle}</h1>
-                {heroSub ? <p className="km-sf-hero-sub">{heroSub}</p> : null}
+            <section className="km-sf-intro km-rise">
+              <div className="km-sf-intro-main">
+                {config.hero.enabled && heroChip ? <span className="km-sf-chip">{heroChip}</span> : null}
+                <h1 className="km-sf-intro-title">{config.hero.enabled ? heroTitle : config.shopName}</h1>
+                <p className="km-sf-intro-sub">{config.hero.enabled ? heroSub : slogan}</p>
+                <ol className="km-sf-steps" aria-label={t.stepsLabel}>
+                  {(sellsCodes ? t.steps : t.stepsAccount).map((step, index) => (
+                    <li key={step.title}>
+                      <span className="km-sf-step-no" aria-hidden>
+                        {index + 1}
+                      </span>
+                      <b>{step.title}</b>
+                      <span>{step.desc}</span>
+                    </li>
+                  ))}
+                </ol>
+                {config.stats.enabled && config.stats.items.length ? (
+                  <div className="km-sf-stats">
+                    {config.stats.items.map((stat, index) => (
+                      <div key={`${stat.value}-${index}`} className="km-sf-stat">
+                        <strong>{stat.value}</strong>
+                        <span>{pickText(stat.label, lang)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              {ticketProduct && ticketSpec ? (
+                <div className="km-sf-ticket" tabIndex={0} aria-label={t.ticketLabel}>
+                  <div className="km-sf-ticket-head">
+                    <span>{config.shopName}</span>
+                    <span className="font-mono">KS2026…7Q4F</span>
+                  </div>
+                  <p className="km-sf-ticket-plan">
+                    {pickText(ticketProduct.name, lang)}
+                    {ticketSpec.region ? ` · ${lang === "en" ? ticketSpec.region.en : ticketSpec.region.zh}` : ""}
+                    <span>¥{yuanTextFromCents(ticketSpec.priceCents)}</span>
+                  </p>
+                  <div className="km-sf-scratch" aria-hidden>
+                    KM7Q-4FXB-92HD-L3PA
+                    <span className="km-sf-foil">{t.ticketCover}</span>
+                  </div>
+                  <p className="km-sf-ticket-note">{t.ticketNote}</p>
+                </div>
+              ) : null}
+            </section>
+
+            <section id="km-sf-products" className="km-sf-shop">
+              <div className="km-sf-shop-bar">
+                <h2 className="km-sf-shop-title">{t.allProducts}</h2>
+                {showRegions ? (
+                  <div className="km-sf-filters" role="tablist" aria-label={t.allRegions}>
+                    <button
+                      type="button"
+                      className={`km-sf-cat${regionFilter === "" ? " km-sf-cat-active" : ""}`}
+                      onClick={() => chooseRegion("")}
+                    >
+                      {t.allRegions}
+                    </button>
+                    {regionOptions.map((region) => (
+                      <button
+                        key={region.code}
+                        type="button"
+                        className={`km-sf-cat${regionFilter === region.code.toLowerCase() ? " km-sf-cat-active" : ""}`}
+                        onClick={() => chooseRegion(region.code.toLowerCase())}
+                      >
+                        <RegionBadge country={region.country} regionLabel={region.zh} compact={lang === "en"} />
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
                 {config.searchEnabled ? (
                   <label className="km-sf-search">
                     <IconSearch />
@@ -1127,153 +1328,7 @@ export function AgentStorefront({
                     />
                   </label>
                 ) : null}
-                {config.stats.enabled && config.stats.items.length ? (
-                  <div className="km-sf-stats">
-                    {config.stats.items.map((stat, index) => (
-                      <div key={`${stat.value}-${index}`} className="km-sf-stat">
-                        <strong>{stat.value}</strong>
-                        <span>{pickText(stat.label, lang)}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </section>
-            ) : null}
-
-            {config.queryEnabled ? (
-              <section id="km-sf-query" className="km-sf-query">
-                <div className="km-sf-query-icon" aria-hidden>
-                  <IconMail />
-                </div>
-                <div className="min-w-0 flex-1 space-y-1">
-                  <h2 className="km-sf-query-title">{t.queryTitle}</h2>
-                  <p className="km-sf-query-desc">{t.queryDesc}</p>
-                  <div className="km-sf-query-row">
-                    <input
-                      className="km-input"
-                      type="email"
-                      value={queryEmail}
-                      onChange={(event) => setQueryEmail(event.target.value)}
-                      placeholder={t.queryPlaceholder}
-                      aria-label={t.queryTitle}
-                    />
-                    <button
-                      type="button"
-                      className="km-btn km-btn-sm km-sf-query-go"
-                      disabled={queryBusy || !queryEmail.trim()}
-                      onClick={() => void lookupOrders()}
-                    >
-                      {queryBusy ? t.queryBusy : t.queryButton}
-                    </button>
-                  </div>
-                  <p className="km-sf-query-note">{queryError || t.queryNote}</p>
-                  {myOrders?.length ? (
-                    <div className="km-sf-orders">
-                      <div className="km-sf-orders-head">
-                        <p className="km-sf-query-note">{t.queryScope}</p>
-                        <p className="km-sf-orders-count">{t.queryCount(myOrders.length)}</p>
-                      </div>
-                      {visibleOrders.map((order, index) => (
-                        <div
-                          key={`${order.orderRef}-${index}`}
-                          className={`km-sf-order-row km-sf-order-${orderTone(order)}`}
-                        >
-                          <span className="min-w-0">
-                            <strong>{order.productName}</strong>
-                            <span className="km-sf-order-status font-mono">{order.orderRef}</span>
-                            {order.paymentCountry !== null && order.paymentCountry !== undefined ? (
-                              <RegionBadge
-                                country={order.paymentCountry}
-                                regionLabel={order.regionLabel || ""}
-                              />
-                            ) : null}
-                            <span className="km-sf-order-status">
-                              {orderStatusText(order)}
-                              {(order.quantity || 1) > 1 ? ` · ${order.quantity} 张` : ""}
-                            </span>
-                          </span>
-                          <span className="km-sf-order-amount">
-                            ¥{yuanTextFromCents(order.amountCents)}
-                          </span>
-                        </div>
-                      ))}
-                      {hiddenOrderCount > 0 ? (
-                        <button
-                          type="button"
-                          className="km-sf-orders-more"
-                          onClick={() => {
-                            setOrdersOpen((open) => {
-                              if (open) {
-                                requestAnimationFrame(() => {
-                                  document.getElementById("km-sf-query")?.scrollIntoView({
-                                    behavior: "smooth",
-                                    block: "start",
-                                  });
-                                });
-                              }
-                              return !open;
-                            });
-                          }}
-                        >
-                          {ordersOpen ? t.queryLess : t.queryMore(hiddenOrderCount)}
-                        </button>
-                      ) : null}
-                      <div className="space-y-1 pt-2">
-                        <p className="km-sf-query-title text-sm">{t.verifyTitle}</p>
-                        <p className="km-sf-query-note">{t.verifyDesc}</p>
-                        <div className="km-sf-query-row">
-                          <input
-                            className="km-input font-mono"
-                            value={verifyOrderNo}
-                            onChange={(event) => setVerifyOrderNo(event.target.value)}
-                            placeholder={t.verifyPlaceholder}
-                            aria-label={t.verifyTitle}
-                          />
-                          <button
-                            type="button"
-                            className="km-btn km-btn-sm km-sf-query-go"
-                            disabled={verifyBusy || !verifyOrderNo.trim()}
-                            onClick={() => void openVerifiedOrder()}
-                          >
-                            {verifyBusy ? t.verifyBusy : t.verifyButton}
-                          </button>
-                        </div>
-                        {canMailLinks ? (
-                          <button
-                            type="button"
-                            className="km-sf-orders-more"
-                            disabled={mailBusy}
-                            onClick={() => void mailOrderLinks()}
-                          >
-                            {mailBusy ? t.mailLinksBusy : t.mailLinks}
-                          </button>
-                        ) : null}
-                        {verifyMessage ? <p className="km-sf-query-note">{verifyMessage}</p> : null}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              </section>
-            ) : null}
-
-            <a
-              href={redeemUrl}
-              className="km-sf-redeem"
-              {...(isExternalRedeemUrl(redeemUrl)
-                ? { target: "_blank", rel: "noreferrer" }
-                : undefined)}
-            >
-              <div className="min-w-0">
-                <p className="km-sf-redeem-kicker">{t.redeemTitle}</p>
-                <p className="km-sf-redeem-sub">{t.redeemSub}</p>
               </div>
-              <span className="km-sf-redeem-cta">
-                {t.redeemCta}
-                <span aria-hidden>↗</span>
-              </span>
-            </a>
-
-            <section id="km-sf-products" className="space-y-4">
               {showCategories ? (
                 <div className="km-sf-filters" role="tablist" aria-label="商品分类">
                   <button
@@ -1296,99 +1351,18 @@ export function AgentStorefront({
                 </div>
               ) : null}
 
-              {showRegions ? (
-                <div className="km-sf-filters" role="tablist" aria-label={t.allRegions}>
-                  <button
-                    type="button"
-                    className={`km-sf-cat${regionFilter === "" ? " km-sf-cat-active" : ""}`}
-                    onClick={() => chooseRegion("")}
-                  >
-                    {t.allRegions}
-                  </button>
-                  {regionOptions.map((region) => (
-                    <button
-                      key={region.code}
-                      type="button"
-                      className={`km-sf-cat${regionFilter === region.code.toLowerCase() ? " km-sf-cat-active" : ""}`}
-                      onClick={() => chooseRegion(region.code.toLowerCase())}
-                    >
-                      <RegionBadge country={region.country} regionLabel={region.zh} compact={lang === "en"} />
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-
               {visible.length ? (
-                <div className="km-sf-grid2">
-                  {visible.map((product) => {
-                    const matched = regionFilter
-                      ? product.specs.find((spec) => spec.region?.code.toLowerCase() === regionFilter)
-                      : null;
-                    const minCents = matched
-                      ? matched.priceCents
-                      : Math.min(...product.specs.map((spec) => spec.priceCents));
-                    const badges = product.specs.filter((spec) => spec.region);
-                    const shownBadges = matched ? badges.filter((spec) => spec.id === matched.id) : badges;
-                    return (
-                      <button
-                        key={product.id}
-                        type="button"
-                        className="km-sf-card2"
-                        onClick={() => openProduct(product)}
-                      >
-                        <div
-                          className="km-sf-card2-art"
-                          style={
-                            product.cover
-                              ? undefined
-                              : { background: `hsl(${product.hue} 18% 96%)` }
-                          }
-                        >
-                          <CoverPhoto
-                            src={product.cover}
-                            fallback={<ProductIcon product={product} />}
-                          />
-                        </div>
-                        <div className="km-sf-card2-body">
-                          <div className="km-sf-card2-top">
-                            <span className="km-sf-card2-kicker">
-                              {product.categoryLabel || pickText(product.subtitle, lang)}
-                            </span>
-                            <span
-                              className={`km-sf-stock${productAvailable(product) ? "" : " km-sf-stock-wait"}`}
-                            >
-                              {productAvailabilityLabel(product, t)}
-                            </span>
-                          </div>
-                          <h3 className="km-sf-card2-title">{pickText(product.name, lang)}</h3>
-                          {shownBadges.length ? (
-                            <span style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                              {shownBadges.slice(0, 4).map((spec) => (
-                                <RegionBadge
-                                  key={spec.id}
-                                  country={spec.region?.country || ""}
-                                  regionLabel={spec.region?.zh}
-                                  compact
-                                />
-                              ))}
-                            </span>
-                          ) : null}
-                          <div className="km-sf-card2-foot">
-                            <span className="km-sf-price2">
-                              {!matched && product.specs.length > 1
-                                ? t.priceFrom(yuanTextFromCents(minCents))
-                                : `¥${yuanTextFromCents(minCents)}`}
-                            </span>
-                            <span className="km-sf-buy">
-                              {productAvailable(product) ? t.buyNow : t.restocking}
-                              <IconArrow />
-                            </span>
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                productGroups.map((group) => (
+                  <div key={group.id} className="km-sf-group">
+                    {sellsCodes && sellsAccounts ? (
+                      <div className="km-sf-group-head">
+                        <h3>{t.groups[group.id].title}</h3>
+                        <p>{t.groups[group.id].desc}</p>
+                      </div>
+                    ) : null}
+                    <div className="km-sf-grid2">{group.items.map(renderProductCard)}</div>
+                  </div>
+                ))
               ) : regionFilter ? (
                 <div className="km-sf-empty">
                   <p>{t.regionEmpty}</p>
@@ -1398,6 +1372,152 @@ export function AgentStorefront({
                 </div>
               ) : (
                 <p className="km-sf-empty">{t.empty}</p>
+              )}
+            </section>
+
+            <div className="km-sf-help">
+              {config.queryEnabled ? (
+                <section id="km-sf-query" className="km-sf-query">
+                  <div className="km-sf-query-icon" aria-hidden>
+                    <IconMail />
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <h2 className="km-sf-query-title">{t.queryTitle}</h2>
+                    <p className="km-sf-query-desc">{t.queryDesc}</p>
+                    <div className="km-sf-query-row">
+                      <input
+                        className="km-input"
+                        type="email"
+                        value={queryEmail}
+                        onChange={(event) => setQueryEmail(event.target.value)}
+                        placeholder={t.queryPlaceholder}
+                        aria-label={t.queryTitle}
+                      />
+                      <button
+                        type="button"
+                        className="km-btn km-btn-sm km-sf-query-go"
+                        disabled={queryBusy || !queryEmail.trim()}
+                        onClick={() => void lookupOrders()}
+                      >
+                        {queryBusy ? t.queryBusy : t.queryButton}
+                      </button>
+                    </div>
+                    <p className="km-sf-query-note">{queryError || t.queryNote}</p>
+                    {myOrders?.length ? (
+                      <div className="km-sf-orders">
+                        <div className="km-sf-orders-head">
+                          <p className="km-sf-query-note">{t.queryScope}</p>
+                          <p className="km-sf-orders-count">{t.queryCount(myOrders.length)}</p>
+                        </div>
+                        {visibleOrders.map((order, index) => (
+                          <div
+                            key={`${order.orderRef}-${index}`}
+                            className={`km-sf-order-row km-sf-order-${orderTone(order)}`}
+                          >
+                            <span className="min-w-0">
+                              <strong>{order.productName}</strong>
+                              <span className="km-sf-order-status font-mono">{order.orderRef}</span>
+                              {order.paymentCountry !== null && order.paymentCountry !== undefined ? (
+                                <RegionBadge
+                                  country={order.paymentCountry}
+                                  regionLabel={order.regionLabel || ""}
+                                />
+                              ) : null}
+                              <span className="km-sf-order-status">
+                                {orderStatusText(order)}
+                                {(order.quantity || 1) > 1 ? ` · ${order.quantity} 张` : ""}
+                              </span>
+                            </span>
+                            <span className="km-sf-order-amount">
+                              ¥{yuanTextFromCents(order.amountCents)}
+                            </span>
+                          </div>
+                        ))}
+                        {hiddenOrderCount > 0 ? (
+                          <button
+                            type="button"
+                            className="km-sf-orders-more"
+                            onClick={() => {
+                              setOrdersOpen((open) => {
+                                if (open) {
+                                  requestAnimationFrame(() => {
+                                    document.getElementById("km-sf-query")?.scrollIntoView({
+                                      behavior: "smooth",
+                                      block: "start",
+                                    });
+                                  });
+                                }
+                                return !open;
+                              });
+                            }}
+                          >
+                            {ordersOpen ? t.queryLess : t.queryMore(hiddenOrderCount)}
+                          </button>
+                        ) : null}
+                        <div className="space-y-1 pt-2">
+                          <p className="km-sf-query-title text-sm">{t.verifyTitle}</p>
+                          <p className="km-sf-query-note">{t.verifyDesc}</p>
+                          <div className="km-sf-query-row">
+                            <input
+                              className="km-input font-mono"
+                              value={verifyOrderNo}
+                              onChange={(event) => setVerifyOrderNo(event.target.value)}
+                              placeholder={t.verifyPlaceholder}
+                              aria-label={t.verifyTitle}
+                            />
+                            <button
+                              type="button"
+                              className="km-btn km-btn-sm km-sf-query-go"
+                              disabled={verifyBusy || !verifyOrderNo.trim()}
+                              onClick={() => void openVerifiedOrder()}
+                            >
+                              {verifyBusy ? t.verifyBusy : t.verifyButton}
+                            </button>
+                          </div>
+                          {canMailLinks ? (
+                            <button
+                              type="button"
+                              className="km-sf-orders-more"
+                              disabled={mailBusy}
+                              onClick={() => void mailOrderLinks()}
+                            >
+                              {mailBusy ? t.mailLinksBusy : t.mailLinks}
+                            </button>
+                          ) : null}
+                          {verifyMessage ? <p className="km-sf-query-note">{verifyMessage}</p> : null}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </section>
+              ) : null}
+              <a
+                href={redeemUrl}
+                className="km-sf-redeem"
+                {...(isExternalRedeemUrl(redeemUrl)
+                  ? { target: "_blank", rel: "noreferrer" }
+                  : undefined)}
+              >
+                <div className="min-w-0">
+                  <p className="km-sf-redeem-kicker">{t.redeemTitle}</p>
+                  <p className="km-sf-redeem-sub">{t.redeemSub}</p>
+                </div>
+                <span className="km-sf-redeem-cta">
+                  {t.redeemCta}
+                  <span aria-hidden>↗</span>
+                </span>
+              </a>
+            </div>
+
+            <section className="km-sf-faq" aria-labelledby="km-sf-faq-title">
+              <h2 id="km-sf-faq-title">{t.faqTitle}</h2>
+              {[t.faq.noCode, ...(sellsCodes && sellsAccounts ? [t.faq.kinds] : []), ...(showRegions ? [t.faq.regions] : [])].map(
+                (item) => (
+                  <details key={item.q}>
+                    <summary>{item.q}</summary>
+                    <p>{item.a}</p>
+                  </details>
+                ),
               )}
             </section>
           </>

@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>店铺首页布局改版 · gpt代充站</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+  <style>
+    /*
+     * 布局改版设计稿
+     * - 商品卡片原样沿用线上 .km-sf-card2（结构、尺寸、字体都照抄 globals.css），只改页面怎么排。
+     * - 改动：首屏先讲清「付款 → 拿卡密 → 去兑换」，商品紧跟其后并按「会员卡密 / 成品账号」分组；
+     *   地区筛选、搜索收进商品标题行；查订单、去兑换挪到商品下面并排；补常见问题和联系方式。
+     * - 唯一的装饰是首屏那张「刮刮卡」：演示付款后卡密在哪里出现。
+     * - 变量名沿用 --km-*，落地时直接吃主题包的值。
+     */
+    :root {
+      --km-bg: #eef2f6;
+      --km-bg-elevated: #f9fbfc;
+      --km-bg-muted: #e3e9ef;
+      --km-fg: #12202f;
+      --km-fg-muted: #5f6d7b;
+      --km-border: #d8e0e8;
+      --km-accent: #12202f;
+      --km-accent-fg: #ffffff;
+      --km-ok: #0b6e4f;
+      --km-warn: #a8681a;
+      --km-foil-1: #aeb6c1;
+      --km-foil-2: #eef1f5;
+      --km-radius: 1.25rem;
+      --km-font-display: "Sora", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --km-font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+      --km-font-body: -apple-system, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+      --shell: min(1140px, 100% - 40px);
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+    body { margin: 0; background: var(--km-bg); color: var(--km-fg); font: 15px/1.6 var(--km-font-body); -webkit-font-smoothing: antialiased; }
+    button, input { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    :focus-visible { outline: 2px solid var(--km-fg); outline-offset: 2px; }
+    .shell { width: var(--shell); margin-inline: auto; }
+    .mono { font-family: var(--km-font-mono); }
+    .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+    /* ——— 公告 ——— */
+    .notice { background: var(--km-fg); color: #dfe6ec; font-size: 13px; text-align: center; padding: 7px 16px; }
+
+    /* ——— 顶栏 ——— */
+    .top { position: sticky; top: 0; z-index: 20; background: color-mix(in oklab, var(--km-bg) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--km-border); }
+    .top-row { display: flex; align-items: center; gap: 20px; height: 60px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; text-decoration: none; color: inherit; white-space: nowrap; }
+    .brand-mark { width: 30px; height: 30px; border-radius: 999px; display: grid; place-items: center; background: var(--km-fg); color: #fff; font: 700 12px/1 var(--km-font-display); }
+    .top-nav { display: flex; gap: 2px; margin-left: auto; }
+    .top-nav a { padding: 6px 12px; border-radius: 999px; color: var(--km-fg-muted); text-decoration: none; font-size: 14px; white-space: nowrap; }
+    .top-nav a:hover { color: var(--km-fg); background: var(--km-bg-muted); }
+    .lang { display: inline-flex; border: 1px solid var(--km-border); border-radius: 999px; padding: 2px; font-size: 12px; }
+    .lang button { border: 0; background: none; padding: 3px 9px; border-radius: 999px; color: var(--km-fg-muted); }
+    .lang button[aria-pressed="true"] { background: var(--km-fg); color: #fff; }
+
+    /* ——— 首屏 ——— */
+    .intro { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 40px; align-items: center; padding: 36px 0 28px; }
+    .intro h1 { margin: 0; font: 700 clamp(28px, 4vw, 38px)/1.2 var(--km-font-display); letter-spacing: -0.02em; }
+    .slogan { margin: 6px 0 0; color: var(--km-fg-muted); font-size: 16px; }
+    .steps { list-style: none; margin: 22px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .steps li { background: var(--km-bg-elevated); border: 1px solid var(--km-border); border-radius: 12px; padding: 10px 12px; font-size: 13px; line-height: 1.45; color: var(--km-fg-muted); }
+    .steps b { display: block; font-size: 14px; margin-bottom: 2px; color: var(--km-fg); }
+    .step-no { display: inline-grid; place-items: center; width: 20px; height: 20px; margin-bottom: 6px; border-radius: 999px; background: var(--km-fg); color: #fff; font: 600 11px/1 var(--km-font-mono); }
+
+    /* 刮刮卡：页面唯一的装饰 */
+    .ticket { position: relative; background: var(--km-bg-elevated); border: 1px solid var(--km-border); border-radius: var(--km-radius); padding: 20px 22px 18px; box-shadow: 0 24px 48px -32px rgb(18 32 47 / 45%); transform: rotate(-1.2deg); }
+    .ticket::before, .ticket::after { content: ""; position: absolute; top: 50%; width: 18px; height: 18px; margin-top: -9px; border-radius: 50%; background: var(--km-bg); border: 1px solid var(--km-border); }
+    .ticket::before { left: -10px; }
+    .ticket::after { right: -10px; }
+    .ticket-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; color: var(--km-fg-muted); }
+    .ticket-plan { margin: 6px 0 14px; font: 600 18px/1.3 var(--km-font-display); }
+    .ticket-plan span { font-size: 14px; color: var(--km-fg-muted); margin-left: 6px; }
+    .scratch { position: relative; overflow: hidden; border-radius: 8px; background: var(--km-bg-muted); padding: 12px 14px; font: 600 17px/1.2 var(--km-font-mono); letter-spacing: 0.06em; }
+    .foil { position: absolute; inset: 0; display: flex; align-items: center; justify-content: flex-end; padding-right: 14px;
+      background: repeating-linear-gradient(115deg, transparent 0 6px, rgb(255 255 255 / 22%) 6px 7px), linear-gradient(105deg, var(--km-foil-1), var(--km-foil-2) 45%, var(--km-foil-1) 70%, var(--km-foil-2));
+      clip-path: inset(0 0 0 38%); transition: clip-path 900ms cubic-bezier(.2,.7,.2,1);
+      font: 600 11px/1 var(--km-font-body); letter-spacing: 0.12em; color: rgb(18 32 47 / 55%); }
+    .ticket:hover .foil, .ticket:focus-visible .foil { clip-path: inset(0 0 0 100%); }
+    @media (prefers-reduced-motion: reduce) { .foil { transition: none; } }
+    .ticket-foot { margin: 12px 0 0; font-size: 12.5px; color: var(--km-fg-muted); }
+
+    /* ——— 商品区 ——— */
+    .shop { padding: 8px 0 8px; scroll-margin-top: 72px; }
+    .shop-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin-bottom: 18px; }
+    .shop-bar h2 { margin: 0; font: 600 20px/1.3 var(--km-font-display); margin-right: auto; }
+    .search { border: 1px solid var(--km-border); border-radius: 999px; background: var(--km-bg-elevated); padding: 7px 14px; font-size: 14px; width: 200px; }
+    .group { margin-top: 26px; }
+    .group:first-of-type { margin-top: 0; }
+    .group-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; }
+    .group-head h3 { margin: 0; font-size: 15px; }
+    .group-head p { margin: 0; font-size: 13px; color: var(--km-fg-muted); }
+
+    /* 地区筛选：照抄线上 .km-sf-filters / .km-sf-cat */
+    .km-sf-filters { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+    .km-sf-cat { border: 1px solid var(--km-border); border-radius: 999px; background: var(--km-bg-elevated); padding: 0.42rem 0.95rem; color: var(--km-fg-muted); font-size: 0.88rem; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+    .km-sf-cat:hover:not(.km-sf-cat-active) { color: var(--km-fg); border-color: var(--km-fg); }
+    .km-sf-cat-active { color: var(--km-accent-fg); background: var(--km-fg); border-color: var(--km-fg); }
+
+    /* 地区标：线上 RegionBadge 的样子 */
+    .rb { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; }
+    .rb code { font: 600 10px/1 var(--km-font-mono); padding: 3px 5px; border-radius: 4px; background: var(--rb-bg, #e6ecf3); color: var(--rb-fg, #24364a); }
+    .rb-ph { --rb-bg: #e6ecf3; --rb-fg: #24364a; }
+    .rb-us { --rb-bg: #e3ebf8; --rb-fg: #1d3f75; }
+    .rb-cl { --rb-bg: #fbeedd; --rb-fg: #8a4b12; }
+    .km-sf-cat-active .rb code { background: rgb(255 255 255 / 18%); color: #fff; }
+
+    /* ——— 商品卡片：原样沿用线上 .km-sf-card2 ——— */
+    .km-sf-grid2 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.15rem; }
+    .km-sf-card2 { display: grid; grid-template-rows: auto 1fr; text-align: left; padding: 0; overflow: hidden; border-radius: 1.25rem; border: 1px solid var(--km-border); background: var(--km-bg-elevated); color: inherit; cursor: pointer; transition: border-color 160ms ease, transform 160ms ease; }
+    .km-sf-card2:hover { border-color: var(--km-fg); transform: translateY(-2px); }
+    @media (prefers-reduced-motion: reduce) { .km-sf-card2, .km-sf-card2:hover { transition: none; transform: none; } }
+    .km-sf-card2-art { display: grid; place-items: center; aspect-ratio: 16 / 9; overflow: hidden; border-bottom: 1px solid color-mix(in oklab, var(--km-border) 70%, transparent); }
+    .km-sf-card2-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .km-sf-p-icon { display: grid; place-items: center; width: 3.4rem; height: 3.4rem; border-radius: 999px; border: 1px solid; font: 650 0.78rem/1 var(--km-font-display); }
+    .km-sf-card2-body { display: grid; align-content: start; gap: 0.35rem; padding: 1rem 1.05rem 1.05rem; }
+    .km-sf-card2-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.6rem; }
+    .km-sf-card2-kicker { font-size: 0.7rem; font-weight: 550; letter-spacing: 0.06em; color: var(--km-fg-muted); }
+    .km-sf-stock { font-size: 0.74rem; color: var(--km-fg-muted); }
+    .km-sf-card2-title { margin: 0.15rem 0 0; font: 620 1.22rem/1.25 var(--km-font-display); letter-spacing: -0.03em; }
+    .km-sf-card2-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; margin-top: 0.85rem; padding-top: 0.75rem; border-top: 1px solid color-mix(in oklab, var(--km-border) 75%, transparent); }
+    .km-sf-price2 { font: 650 1.18rem/1.3 var(--km-font-display); letter-spacing: -0.02em; }
+    .km-sf-buy { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.04em; }
+    .badges { display: flex; gap: 4px; flex-wrap: wrap; }
+
+    /* ——— 查订单 / 兑换 ——— */
+    .help { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; padding: 40px 0 8px; }
+    .panel { background: var(--km-bg-elevated); border: 1px solid var(--km-border); border-radius: var(--km-radius); padding: 20px 22px; scroll-margin-top: 72px; }
+    .panel h2 { margin: 0; font: 600 16px/1.4 var(--km-font-display); }
+    .panel p { margin: 4px 0 0; color: var(--km-fg-muted); font-size: 13px; }
+    .field-row { display: flex; gap: 8px; margin-top: 14px; }
+    .input { flex: 1; min-width: 0; border: 1px solid var(--km-border); border-radius: 999px; background: var(--km-bg); padding: 10px 16px; font-size: 14px; }
+    .btn { border: 0; border-radius: 999px; padding: 10px 18px; background: var(--km-fg); color: #fff; font-weight: 600; font-size: 14px; white-space: nowrap; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+    .btn.ghost { background: none; color: var(--km-fg); border: 1px solid var(--km-border); }
+    .panel .btn.ghost { margin-top: 14px; }
+
+    /* ——— 常见问题 ——— */
+    .faq { padding: 32px 0 8px; }
+    .faq h2 { font: 600 18px/1.4 var(--km-font-display); margin: 0 0 8px; }
+    .faq details { border-top: 1px solid var(--km-border); padding: 12px 2px; }
+    .faq details:last-child { border-bottom: 1px solid var(--km-border); }
+    .faq summary { cursor: pointer; font-weight: 600; font-size: 14.5px; list-style: none; display: flex; justify-content: space-between; gap: 12px; }
+    .faq summary::-webkit-details-marker { display: none; }
+    .faq summary::after { content: "+"; color: var(--km-fg-muted); font-family: var(--km-font-mono); }
+    .faq details[open] summary::after { content: "−"; }
+    .faq details p { margin: 6px 0 0; color: var(--km-fg-muted); font-size: 13.5px; }
+
+    /* ——— 页脚 ——— */
+    .foot { margin-top: 40px; border-top: 1px solid var(--km-border); padding: 24px 0 40px; font-size: 13px; color: var(--km-fg-muted); }
+    .foot-row { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: space-between; }
+    .foot-brand { display: flex; align-items: center; gap: 10px; color: var(--km-fg); font-weight: 700; }
+    .contacts { display: flex; gap: 8px; flex-wrap: wrap; }
+    .contacts a { border: 1px solid var(--km-border); border-radius: 999px; padding: 5px 12px; text-decoration: none; color: var(--km-fg); background: var(--km-bg-elevated); }
+
+    /* ——— 宽屏 4 列：一组卡密正好一行，不留单张孤卡 ——— */
+    @media (min-width: 1100px) {
+      .km-sf-grid2 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
+
+    /* ——— 窄屏 ——— */
+    @media (min-width: 700px) and (max-width: 960px) {
+      .km-sf-grid2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 860px) {
+      .intro { grid-template-columns: 1fr; gap: 20px; padding-top: 24px; }
+      .ticket { max-width: 380px; transform: none; }
+      .help { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 699px) {
+      :root { --shell: calc(100% - 28px); }
+      .top-row { gap: 10px; }
+      .top-nav a { padding: 6px 8px; }
+      .top-nav .hide-sm { display: none; }
+      .intro .ticket { display: none; }
+      .steps { grid-template-columns: 1fr; gap: 6px; }
+      .steps li { display: flex; gap: 10px; align-items: center; padding: 8px 12px; }
+      .step-no { margin: 0; flex: none; }
+      .steps b { display: inline; margin: 0 6px 0 0; }
+      .search { width: 100%; order: 3; }
+      .km-sf-filters { flex-wrap: nowrap; overflow-x: auto; width: 100%; padding-bottom: 2px; }
+      .km-sf-cat { white-space: nowrap; }
+      .km-sf-grid2 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="notice">公告：本周 Pro 200刀 美区补货完成，现在下单即时出卡。</div>
+
+  <header class="top">
+    <div class="shell top-row">
+      <a class="brand" href="#"><span class="brand-mark">AI</span>gpt代充站</a>
+      <nav class="top-nav" aria-label="页面导航">
+        <a href="#shop">商品</a>
+        <a href="#lookup">查订单</a>
+        <a href="#redeem" class="hide-sm">去兑换</a>
+      </nav>
+      <div class="lang" role="group" aria-label="语言">
+        <button aria-pressed="true">中</button><button aria-pressed="false">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="intro" aria-labelledby="shop-title">
+      <div>
+        <h1 id="shop-title">gpt代充站</h1>
+        <p class="slogan">正品会员直充 · 正品保障</p>
+        <ol class="steps" aria-label="购买流程">
+          <li><span class="step-no">1</span><b>选商品付款</b>支付宝或微信</li>
+          <li><span class="step-no">2</span><b>立刻拿到卡密</b>页面直接显示，也发到邮箱</li>
+          <li><span class="step-no">3</span><b>去兑换开通</b>校验卡密，填 Session 就开</li>
+        </ol>
+      </div>
+      <div class="ticket" tabindex="0" aria-label="示意：付款后卡密显示的样子">
+        <div class="ticket-head"><span>gpt代充站</span><span class="mono">KS2026…7Q4F</span></div>
+        <div class="ticket-plan">GPT Plus · 美区<span>¥168.00</span></div>
+        <div class="scratch" aria-hidden="true">KM7Q-4FXB-92HD-L3PA<span class="foil">付款后显示</span></div>
+        <p class="ticket-foot">付款后卡密直接出现在页面上，同时发到你的下单邮箱。</p>
+      </div>
+    </section>
+
+    <section class="shop" id="shop" aria-labelledby="shop-heading">
+      <div class="shop-bar">
+        <h2 id="shop-heading">全部商品</h2>
+        <div class="km-sf-filters" role="group" aria-label="按地区筛选">
+          <button class="km-sf-cat km-sf-cat-active">全部地区</button>
+          <button class="km-sf-cat"><span class="rb rb-ph"><code>PH</code>菲区</span></button>
+          <button class="km-sf-cat"><span class="rb rb-us"><code>US</code>美区</span></button>
+          <button class="km-sf-cat"><span class="rb rb-cl"><code>CL</code>智利区</span></button>
+        </div>
+        <label class="visually-hidden" for="search">搜索商品</label>
+        <input id="search" class="search" type="search" placeholder="搜索商品名称" />
+      </div>
+
+      <div class="group" aria-labelledby="g-cdk">
+        <div class="group-head">
+          <h3 id="g-cdk">会员卡密</h3>
+          <p>付款后出卡密，再去兑换页开通到你的账号</p>
+        </div>
+        <div class="km-sf-grid2">
+          <button class="km-sf-card2" type="button">
+            <div class="km-sf-card2-art" style="background: hsl(60 18% 96%)">
+              <span class="km-sf-p-icon" style="color: hsl(60 30% 32%); border-color: hsl(60 20% 80%)">Go</span>
+            </div>
+            <div class="km-sf-card2-body">
+              <div class="km-sf-card2-top"><span class="km-sf-card2-kicker">官方渠道 · 付款后立即出卡</span><span class="km-sf-stock">现货</span></div>
+              <h3 class="km-sf-card2-title">Go</h3>
+              <div class="km-sf-card2-foot"><span class="km-sf-price2">¥45.00</span><span class="km-sf-buy">立即购买 ↗</span></div>
+            </div>
+          </button>
+
+          <button class="km-sf-card2" type="button">
+            <div class="km-sf-card2-art"><img src="../../apps/web/public/storefront/cover-plus.png" alt="" /></div>
+            <div class="km-sf-card2-body">
+              <div class="km-sf-card2-top"><span class="km-sf-card2-kicker">官方渠道 · 付款后立即出卡</span><span class="km-sf-stock">现货</span></div>
+              <h3 class="km-sf-card2-title">GPT Plus</h3>
+              <span class="badges"><span class="rb rb-ph"><code>PH</code></span><span class="rb rb-us"><code>US</code></span></span>
+              <div class="km-sf-card2-foot"><span class="km-sf-price2">¥150.00 起</span><span class="km-sf-buy">立即购买 ↗</span></div>
+            </div>
+          </button>
+
+          <button class="km-sf-card2" type="button">
+            <div class="km-sf-card2-art"><img src="../../apps/web/public/storefront/cover-pro-5x.png" alt="" /></div>
+            <div class="km-sf-card2-body">
+              <div class="km-sf-card2-top"><span class="km-sf-card2-kicker">官方渠道 · 付款后立即出卡</span><span class="km-sf-stock">现货</span></div>
+              <h3 class="km-sf-card2-title">GPT Pro 100刀</h3>
+              <span class="badges"><span class="rb rb-ph"><code>PH</code></span><span class="rb rb-cl"><code>CL</code></span><span class="rb rb-us"><code>US</code></span></span>
+              <div class="km-sf-card2-foot"><span class="km-sf-price2">¥640.00 起</span><span class="km-sf-buy">立即购买 ↗</span></div>
+            </div>
+          </button>
+
+          <button class="km-sf-card2" type="button">
+            <div class="km-sf-card2-art"><img src="../../apps/web/public/storefront/cover-pro.png" alt="" /></div>
+            <div class="km-sf-card2-body">
+              <div class="km-sf-card2-top"><span class="km-sf-card2-kicker">官方渠道 · 付款后立即出卡</span><span class="km-sf-stock">现货</span></div>
+              <h3 class="km-sf-card2-title">GPT Pro 200刀</h3>
+              <span class="badges"><span class="rb rb-ph"><code>PH</code></span><span class="rb rb-us"><code>US</code></span></span>
+              <div class="km-sf-card2-foot"><span class="km-sf-price2">¥1155.00 起</span><span class="km-sf-buy">立即购买 ↗</span></div>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <div class="group" aria-labelledby="g-account">
+        <div class="group-head">
+          <h3 id="g-account">成品账号</h3>
+          <p>付款后直接发能登录的账号，不用兑换</p>
+        </div>
+        <div class="km-sf-grid2">
+          <button class="km-sf-card2" type="button">
+            <div class="km-sf-card2-art"><img src="../../apps/web/public/storefront/cover-plus.png" alt="" /></div>
+            <div class="km-sf-card2-body">
+              <div class="km-sf-card2-top"><span class="km-sf-card2-kicker">成品账号 · 付款后立即发送</span><span class="km-sf-stock">有货</span></div>
+              <h3 class="km-sf-card2-title">gpt free白号</h3>
+              <div class="km-sf-card2-foot"><span class="km-sf-price2">¥5.00</span><span class="km-sf-buy">立即购买 ↗</span></div>
+            </div>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <div class="help">
+      <section class="panel" id="lookup" aria-labelledby="lookup-title">
+        <h2 id="lookup-title">查订单</h2>
+        <p>填下单邮箱看订单和发货状态。看卡密要再填完整订单号，在付款记录（商户单号）或发货邮件里。</p>
+        <form class="field-row" onsubmit="return false">
+          <label class="visually-hidden" for="lookup-email">下单邮箱</label>
+          <input id="lookup-email" class="input" type="email" placeholder="下单时填的邮箱" />
+          <button class="btn" type="submit">查订单</button>
+        </form>
+      </section>
+      <section class="panel" id="redeem" aria-labelledby="redeem-title">
+        <h2 id="redeem-title">已经有卡密？</h2>
+        <p>去兑换页校验卡密，填 Session 就能开通。多张卡可以一次开。</p>
+        <a class="btn ghost" href="#">去兑换开通 ↗</a>
+      </section>
+    </div>
+
+    <section class="faq" aria-labelledby="faq-title">
+      <h2 id="faq-title">买之前常问</h2>
+      <details>
+        <summary>付完款没看到卡密怎么办？</summary>
+        <p>先别重复付款。页面写着还在生成就等一下，买多张时会先出一部分。几分钟后还没有，用上面的「查订单」看状态，或把订单号发给店主。</p>
+      </details>
+      <details>
+        <summary>会员卡密和成品账号有什么区别？</summary>
+        <p>卡密要拿去兑换页，开通到你自己的账号上；成品账号是付款后直接给你一个能登录的账号，不用兑换。</p>
+      </details>
+      <details>
+        <summary>菲区、美区、智利区怎么选？</summary>
+        <p>地区是开通时使用的付款地区，价格不同。不确定选哪个，先问店主再下单。</p>
+      </details>
+    </section>
+
+    <footer class="foot">
+      <div class="foot-row">
+        <span class="foot-brand"><span class="brand-mark">AI</span>gpt代充站</span>
+        <div class="contacts">
+          <a href="#">微信客服</a>
+          <a href="#">QQ 群</a>
+          <a href="#">Telegram</a>
+        </div>
+      </div>
+      <p>© 2026 gpt代充站</p>
+    </footer>
+  </main>
+
+  <script>
+    // 设计稿交互：只演示地区筛选按钮的选中态。
+    document.querySelectorAll(".km-sf-filters .km-sf-cat").forEach((btn, _, all) =>
+      btn.addEventListener("click", () => all.forEach((b) => b.classList.toggle("km-sf-cat-active", b === btn))),
+    );
+  </script>
+</body>
+</html>
