@@ -6,7 +6,7 @@ import { agents } from "@/db/schema";
 import { requireAgent } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { readMailSettings } from "@/lib/mail";
-import { issueAgentBindCode, unbindAgentTelegram } from "@/lib/telegram-bind";
+import { currentBotInfo, issueAgentBindCode, unbindAgentTelegram } from "@/lib/telegram-bind";
 
 const saveSchema = z.object({
   action: z.literal("save"),
@@ -29,8 +29,10 @@ function validReplyTo(value: string) {
 async function snapshot(agentId: number) {
   const agent = await db.query.agents.findFirst({ where: eq(agents.id, agentId) });
   if (!agent) return null;
-  const mail = await readMailSettings();
+  const [mail, bot] = await Promise.all([readMailSettings(), currentBotInfo()]);
   return {
+    botConfigured: bot.configured,
+    botUsername: bot.username,
     telegramBound: Boolean(agent.telegramChatId),
     telegramUsername: agent.telegramUsername,
     telegramNotifyEnabled: agent.telegramNotifyEnabled,

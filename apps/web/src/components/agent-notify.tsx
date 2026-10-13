@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 
 type Snapshot = {
+  botConfigured: boolean;
+  botUsername: string;
   telegramBound: boolean;
   telegramUsername: string;
   telegramNotifyEnabled: boolean;
@@ -62,6 +64,9 @@ export function AgentNotify() {
 
   if (!form) return <p className="text-sm text-[var(--km-fg-muted)]">正在读取通知设置…</p>;
 
+  const botName = bind?.botUsername || form.botUsername;
+  const botLink = botName ? `https://t.me/${botName}` : "";
+
   return (
     <div className="space-y-4">
       <section className="km-panel space-y-3">
@@ -71,6 +76,27 @@ export function AgentNotify() {
             只收你自己店铺的通知：每笔付款（购买人、金额、套餐和你的收益，不含平台成本和毛利），以及付款 10 分钟后还没发出卡的订单提醒。
           </p>
         </div>
+        {botName ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--km-accent)] bg-[color-mix(in_oklab,var(--km-accent)_8%,transparent)] p-3 text-sm">
+            <div>
+              <p>
+                平台官方机器人：<span className="font-mono font-semibold">@{botName}</span>
+              </p>
+              <p className="mt-1 text-xs text-[var(--km-fg-muted)]">
+                只能绑定这一个。搜索时认准用户名，名字相似的都不是平台的，发过去也绑不上。
+              </p>
+            </div>
+            <a className="km-btn km-btn-ghost km-btn-sm" href={botLink} target="_blank" rel="noreferrer">
+              打开 @{botName}
+            </a>
+          </div>
+        ) : (
+          <p className="text-sm text-[var(--km-fg-muted)]">
+            {form.botConfigured
+              ? "暂时读不到平台机器人的用户名，请联系平台确认。"
+              : "平台还没配置 Telegram 机器人，暂时不能绑定。"}
+          </p>
+        )}
         <p className="text-sm">
           {form.telegramBound
             ? `已绑定${form.telegramUsername ? ` @${form.telegramUsername}` : ""}`
@@ -85,7 +111,7 @@ export function AgentNotify() {
           接收下单通知
         </label>
         <div className="flex flex-wrap gap-2">
-          <button className="km-btn" disabled={busy} onClick={() => void post({ action: "bind" })}>
+          <button className="km-btn" disabled={busy || !form.botConfigured} onClick={() => void post({ action: "bind" })}>
             生成绑定码
           </button>
           {form.telegramBound ? (
@@ -100,11 +126,30 @@ export function AgentNotify() {
         {bind ? (
           <div className="rounded-lg border border-[var(--km-border)] p-3 text-sm">
             <p>
-              打开{bind.botUsername ? ` @${bind.botUsername}` : "机器人"}，发送：
+              打开{" "}
+              {botLink ? (
+                <a className="font-mono font-semibold underline underline-offset-2" href={botLink} target="_blank" rel="noreferrer">
+                  @{botName}
+                </a>
+              ) : (
+                "平台机器人"
+              )}
+              ，发送下面这一整行（包括 /bind 和空格）：
             </p>
-            <p className="mt-2 font-mono text-base">/bind {bind.code}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <p className="font-mono text-base">/bind {bind.code}</p>
+              <button
+                type="button"
+                className="km-btn km-btn-ghost km-btn-sm"
+                onClick={() =>
+                  void navigator.clipboard.writeText(`/bind ${bind.code}`).then(() => setMessage("已复制，粘贴发给机器人即可"))
+                }
+              >
+                复制
+              </button>
+            </div>
             <p className="mt-2 text-xs text-[var(--km-fg-muted)]">
-              {bind.expiresAt.replace("T", " ").slice(0, 16)} 前有效。一个店铺只绑一个聊天。
+              {bind.expiresAt.replace("T", " ").slice(0, 16)} 前有效。机器人会回复「已绑定」，没回复就是发错了机器人或格式不对。一个店铺只绑一个聊天。
             </p>
           </div>
         ) : null}

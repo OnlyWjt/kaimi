@@ -1539,6 +1539,16 @@ a.km-sf-contact:hover {
   color: var(--km-fg-muted);
 }
 
+.km-sf-ticket-badge {
+  padding: 0.05rem 0.55rem;
+  border: 1px dashed var(--km-border);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--km-fg-muted);
+}
+
 .km-sf-ticket-plan {
   margin: 0.35rem 0 0.85rem;
   font-family: var(--font-sora), var(--km-font-display);

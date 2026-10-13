@@ -159,6 +159,7 @@ const I18N = {
       { title: "直接登录使用", desc: "不用兑换" },
     ],
     ticketLabel: "示意：付款后卡密显示的样子",
+    ticketBadge: "示例",
     ticketCover: "付款后显示",
     ticketNote: "付款后卡密直接出现在页面上，同时发到你的下单邮箱。",
     groups: {
@@ -296,6 +297,7 @@ const I18N = {
       { title: "Sign in", desc: "No redeem step" },
     ],
     ticketLabel: "Example: where your code appears after payment",
+    ticketBadge: "Example",
     ticketCover: "Revealed after payment",
     ticketNote: "Your code shows up right on the page after payment, and is emailed to your order address.",
     groups: {
@@ -1277,7 +1279,7 @@ export function AgentStorefront({
                 <div className="km-sf-ticket" tabIndex={0} aria-label={t.ticketLabel}>
                   <div className="km-sf-ticket-head">
                     <span>{config.shopName}</span>
-                    <span className="font-mono">KS2026…7Q4F</span>
+                    <span className="km-sf-ticket-badge">{t.ticketBadge}</span>
                   </div>
                   <p className="km-sf-ticket-plan">
                     {pickText(ticketProduct.name, lang)}
@@ -1285,7 +1287,7 @@ export function AgentStorefront({
                     <span>¥{yuanTextFromCents(ticketSpec.priceCents)}</span>
                   </p>
                   <div className="km-sf-scratch" aria-hidden>
-                    KM7Q-4FXB-92HD-L3PA
+                    ZC-XXXX-XXXX-XXXX
                     <span className="km-sf-foil">{t.ticketCover}</span>
                   </div>
                   <p className="km-sf-ticket-note">{t.ticketNote}</p>

@@ -18,6 +18,7 @@ type AgentOrder = {
   statusLabel: string;
   statusTone: AgentOrderTone;
   statusHint: string;
+  payStatus: string;
   canResendMail: boolean;
   queryUrl: string;
   createdAt: string;
@@ -33,6 +34,8 @@ const VIEWS: Array<{ value: AgentOrderView; label: string }> = [
   { value: "closed", label: "已关闭" },
   { value: "refund", label: "退款" },
 ];
+
+const EARNING_PAY_STATUSES = new Set(["paid", "manual", "refunding"]);
 
 const TONE_CLASS: Record<AgentOrderTone, string> = {
   ok: "",
@@ -128,76 +131,101 @@ export function AgentOrders() {
             </button>
           ))}
         </div>
-        <form className="flex flex-wrap gap-2" onSubmit={search}>
+        <form className="flex flex-wrap items-center gap-2" onSubmit={search}>
           <input
             className="km-input max-w-xs"
             value={q}
             onChange={(event) => setQ(event.target.value)}
             placeholder="订单号或买家邮箱"
           />
-          <button type="submit" className="km-btn km-btn-ghost">
+          <button type="submit" className="km-btn km-btn-ghost km-btn-sm">
             搜索
           </button>
+          {query ? (
+            <button
+              type="button"
+              className="km-acp-link"
+              onClick={() => {
+                setQ("");
+                setQuery("");
+                setPage(1);
+              }}
+            >
+              清除
+            </button>
+          ) : null}
         </form>
         <div className="overflow-x-auto">
-          <table className="km-acp-price">
+          <table className="km-acp-orders">
             <thead>
               <tr>
-                <th>下单时间</th>
-                <th>订单号</th>
+                <th>订单</th>
                 <th>商品</th>
                 <th>买家邮箱</th>
-                <th>实付</th>
-                <th>收益</th>
+                <th className="num">实付</th>
+                <th className="num">收益</th>
                 <th>状态</th>
-                <th>操作</th>
+                <th className="act" aria-label="操作" />
               </tr>
             </thead>
             <tbody>
-              {orders.map((order) => (
-                <tr key={order.orderNo}>
-                  <td className="whitespace-nowrap text-xs">{formatDateTime(order.createdAt)}</td>
-                  <td className="font-mono text-xs">{order.orderNo}</td>
-                  <td>
-                    {order.productName}
-                    {order.quantity > 1 ? ` ×${order.quantity}` : ""}
-                  </td>
-                  <td className="text-xs">{order.customerEmail || "—"}</td>
-                  <td>¥{yuanTextFromCents(order.amountCents)}</td>
-                  <td>{order.earningCents ? `¥${yuanTextFromCents(order.earningCents)}` : "—"}</td>
-                  <td>
-                    <span className={`km-acp-pill${TONE_CLASS[order.statusTone]}`} title={order.statusHint}>
-                      {order.statusLabel}
-                    </span>
-                    {order.statusHint && order.statusTone === "bad" ? (
-                      <p className="mt-1 max-w-[16rem] text-xs text-[var(--km-fg-muted)]">{order.statusHint}</p>
-                    ) : null}
-                  </td>
-                  <td className="whitespace-nowrap">
-                    {order.queryUrl ? (
-                      <button
-                        type="button"
-                        className="km-btn km-btn-ghost"
-                        onClick={() =>
-                          void navigator.clipboard.writeText(order.queryUrl).then(() => toast("查单链接已复制，发给买家即可"))
-                        }
-                      >
-                        复制查单链接
-                      </button>
-                    ) : null}
-                    {order.canResendMail ? (
-                      <button
-                        type="button"
-                        className="km-btn km-btn-ghost"
-                        disabled={resending === order.orderNo}
-                        onClick={() => void resendMail(order.orderNo)}
-                      >
-                        {resending === order.orderNo ? "发送中…" : "重发邮件"}
-                      </button>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
+              {orders.map((order) => {
+                const settled = order.statusTone === "muted";
+                // 没付款、已关闭、已退款的单没有收益，不能显示下单时预估的数
+                const earned = EARNING_PAY_STATUSES.has(order.payStatus);
+                return (
+                  <tr key={order.orderNo} className={settled ? "is-muted" : undefined}>
+                    <td>
+                      <span className="no">{order.orderNo}</span>
+                      <span className="sub">{formatDateTime(order.createdAt)}</span>
+                    </td>
+                    <td className="product">
+                      {order.productName}
+                      {order.quantity > 1 ? <span className="qty">×{order.quantity}</span> : null}
+                    </td>
+                    <td className="email" title={order.customerEmail}>
+                      {order.customerEmail || "—"}
+                    </td>
+                    <td className="num">¥{yuanTextFromCents(order.amountCents)}</td>
+                    <td className={`num${earned && order.earningCents > 0 ? " earn" : ""}`}>
+                      {earned && order.earningCents ? `¥${yuanTextFromCents(order.earningCents)}` : "—"}
+                    </td>
+                    <td>
+                      <span className={`km-acp-status${TONE_CLASS[order.statusTone]}`} title={order.statusHint}>
+                        {order.statusLabel}
+                      </span>
+                      {order.statusHint && order.statusTone === "bad" ? (
+                        <span className="hint">{order.statusHint}</span>
+                      ) : null}
+                    </td>
+                    <td className="act">
+                      {order.queryUrl ? (
+                        <button
+                          type="button"
+                          className="km-acp-link"
+                          onClick={() =>
+                            void navigator.clipboard
+                              .writeText(order.queryUrl)
+                              .then(() => toast("查单链接已复制，发给买家即可"))
+                          }
+                        >
+                          复制查单链接
+                        </button>
+                      ) : null}
+                      {order.canResendMail ? (
+                        <button
+                          type="button"
+                          className="km-acp-link"
+                          disabled={resending === order.orderNo}
+                          onClick={() => void resendMail(order.orderNo)}
+                        >
+                          {resending === order.orderNo ? "发送中…" : "重发邮件"}
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           {!orders.length && !loading ? (
@@ -212,7 +240,7 @@ export function AgentOrders() {
             <div className="flex gap-2">
               <button
                 type="button"
-                className="km-btn km-btn-ghost"
+                className="km-btn km-btn-ghost km-btn-sm"
                 disabled={page <= 1}
                 onClick={() => setPage((current) => Math.max(1, current - 1))}
               >
@@ -220,7 +248,7 @@ export function AgentOrders() {
               </button>
               <button
                 type="button"
-                className="km-btn km-btn-ghost"
+                className="km-btn km-btn-ghost km-btn-sm"
                 disabled={!hasNextPage(total, page, PAGE_SIZE)}
                 onClick={() => setPage((current) => current + 1)}
               >

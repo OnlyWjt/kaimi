@@ -51,6 +51,27 @@ async function botUsername(token: string) {
   return username;
 }
 
+/**
+ * 代理页上要提前告诉他认准哪个机器人。只读缓存，不打 Telegram；
+ * 缓存是旧 token 留下的就不认，免得把代理指到已经不用的机器人。
+ */
+export async function currentBotInfo() {
+  const token = await telegramToken();
+  if (!token) return { configured: false, username: "" };
+  const [cached, cachedHash] = await Promise.all([
+    getSetting("telegram_bot_username", ""),
+    getSetting("telegram_bot_username_token_hash", ""),
+  ]);
+  if (cached.trim() && cachedHash === tokenHash(token)) {
+    return { configured: true, username: cached.trim() };
+  }
+  try {
+    return { configured: true, username: await botUsername(token) };
+  } catch {
+    return { configured: true, username: "" };
+  }
+}
+
 export async function issueAgentBindCode(agentId: number) {
   const token = await telegramToken();
   if (!token) throw new Error("管理员还没配置 Telegram 机器人");

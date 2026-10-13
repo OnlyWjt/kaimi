@@ -306,6 +306,175 @@ button.km-acp-row {
   background: color-mix(in oklab, var(--km-danger) 16%, var(--km-bg-muted));
 }
 
+/* —— 代理订单表 —— */
+.km-acp-orders {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.km-acp-orders th,
+.km-acp-orders td {
+  padding: 0.8rem 0.6rem;
+  border-bottom: 1px solid var(--km-border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.km-acp-orders th {
+  padding-top: 0.4rem;
+  color: var(--km-fg-muted);
+  font-size: 0.72rem;
+  font-weight: 550;
+  white-space: nowrap;
+}
+
+.km-acp-orders tbody tr:hover {
+  background: color-mix(in oklab, var(--km-bg-muted) 55%, transparent);
+}
+
+.km-acp-orders .no {
+  display: block;
+  font-family: var(--km-font-mono, ui-monospace, monospace);
+  font-size: 0.78rem;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.km-acp-orders .sub {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--km-fg-muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.km-acp-orders .product {
+  white-space: nowrap;
+}
+
+.km-acp-orders .qty {
+  margin-left: 0.3rem;
+  color: var(--km-fg-muted);
+  font-size: 0.78rem;
+}
+
+.km-acp-orders .email {
+  max-width: 13rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--km-fg-muted);
+  font-size: 0.8rem;
+}
+
+.km-acp-orders .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.km-acp-orders td.earn {
+  color: color-mix(in oklab, var(--km-success) 70%, var(--km-fg));
+  font-weight: 550;
+}
+
+.km-acp-orders .hint {
+  display: block;
+  max-width: 14rem;
+  margin-top: 0.3rem;
+  color: var(--km-fg-muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.km-acp-orders .act {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.km-acp-orders .act .km-acp-link + .km-acp-link {
+  margin-left: 0.85rem;
+}
+
+/* 待付款、已关闭、已退款：整行退后，一眼看出哪些单真成交了 */
+.km-acp-orders tr.is-muted td {
+  color: var(--km-fg-muted);
+}
+
+.km-acp-orders tr.is-muted .no {
+  opacity: 0.75;
+}
+
+.km-acp-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.18rem 0.55rem 0.18rem 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--km-success) 12%, var(--km-bg-muted));
+  color: var(--km-fg);
+  font-size: 0.72rem;
+  font-weight: 550;
+  white-space: nowrap;
+}
+
+.km-acp-status::before {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: var(--km-success);
+}
+
+.km-acp-status.warn {
+  background: color-mix(in oklab, var(--km-warning, #b45309) 14%, var(--km-bg-muted));
+}
+
+.km-acp-status.warn::before {
+  background: var(--km-warning, #b45309);
+}
+
+.km-acp-status.bad {
+  background: color-mix(in oklab, var(--km-danger) 14%, var(--km-bg-muted));
+}
+
+.km-acp-status.bad::before {
+  background: var(--km-danger);
+}
+
+.km-acp-status.mute {
+  background: var(--km-bg-muted);
+  color: var(--km-fg-muted);
+  font-weight: 500;
+}
+
+.km-acp-status.mute::before {
+  background: color-mix(in oklab, var(--km-fg-muted) 55%, transparent);
+}
+
+.km-acp-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--km-accent, var(--km-fg));
+  font-size: 0.8rem;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.km-acp-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.km-acp-link:disabled {
+  color: var(--km-fg-muted);
+  cursor: default;
+  text-decoration: none;
+}
+
 .km-acp-coupons {
   display: grid;
   gap: 0.75rem;

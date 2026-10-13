@@ -60,7 +60,13 @@ export async function getOpsHealthCached(): Promise<OpsHealth> {
 /** 关店的真实原因（余额、网关）是运营的事，买家只会看到这句。 */
 const CLOSED_PUBLIC_REASON = "店铺暂时停止售卖，请稍后再来或联系店主。";
 
+/** 本地预览用：卡台没接时也让店铺显示出来。生产环境无效。 */
+function devForceSalesOpen() {
+  return process.env.NODE_ENV !== "production" && process.env.KAIMI_DEV_FORCE_SALES_OPEN === "1";
+}
+
 export async function getStoreSalesGate() {
+  if (devForceSalesOpen()) return { open: true, reason: "", publicReason: "" };
   const [manual, health] = await Promise.all([
     getSetting(MANUAL_KEY, "0"),
     getOpsHealth(),
