@@ -232,6 +232,48 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
       ],
     },
     {
+      id: "session-check",
+      title: "POST /sessions/check  校验 Session",
+      blocks: [
+        { kind: "p", text: "权限 redeem:write，和提交兑换同一把 Key。在买家提交兑换前先校验他贴的 Session，不对就当场让他重贴，不用等兑换失败。" },
+        {
+          kind: "table",
+          headers: ["字段", "必填", "说明"],
+          rows: [
+            ["session", "是", "买家从 chatgpt.com/api/auth/session 复制的整页内容"],
+            ["code", "否", "本店卖出的卡密。带上就会交给卡台按这张卡预检；不带只看格式"],
+          ],
+        },
+        { kind: "p", text: "返回里的 level 说明校验做到哪一步：format 只看了格式（是不是登录后的 session JSON、有没有 accessToken），不发外部请求，通过了也不代表登录还有效；preflight 是带卡密让卡台预检过，通过就说明拿这个 Session 兑这张卡能走通。预检不消耗卡密，也不会开通。" },
+        { kind: "p", text: "校验没过是正常结果：HTTP 200，data.ok 为 false，errors 里的话可以直接给买家看。只有参数不对、卡密不是本店卖出的才返回错误。拿不属于本店的卡密反复调用，会和提交兑换一样计入失败次数并被暂时封禁。Session 含登录凭证，本站不保存也不记日志。" },
+        {
+          kind: "code",
+          text: `curl -X POST ${base}/sessions/check \\
+  -H "Authorization: Bearer km_live_你的Key" \\
+  -H "Content-Type: application/json" \\
+  -d '{"session":"{...}","code":"KM...."}'`,
+        },
+        {
+          kind: "code",
+          text: `{
+  "data": {
+    "ok": true,
+    "level": "preflight",
+    "email": "buyer@example.com",
+    "name": "Buyer",
+    "has_access_token": true,
+    "plan_hint": "free",
+    "has_active_subscription": false,
+    "error_code": null,
+    "errors": [],
+    "warnings": ["当前账号没有有效订阅。"]
+  },
+  "request_id": "req_..."
+}`,
+        },
+      ],
+    },
+    {
       id: "redeem-get",
       title: "GET /redemptions/{no}  查兑换",
       blocks: [

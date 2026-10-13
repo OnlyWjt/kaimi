@@ -425,6 +425,46 @@ export const openApiSpec = {
         },
       },
     },
+    "/sessions/check": {
+      post: {
+        summary: "兑换前校验买家的 Session。不带卡密只看格式；带本店卡密交卡台预检，不消耗卡密",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["session"],
+                properties: {
+                  session: { type: "string", description: "chatgpt.com/api/auth/session 的整页内容" },
+                  code: { type: "string", description: "本店卖出的卡密，可选" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": ok({
+            type: "object",
+            properties: {
+              ok: { type: "boolean" },
+              level: { type: "string", enum: ["format", "preflight"], description: "format 只看格式；preflight 卡台按卡密预检过" },
+              email: { type: ["string", "null"] },
+              name: { type: ["string", "null"] },
+              has_access_token: { type: "boolean" },
+              plan_hint: { type: ["string", "null"] },
+              has_active_subscription: { type: ["boolean", "null"], description: "仅 preflight 时可能有值" },
+              error_code: { type: ["string", "null"], enum: [null, "SESSION_INVALID", "CARDPLATFORM_ERROR"] },
+              errors: { type: "array", items: { type: "string" } },
+              warnings: { type: "array", items: { type: "string" } },
+            },
+          }),
+          "400": errorResponse,
+          "403": errorResponse,
+          "429": errorResponse,
+        },
+      },
+    },
     "/redemptions": {
       post: {
         summary: "提交兑换，只能兑本店卖出的卡",
