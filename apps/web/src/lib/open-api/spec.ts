@@ -427,17 +427,17 @@ export const openApiSpec = {
     },
     "/sessions/check": {
       post: {
-        summary: "兑换前校验买家的 Session。不带卡密只看格式；带本店卡密交卡台预检，不消耗卡密",
+        summary: "兑换前让卡台按卡密预检买家的 Session，不消耗卡密、不开通",
         requestBody: {
           required: true,
           content: {
             "application/json": {
               schema: {
                 type: "object",
-                required: ["session"],
+                required: ["session", "code"],
                 properties: {
                   session: { type: "string", description: "chatgpt.com/api/auth/session 的整页内容" },
-                  code: { type: "string", description: "本店卖出的卡密，可选" },
+                  code: { type: "string", description: "要兑换的卡密，必须是本店卖出的" },
                 },
               },
             },
@@ -448,12 +448,9 @@ export const openApiSpec = {
             type: "object",
             properties: {
               ok: { type: "boolean" },
-              level: { type: "string", enum: ["format", "preflight"], description: "format 只看格式；preflight 卡台按卡密预检过" },
               email: { type: ["string", "null"] },
-              name: { type: ["string", "null"] },
-              has_access_token: { type: "boolean" },
               plan_hint: { type: ["string", "null"] },
-              has_active_subscription: { type: ["boolean", "null"], description: "仅 preflight 时可能有值" },
+              has_active_subscription: { type: ["boolean", "null"] },
               error_code: { type: ["string", "null"], enum: [null, "SESSION_INVALID", "CARDPLATFORM_ERROR"] },
               errors: { type: "array", items: { type: "string" } },
               warnings: { type: "array", items: { type: "string" } },

@@ -3,52 +3,43 @@ import type { SessionCheckResult } from "../session-check";
 import { sessionCheckPayload } from "./session-check-core";
 
 function result(overrides: Partial<SessionCheckResult>): SessionCheckResult {
-  return { ok: true, hasAccessToken: true, errors: [], warnings: [], source: "local", ...overrides };
+  return { ok: true, hasAccessToken: true, errors: [], warnings: [], source: "cardplatform", ...overrides };
 }
 
 describe("sessionCheckPayload", () => {
-  it("reports a well-formed session at format level", () => {
-    const payload = sessionCheckPayload(result({ email: "buyer@example.com", name: "Buyer" }), "format");
-    expect(payload).toMatchObject({
-      ok: true,
-      level: "format",
-      email: "buyer@example.com",
-      has_access_token: true,
-      has_active_subscription: null,
-      error_code: null,
-    });
-  });
-
-  it("defaults the error code when a format check fails", () => {
-    const payload = sessionCheckPayload(
-      result({ ok: false, hasAccessToken: false, errors: ["不是合法 JSON。"] }),
-      "format",
-    );
-    expect(payload).toMatchObject({ ok: false, error_code: "SESSION_INVALID", has_access_token: false });
-    expect(payload.errors).toEqual(["不是合法 JSON。"]);
-  });
-
-  it("ignores subscription data at format level", () => {
-    const payload = sessionCheckPayload(result({ summary: { has_active_subscription: true } }), "format");
-    expect(payload.has_active_subscription).toBeNull();
-  });
-
-  it("passes through subscription and card platform errors at preflight level", () => {
+  it("passes through a successful card platform preflight", () => {
     expect(
       sessionCheckPayload(
         result({
-          source: "cardplatform",
+          email: "buyer@example.com",
+          planHint: "free",
           summary: { has_active_subscription: false },
           warnings: ["当前账号没有有效订阅。"],
         }),
-        "preflight",
       ),
-    ).toMatchObject({ ok: true, level: "preflight", has_active_subscription: false });
-    expect(
-      sessionCheckPayload(
-        result({ ok: false, source: "cardplatform", errorCode: "CARDPLATFORM_ERROR", errors: ["会话已过期"] }),
-        "preflight",
-      ).error_code,
-    ).toBe("CARDPLATFORM_ERROR");
+    ).toEqual({
+      ok: true,
+      email: "buyer@example.com",
+      plan_hint: "free",
+      has_active_subscription: false,
+      error_code: null,
+      errors: [],
+      warnings: ["当前账号没有有效订阅。"],
+    });
+  });
+
+  it("keeps the card platform error code and message", () => {
+    const payload = sessionCheckPayload(
+      result({ ok: false, errorCode: "CARDPLATFORM_ERROR", errors: ["会话已过期"] }),
+    );
+    expect(payload).toMatchObject({ ok: false, error_code: "CARDPLATFORM_ERROR", errors: ["会话已过期"] });
+  });
+
+  it("marks local format failures as SESSION_INVALID", () => {
+    const payload = sessionCheckPayload(
+      result({ ok: false, hasAccessToken: false, source: "local", errors: ["不是合法 JSON。"] }),
+    );
+    expect(payload.error_code).toBe("SESSION_INVALID");
+    expect(payload.has_active_subscription).toBeNull();
   });
 });
