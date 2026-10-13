@@ -18,6 +18,7 @@ type KeyRow = {
 const SCOPE_LABEL: Record<string, string> = {
   "plans:read": "查套餐",
   "orders:read": "查订单",
+  "orders:write": "代客下单支付",
   "cdks:read": "查卡密",
   "cdks:reveal": "看卡密明文",
   "redeem:write": "提交兑换",

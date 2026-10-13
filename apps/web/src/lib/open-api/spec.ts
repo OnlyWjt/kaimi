@@ -157,6 +157,32 @@ export const openApiSpec = {
           "401": errorResponse,
         },
       },
+      post: {
+        summary: "代客下单，返回易支付链接",
+        parameters: [
+          {
+            name: "Idempotency-Key",
+            in: "header",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": ok({
+            type: "object",
+            properties: {
+              order_no: { type: "string" },
+              pay_url: { type: "string" },
+              gross_cents: { type: "integer" },
+              pay_status: { type: "string" },
+            },
+          }),
+          "400": errorResponse,
+          "401": errorResponse,
+          "403": errorResponse,
+          "409": errorResponse,
+        },
+      },
     },
     "/orders/{orderNo}": {
       get: {

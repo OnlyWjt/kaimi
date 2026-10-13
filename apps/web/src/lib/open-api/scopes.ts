@@ -13,6 +13,7 @@ export const OPEN_API_SCOPES = [
 export const AGENT_SCOPES = [
   "plans:read",
   "orders:read",
+  "orders:write",
   "cdks:read",
   "cdks:reveal",
   "redeem:write",

@@ -17,7 +17,7 @@ export function agentApiDocs(origin: string): DocSection[] {
       title: "调用约定",
       blocks: [
         { kind: "p", text: `基础地址 ${base}。每个请求都要带请求头 Authorization: Bearer km_live_你的Key。Key 只在创建时显示一次，丢了只能吊销后重建。` },
-        { kind: "p", text: "代理 Key 只能看到自己店铺的套餐、订单和卡密，也只能兑换自己卖出的卡。金额单位是分，时间是 UTC。" },
+        { kind: "p", text: "代理 Key 只能操作自己的店铺：查套餐和订单、代客下单、看卡密、兑换自己卖出的卡。金额单位是分，时间是 UTC。代客下单用你后台已配置的易支付，买家付的是你设的零售价。" },
         { kind: "p", text: "成功时 HTTP 200，正文是 { \"data\": ..., \"request_id\": \"req_...\" }。失败时 HTTP 状态码对应错误，正文是 { \"error\": { \"code\", \"message\" }, \"request_id\" }。排错时把 request_id 留着。" },
         {
           kind: "table",
@@ -103,6 +103,29 @@ export function agentApiDocs(origin: string): DocSection[] {
   "request_id": "req_..."
 }`,
         },
+      ],
+    },
+    {
+      id: "create-order",
+      title: "POST /orders  代客下单",
+      blocks: [
+        { kind: "p", text: "权限 orders:write。用本店已分配且在售的套餐建一笔销售订单，并返回易支付链接。金额按你的零售价计算，调用方不能自己传金额。商户号和密钥留在本站，支付结果通知只打到本站。" },
+        { kind: "p", text: "必须带 Idempotency-Key。同样的 Key 和同样的正文重复提交，返回第一次的支付链接，不会再向易支付要一笔。同一个 Key 配了不同正文返回 409。" },
+        {
+          kind: "table",
+          headers: ["字段", "必填", "说明"],
+          rows: [
+            ["plan_key", "是", "GET /plans 返回的 plan_key，要精确到地区"],
+            ["channel", "是", "alipay 或 wxpay"],
+            ["customer_email", "是", "买家邮箱，发卡和查单用"],
+            ["quantity", "否", "张数，默认 1，不能超过店铺的单笔上限"],
+            ["region_confirmed", "多地区时必填", "同一套餐有两个及以上在售地区时必须为 true"],
+            ["coupon_code", "否", "本店优惠券"],
+          ],
+        },
+        { kind: "code", text: `curl -X POST ${base}/orders \\\n  -H "Authorization: Bearer km_live_你的Key" \\\n  -H "Content-Type: application/json" \\\n  -H "Idempotency-Key: pay-1001" \\\n  -d '{"plan_key":"plus","channel":"alipay","customer_email":"buyer@example.com","quantity":1}'` },
+        { kind: "code", text: `{ "data": { "order_no": "KS...", "pay_url": "https://...", "gross_cents": 17500, "pay_status": "unpaid" }, "request_id": "req_..." }` },
+        { kind: "p", text: "把 pay_url 交给买家。付完后用 GET /orders/{orderNo} 看 pay_status 和 fulfill_status。卡密仍然默认脱敏。" },
       ],
     },
     {
