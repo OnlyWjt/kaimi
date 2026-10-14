@@ -207,6 +207,11 @@ const I18N = {
       couponChecking: "正在核对优惠券…",
       couponOff: (amount: string) => `已减 ¥${amount}`,
       couponWas: (amount: string) => `原价 ¥${amount}`,
+      referralBy: "由好友邀请",
+      referralAsk: "有好友邀请码？",
+      referralPh: "好友给你的邀请码",
+      referralInvalid: "邀请码不对，可以不填",
+      referralCouponOff: (amount: string) => `邀请券 立减 ¥${amount}`,
       pay: "立即购买",
       chooseRegion: "选择付款地区",
       regionWarn: (region: string) =>
@@ -345,6 +350,11 @@ const I18N = {
       couponChecking: "Checking coupon…",
       couponOff: (amount: string) => `−¥${amount}`,
       couponWas: (amount: string) => `Was ¥${amount}`,
+      referralBy: "Invited by a friend",
+      referralAsk: "Have an invite code?",
+      referralPh: "Invite code from your friend",
+      referralInvalid: "Invite code not found. You can leave it empty",
+      referralCouponOff: (amount: string) => `Invite coupon −¥${amount}`,
       pay: "Buy now",
       chooseRegion: "Choose payment region",
       regionWarn: (region: string) =>
@@ -634,6 +644,13 @@ export function AgentStorefront({
   } | null>(null);
   const [couponError, setCouponError] = useState("");
   const [couponChecking, setCouponChecking] = useState(false);
+  const [couponKind, setCouponKind] = useState("");
+  /** 邀请链接 ?ref= 带来的、或买家手填的邀请码。 */
+  const [referralCode, setReferralCode] = useState("");
+  const [referralFromLink, setReferralFromLink] = useState(false);
+  const [referralOpen, setReferralOpen] = useState(false);
+  const [referralInput, setReferralInput] = useState("");
+  const [referralInvalid, setReferralInvalid] = useState(false);
 
   const t = I18N[lang];
   const products = config.products;
@@ -726,6 +743,27 @@ export function AgentStorefront({
       /* sessionStorage 不可用时忽略 */
     }
     const params = new URLSearchParams(window.location.search);
+    // 邀请码按店铺记 30 天：好友点了链接，过几天再回来买也算
+    const refKey = `km-sf-ref:${slug}`;
+    const refFromUrl = (params.get("ref") || "").trim().toUpperCase();
+    try {
+      if (/^[A-Z0-9]{4,16}$/.test(refFromUrl)) {
+        window.localStorage.setItem(refKey, JSON.stringify({ code: refFromUrl, at: Date.now() }));
+      }
+      const saved = JSON.parse(window.localStorage.getItem(refKey) || "null") as { code?: string; at?: number } | null;
+      if (saved?.code && Date.now() - Number(saved.at || 0) < 30 * 86_400_000) {
+        setReferralCode(saved.code);
+        setReferralFromLink(true);
+      } else if (saved) {
+        window.localStorage.removeItem(refKey);
+      }
+    } catch {
+      /* localStorage 不可用时只在这次页面里用 */
+      if (/^[A-Z0-9]{4,16}$/.test(refFromUrl)) {
+        setReferralCode(refFromUrl);
+        setReferralFromLink(true);
+      }
+    }
     const fromUrl = (params.get("region") || "").trim().toLowerCase();
     let stored = "";
     try {
@@ -785,6 +823,7 @@ export function AgentStorefront({
             goodsCents: number;
             discountCents: number;
             listGoodsCents: number;
+            couponKind?: string;
           }>(
             await fetch("/api/public/store-orders/quote", {
               method: "POST",
@@ -795,10 +834,13 @@ export function AgentStorefront({
                 channel,
                 quantity: qty,
                 couponCode: code,
+                // 邀请券只能本人用，要带上邮箱核对
+                customerEmail: buyerEmail.trim() || undefined,
               }),
             }),
           );
           setCouponQuote(data);
+          setCouponKind(data.couponKind || "");
           setCouponError("");
         } catch (reason) {
           setCouponQuote(null);
@@ -809,7 +851,7 @@ export function AgentStorefront({
       })();
     }, 350);
     return () => window.clearTimeout(handle);
-  }, [live, slug, activeSpec, couponCode, channel, qty]);
+  }, [live, slug, activeSpec, couponCode, channel, qty, buyerEmail]);
 
   useEffect(() => {
     if (!active && !invoiceOpen) return;
@@ -824,6 +866,26 @@ export function AgentStorefront({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [active, invoiceOpen, buyBusy]);
+
+  async function checkReferralInput() {
+    const code = referralInput.trim().toUpperCase();
+    if (!code) return;
+    try {
+      const data = await readApiJson<{ valid: boolean }>(
+        await fetch(`/api/public/referral-codes?slug=${encodeURIComponent(slug)}&code=${encodeURIComponent(code)}`, {
+          cache: "no-store",
+        }),
+      );
+      if (data.valid) {
+        setReferralCode(code);
+        setReferralFromLink(false);
+      } else {
+        setReferralInvalid(true);
+      }
+    } catch {
+      setReferralInvalid(true);
+    }
+  }
 
   function jump(id: "home" | "products" | "query" | "contact") {
     setNav(id);
@@ -1063,6 +1125,7 @@ export function AgentStorefront({
             invoiceEmail: wantInvoice ? invoiceEmail.trim() : undefined,
             couponCode: couponCode.trim() || undefined,
             regionConfirmed: regionChoices >= 2 ? regionConfirmed : undefined,
+            referralCode: referralCode || undefined,
           }),
         }),
       );
@@ -1748,8 +1811,39 @@ export function AgentStorefront({
                   ) : couponQuote && couponQuote.discountCents > 0 ? (
                     <p className="km-sf-modal-hint">
                       {t.detail.couponWas(yuanTextFromCents(couponQuote.listGoodsCents))} ·{" "}
-                      {t.detail.couponOff(yuanTextFromCents(couponQuote.discountCents))}
+                      {couponKind === "referral"
+                        ? t.detail.referralCouponOff(yuanTextFromCents(couponQuote.discountCents))
+                        : t.detail.couponOff(yuanTextFromCents(couponQuote.discountCents))}
                     </p>
+                  ) : null}
+                  {referralCode && referralFromLink ? (
+                    <p className="km-sf-modal-hint">{t.detail.referralBy}</p>
+                  ) : referralCode ? (
+                    <p className="km-sf-modal-hint">
+                      {t.detail.referralBy} · {referralCode}
+                    </p>
+                  ) : referralOpen ? (
+                    <>
+                      <input
+                        className="km-input"
+                        value={referralInput}
+                        onChange={(event) => {
+                          setReferralInput(event.target.value);
+                          setReferralInvalid(false);
+                        }}
+                        onBlur={() => void checkReferralInput()}
+                        placeholder={t.detail.referralPh}
+                        maxLength={16}
+                        autoCapitalize="characters"
+                        autoCorrect="off"
+                        spellCheck={false}
+                      />
+                      {referralInvalid ? <p className="km-sf-modal-hint">{t.detail.referralInvalid}</p> : null}
+                    </>
+                  ) : live ? (
+                    <button type="button" className="km-sf-modal-hint" style={{ textDecoration: "underline" }} onClick={() => setReferralOpen(true)}>
+                      {t.detail.referralAsk}
+                    </button>
                   ) : null}
 
                   {(active?.specs ?? []).filter((spec) => spec.region).length >= 2 &&

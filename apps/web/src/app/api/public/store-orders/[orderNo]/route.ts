@@ -18,7 +18,22 @@ import {
 } from "@/lib/payments/confirm-store-order";
 import { verifyEpayNotify } from "@/lib/payments/epay";
 import { getPublicBaseUrl } from "@/lib/public-url";
-import { buyerReferralView } from "@/lib/referrals";
+import { buyerReferralView, processDeliveredOrderReferral } from "@/lib/referrals";
+
+/**
+ * 页面在发货完成那一刻就停止轮询，而发货后的邀请处理是异步的，这里先补一次（幂等），
+ * 买家第一次看到卡密时就能看到邀请卡片。出错不影响取卡。
+ */
+async function loadBuyerReferral(order: typeof storeOrders.$inferSelect, origin: string) {
+  try {
+    if (order.fulfillStatus === "delivered" && !order.referralProcessedAt) {
+      await processDeliveredOrderReferral(order.id);
+    }
+    return await buyerReferralView(order, origin);
+  } catch {
+    return null;
+  }
+}
 import { enforceRateLimit } from "@/lib/rate-limit";
 import {
   isLocalAccountPlan,
@@ -131,7 +146,7 @@ async function serializePublicOrder(
     // 邀请卡片和这个邮箱的邀请券。能进到这里的已经交过完整订单号或查询凭证。
     referral:
       order.payStatus === "paid" && origin
-        ? await buyerReferralView(order, origin).catch(() => null)
+        ? await loadBuyerReferral(order, origin)
         : null,
   };
 }

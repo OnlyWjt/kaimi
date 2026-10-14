@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { formatDateTime } from "@/lib/datetime";
 import Link from "next/link";
 import { toast } from "@/components/toast";
 import { copyText } from "@/lib/copy-text";
@@ -47,6 +48,32 @@ type StoreOrderResult = {
   rechargePath?: string;
   rechargeUrl?: string;
   queryToken?: string;
+  referral?: ReferralView | null;
+};
+
+type ReferralView = {
+  invite: {
+    code: string;
+    link: string;
+    rule: string;
+    rewardedCount: number;
+    coolingCount: number;
+  } | null;
+  coupons: Array<{
+    code: string;
+    description: string;
+    expiresAt: string;
+    status: string;
+    usedDiscountCents: number | null;
+  }>;
+};
+
+const COUPON_STATUS_LABEL: Record<string, string> = {
+  unused: "可使用",
+  reserved: "下单中",
+  used: "已使用",
+  expired: "已过期",
+  revoked: "已停用",
 };
 
 function useWaitSeconds(orderNo: string) {
@@ -345,6 +372,7 @@ export function StoreOrderResultPanel({
             </section>
           ) : null}
           <p className="km-order-foot">请保存好{finished ? "账号" : "卡密"}。丢失后凭下单邮箱和订单号在店铺「邮箱查单」找回，发货邮件里也有。</p>
+          {order.referral ? <ReferralSection view={order.referral} onCopy={copy} /> : null}
         </>
       ) : order.fulfillStatus === "unknown" ? (
         <p className="km-order-note">
@@ -434,5 +462,65 @@ function FinishedAccountCard({
         复制全部
       </button>
     </div>
+  );
+}
+
+/** 邀请好友卡片和「我的优惠券」。能看到这一页的就是下单本人（有完整订单号或查询凭证）。 */
+function ReferralSection({
+  view,
+  onCopy,
+}: {
+  view: ReferralView;
+  onCopy: (text: string, ok: string) => Promise<void>;
+}) {
+  return (
+    <>
+      {view.invite ? (
+        <section className="km-order-section">
+          <div className="km-order-section-head">
+            <h2>邀请好友，得邀请券</h2>
+          </div>
+          <p className="km-order-note">{view.invite.rule}</p>
+          <ul className="km-order-codes">
+            <li>
+              <code>{view.invite.link}</code>
+              <button type="button" className="km-order-copy" onClick={() => void onCopy(view.invite!.link, "邀请链接已复制，发给好友吧")}>
+                复制
+              </button>
+            </li>
+          </ul>
+          <p className="km-order-note">
+            你的邀请码 <span className="font-mono">{view.invite.code}</span>，好友没点链接也可以在下单时填。
+            {view.invite.rewardedCount || view.invite.coolingCount
+              ? ` 已邀请成功 ${view.invite.rewardedCount} 人${view.invite.coolingCount ? `，待到账 ${view.invite.coolingCount} 张` : ""}。`
+              : ""}
+          </p>
+        </section>
+      ) : null}
+      {view.coupons.length ? (
+        <section className="km-order-section">
+          <div className="km-order-section-head">
+            <h2>我的优惠券</h2>
+          </div>
+          <p className="km-order-note">下次在本店下单时，在「优惠券」里填券码，下单邮箱要用这一单的邮箱。</p>
+          <ul className="km-order-codes">
+            {view.coupons.map((coupon) => (
+              <li key={coupon.code}>
+                <code>{coupon.code}</code>
+                <span className="text-xs text-[var(--km-fg-muted)]">
+                  {coupon.description} · {COUPON_STATUS_LABEL[coupon.status] || coupon.status}
+                  {coupon.status === "unused" ? ` · ${formatDateTime(coupon.expiresAt)} 前有效` : ""}
+                </span>
+                {coupon.status === "unused" ? (
+                  <button type="button" className="km-order-copy" onClick={() => void onCopy(coupon.code, "券码已复制")}>
+                    复制
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </>
   );
 }

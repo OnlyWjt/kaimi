@@ -14,6 +14,7 @@ import { CardIntegration } from "@/components/card-integration";
 import { CardSelectionConfig } from "@/components/card-selection-config";
 import { AdminEarningsStats } from "@/components/admin-earnings-stats";
 import { AdminAgentDraw } from "@/components/admin-agent-draw";
+import { AdminReferral } from "@/components/admin-referral";
 import { KmSelect } from "@/components/km-select";
 import { AdminUsageStats } from "@/components/admin-usage-stats";
 import { AdminWeeklyEarnings } from "@/components/admin-weekly-earnings";
@@ -40,6 +41,7 @@ type Tab =
   | "apikeys"
   | "announcements"
   | "draw"
+  | "referral"
   | "earnings"
   | "usage"
   | "week"
@@ -135,6 +137,7 @@ const HASH_TABS: Tab[] = [
   "apikeys",
   "announcements",
   "draw",
+  "referral",
   "earnings",
   "week",
   "reconcile",
@@ -349,6 +352,7 @@ export default function AdminPage() {
           items: [
             ["agents", "代理管理"],
             ["draw", "提卡账本"],
+            ["referral", "邀请返券"],
             ["reconcile", "对账"],
             ["week", "历史周结"],
             ["earnings", "收益统计"],
@@ -1244,6 +1248,7 @@ export default function AdminPage() {
         {tab === "announcements" ? <AdminAnnouncements /> : null}
 
         {tab === "draw" ? <AdminAgentDraw /> : null}
+        {tab === "referral" ? <AdminReferral /> : null}
 
         {tab === "earnings" ? <AdminEarningsStats /> : null}
         {tab === "reconcile" ? <AdminReconciliation /> : null}

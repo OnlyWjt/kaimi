@@ -19,6 +19,7 @@ const NAV = [
   { href: "/agent/notify", label: "通知", group: "日常" },
   { href: "/agent/orders", label: "订单", group: "销售" },
   { href: "/agent/sell", label: "售价与优惠", group: "销售" },
+  { href: "/agent/referral", label: "邀请有礼", group: "销售" },
   { href: "/agent/storefront", label: "店铺装修", group: "销售" },
   { href: "/agent/books", label: "账本", group: "账务" },
   { href: "/agent/draw", label: "自助提卡", group: "账务" },
