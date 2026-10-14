@@ -71,6 +71,22 @@ export function AdminReferral() {
     }
   }
 
+  async function restore(id: number, name: string) {
+    if (!window.confirm(`解除对「${name}」的关闭？代理可以在自己后台重新开启邀请有礼，平台不会替他开。`)) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await readApiJson(await fetch(`/api/admin/referral/agents/${id}/restore`, { method: "POST" }));
+      toast("已恢复，代理可以自己重新开启");
+      await load();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "恢复失败", "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!data) return <p className="text-sm text-[var(--km-fg-muted)]">正在读取…</p>;
   const selected = data.agents.find((row) => row.agentId === agentId) || null;
 
@@ -135,6 +151,15 @@ export function AdminReferral() {
                         onClick={() => void disable(row.agentId, row.name)}
                       >
                         关闭活动
+                      </button>
+                    ) : row.disabledByAdmin ? (
+                      <button
+                        type="button"
+                        className="km-btn km-btn-ghost km-btn-sm"
+                        disabled={busy}
+                        onClick={() => void restore(row.agentId, row.name)}
+                      >
+                        恢复
                       </button>
                     ) : null}
                   </td>

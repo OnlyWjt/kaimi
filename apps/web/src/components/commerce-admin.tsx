@@ -11,6 +11,7 @@ import {
   STORE_ORDER_PAY_FILTERS,
 } from "@/lib/store-order-query-core";
 import { useAskDialog } from "@/components/ask-dialog";
+import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
 
 type ChannelRule = {
   enabled: boolean;
@@ -56,7 +57,14 @@ type OpsHealth = {
   salesOpen: boolean;
   reason: string;
   checkedAt: string;
-  cardplatform: { ok: boolean; message: string; spendableCents: number | null; currency: string };
+  cardplatform: {
+    ok: boolean;
+    message: string;
+    spendableCents: number | null;
+    currency: string;
+    minSpendableCents?: number;
+    warnSpendableCents?: number;
+  };
   payment: { ok: boolean; message: string };
   jobs: { failed: number; retrying: number };
   alerts: Array<{ code: string; message: string; at: string }>;
@@ -111,6 +119,9 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
   const [orderFilters, setOrderFilters] = useState(emptyOrderFilters);
   const [backgroundJobs, setBackgroundJobs] = useState<BackgroundJob[]>([]);
   const [health, setHealth] = useState<OpsHealth | null>(null);
+  /** 卡台余额的关店线、预警线，按卡台币种填。 */
+  const [minSpendable, setMinSpendable] = useState("");
+  const [warnSpendable, setWarnSpendable] = useState("");
 
   function storeOrderQuery(page: number, filters = orderFilters) {
     const qs = new URLSearchParams({
@@ -194,7 +205,7 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
       setOrderTotal(Number(orderData.total) || 0);
     }
     if (jobsRes.ok) setBackgroundJobs(jobsData.list || []);
-    if (healthRes.ok) setHealth(healthData.health || null);
+    if (healthRes.ok) applyHealth(healthData.health || null);
     if (rulesRes.ok) {
       setMaxOrderQuantity(String(rulesData.maxOrderQuantity || 5));
       setBatchRedeemLimit(String(rulesData.batchRedeemLimit || 20));
@@ -420,11 +431,41 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
     if (data) await load();
   }
 
+  function applyHealth(next: OpsHealth | null) {
+    setHealth(next);
+    if (!next) return;
+    // 旧的检查结果里没有这两个字段，用服务端默认值（5.00 / 150.00）
+    setMinSpendable(yuanTextFromCents(next.cardplatform.minSpendableCents ?? 500));
+    setWarnSpendable(yuanTextFromCents(next.cardplatform.warnSpendableCents ?? 15_000));
+  }
+
   async function updateHealth(action: "refresh" | "close_sales" | "open_sales") {
     const data = await submit("/api/admin/ops-health", { action });
     if (data?.health) {
-      setHealth(data.health);
+      applyHealth(data.health);
       setMessage(data.health.salesOpen ? "店铺购买已开放" : data.health.reason || "店铺购买已关闭");
+    }
+  }
+
+  async function saveThresholds() {
+    const minCents = centsFromYuanText(minSpendable);
+    const warnCents = centsFromYuanText(warnSpendable);
+    if (minCents == null || warnCents == null || Number.isNaN(minCents) || Number.isNaN(warnCents)) {
+      setMessage("关店线和预警线填金额，最多两位小数");
+      return;
+    }
+    if (warnCents < minCents) {
+      setMessage("预警线不能低于关店线");
+      return;
+    }
+    const data = await submit("/api/admin/ops-health", {
+      action: "set_thresholds",
+      minSpendableCents: minCents,
+      warnSpendableCents: warnCents,
+    });
+    if (data?.health) {
+      applyHealth(data.health);
+      setMessage("余额线已保存，已按新线重新检查");
     }
   }
 
@@ -504,6 +545,39 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
               </>
             );
           })()}
+          <form
+            className="km-health-thresholds"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveThresholds();
+            }}
+          >
+            <label>
+              <span>关店线</span>
+              <input
+                className="km-input"
+                inputMode="decimal"
+                value={minSpendable}
+                onChange={(event) => setMinSpendable(event.target.value)}
+              />
+            </label>
+            <label>
+              <span>预警线</span>
+              <input
+                className="km-input"
+                inputMode="decimal"
+                value={warnSpendable}
+                onChange={(event) => setWarnSpendable(event.target.value)}
+              />
+            </label>
+            <span className="km-health-unit">{health.cardplatform.currency || "USD"}</span>
+            <button className="km-btn km-btn-ghost" disabled={busy}>
+              保存余额线
+            </button>
+            <p>
+              卡台可用余额低于关店线，店铺自动停售；低于预警线只发提醒，店照常开。每次跨线只通知一次。
+            </p>
+          </form>
         </section>
       ) : null}
 

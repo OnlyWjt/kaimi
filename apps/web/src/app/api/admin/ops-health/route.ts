@@ -7,11 +7,21 @@ import {
   getOpsHealthCached,
   refreshOpsHealth,
   setManualSalesClosed,
+  setSpendableThresholds,
 } from "@/lib/ops-health";
 
-const schema = z.object({
-  action: z.enum(["refresh", "close_sales", "open_sales"]),
-});
+/** 余额线上限 100 万（按卡台币种），防止手滑多打几个 0 把店关了。 */
+const MAX_THRESHOLD_CENTS = 100_000_000;
+const cents = z.number().int().min(0).max(MAX_THRESHOLD_CENTS);
+
+const schema = z.discriminatedUnion("action", [
+  z.object({ action: z.enum(["refresh", "close_sales", "open_sales"]) }),
+  z.object({
+    action: z.literal("set_thresholds"),
+    minSpendableCents: cents,
+    warnSpendableCents: cents,
+  }),
+]);
 
 async function authorize() {
   try {
@@ -33,18 +43,28 @@ export async function POST(req: Request) {
   const { session, denied } = await authorize();
   if (denied || !session) return denied;
   await bootDb();
-  const parsed = schema.safeParse(await req.json());
+  const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "请求参数无效" }, { status: 400 });
   }
+  const input = parsed.data;
+  if (input.action === "set_thresholds" && input.warnSpendableCents < input.minSpendableCents) {
+    return NextResponse.json({ error: "预警线不能低于关店线" }, { status: 400 });
+  }
   const health =
-    parsed.data.action === "refresh"
-      ? await refreshOpsHealth()
-      : await setManualSalesClosed(parsed.data.action === "close_sales");
+    input.action === "set_thresholds"
+      ? await setSpendableThresholds(input.minSpendableCents, input.warnSpendableCents)
+      : input.action === "refresh"
+        ? await refreshOpsHealth()
+        : await setManualSalesClosed(input.action === "close_sales");
   await writeAuditLog({
     actor: session,
-    action: `admin.ops_health.${parsed.data.action}`,
+    action: `admin.ops_health.${input.action}`,
     targetType: "ops_health",
+    metadata:
+      input.action === "set_thresholds"
+        ? { minSpendableCents: input.minSpendableCents, warnSpendableCents: input.warnSpendableCents }
+        : undefined,
   });
   return NextResponse.json({ health });
 }

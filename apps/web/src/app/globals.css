@@ -3221,3 +3221,36 @@ a.km-sf-contact:hover {
   color: var(--km-fg-muted);
   background: var(--km-bg-muted);
 }
+
+.km-health-thresholds {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--km-border);
+}
+
+.km-health-thresholds label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--km-fg-muted);
+}
+
+.km-health-thresholds .km-input {
+  width: 8rem;
+}
+
+.km-health-unit {
+  padding-bottom: 0.6rem;
+  font-size: 0.85rem;
+  color: var(--km-fg-muted);
+}
+
+.km-health-thresholds p {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--km-fg-muted);
+}

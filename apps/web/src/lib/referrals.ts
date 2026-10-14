@@ -1398,6 +1398,17 @@ export async function adminDisableReferral(agentId: number, actor: Actor) {
   await writeAuditLog({ actor, action: "admin.referral.disable", targetType: "agent", targetId: agentId });
 }
 
+/** 解除平台关闭：代理可以自己再打开。不替代理开启，面额要代理自己定。 */
+export async function adminRestoreReferral(agentId: number, actor: Actor) {
+  const [row] = await db
+    .update(agentReferralSettings)
+    .set({ disabledByAdminAt: null, updatedAt: nowIso() })
+    .where(and(eq(agentReferralSettings.agentId, agentId), isNotNull(agentReferralSettings.disabledByAdminAt)))
+    .returning({ agentId: agentReferralSettings.agentId });
+  if (!row) throw new ReferralError("这个代理的邀请有礼没有被平台关闭", 409);
+  await writeAuditLog({ actor, action: "admin.referral.restore", targetType: "agent", targetId: agentId });
+}
+
 /** 管理端：每个开过活动的代理一行，外加需要人工看一眼的邀请人。 */
 export async function adminReferralOverview() {
   const [settingsRows, total, month] = await Promise.all([

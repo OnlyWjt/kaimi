@@ -116,6 +116,13 @@ export async function setManualSalesClosed(closed: boolean) {
   return refreshOpsHealth();
 }
 
+/** 管理后台改卡台余额的关店线、预警线（分），改完立刻按新线重查一次。 */
+export async function setSpendableThresholds(minCents: number, warnCents: number) {
+  await setSetting(MIN_SPENDABLE_KEY, String(minCents));
+  await setSetting(WARN_SPENDABLE_KEY, String(warnCents));
+  return refreshOpsHealth();
+}
+
 export async function recordOpsAlert(alert: Omit<OpsAlert, "at">) {
   const current = (await getOpsHealth()) ?? emptyHealth();
   const next: OpsAlert = { ...alert, at: new Date().toISOString() };
