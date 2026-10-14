@@ -418,17 +418,64 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
       danger: true,
     });
     if (!answer) return;
-    const data = await submit(
-      `/api/admin/store-orders/${encodeURIComponent(order.orderNo)}/refund`,
-      {
-        type: choice.__action,
-        reference: answer.reference,
-        reason: answer.reason,
-        confirmation: answer.confirmation,
-      },
-      "PATCH",
-    );
-    if (data) await load();
+    const body = {
+      type: choice.__action,
+      reference: answer.reference,
+      reason: answer.reason,
+      confirmation: answer.confirmation,
+    };
+    let result = await sendRefund(order.orderNo, body);
+    if (result.code === "CDK_REDEEMED") {
+      const accepted = await ask({
+        title: "卡密已被兑换",
+        message: `这笔订单有 ${result.redeemedCount ?? 1} 张卡台卡密已被买家兑换，卡台无法退卡。\n继续登记只会把订单标记为${choice.__action === "chargeback" ? "拒付" : "退款"}并冲正代理收益，卡密成本由平台承担。`,
+        acknowledge: "卡台卡密已被兑换，无法退卡，平台承担成本",
+        confirmLabel: "继续登记",
+        danger: true,
+      });
+      if (!accepted) {
+        setMessage("已取消登记");
+        return;
+      }
+      result = await sendRefund(order.orderNo, { ...body, acceptRedeemed: true });
+    }
+    if (!result.ok) {
+      // 顶部提示条离订单表很远，失败原因再弹一次，避免「点了没反应」。
+      await ask({ title: "登记失败", message: result.error, confirmLabel: "知道了" });
+      return;
+    }
+    setMessage(`${order.orderNo} 已登记${choice.__action === "chargeback" ? "拒付" : "退款"}`);
+    await load();
+  }
+
+  async function sendRefund(orderNo: string, body: Record<string, unknown>) {
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch(
+        `/api/admin/store-orders/${encodeURIComponent(orderNo)}/refund`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+      const error = typeof data.error === "string" ? data.error : "登记失败";
+      if (!response.ok) setMessage(error);
+      return {
+        ok: response.ok,
+        error,
+        code: data.code as string | undefined,
+        redeemedCount: data.redeemedCount as number | undefined,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "登记失败";
+      setMessage(message);
+      return { ok: false, error: message, code: undefined, redeemedCount: undefined };
+    } finally {
+      setBusy(false);
+    }
   }
 
   function applyHealth(next: OpsHealth | null) {
