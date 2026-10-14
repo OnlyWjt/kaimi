@@ -419,6 +419,12 @@ export const storeOrders = sqliteTable(
     /** 券前商品额。老订单为 0，展示时回退到券后商品额。 */
     listGoodsCents: integer("list_goods_cents").notNull().default(0),
     couponDiscountCents: integer("coupon_discount_cents").notNull().default(0),
+    /** 这单是谁邀请来的（下单时记，发货时再判断是否算有效邀请）。 */
+    referralCodeId: integer("referral_code_id"),
+    /** 这单用了哪张邀请券。和 coupon_id（手建券）不会同时有值。 */
+    referralCouponId: integer("referral_coupon_id"),
+    /** 发货后的邀请处理做过了（生成邀请码 / 记邀请）。人工补录的单直接标记，不参与。 */
+    referralProcessedAt: text("referral_processed_at"),
     invoiceNotifyStatus: text("invoice_notify_status").notNull().default(""),
     invoiceNotifyError: text("invoice_notify_error").notNull().default(""),
     invoiceNotifiedAt: text("invoice_notified_at"),
@@ -1614,5 +1620,117 @@ export const platformAnnouncementReads = sqliteTable(
       t.announcementId,
       t.agentId,
     ),
+  }),
+);
+
+/* —— 店铺邀请返券（docs/agent-store-referral-coupon-design.md） —— */
+
+const nowIsoDefault = sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`;
+
+/** 每个代理一行。 */
+export const agentReferralSettings = sqliteTable("agent_referral_settings", {
+  agentId: integer("agent_id").primaryKey(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+  /** 第一次开启的时间。早于它发货的订单不生成邀请码。 */
+  firstEnabledAt: text("first_enabled_at"),
+  couponValidDays: integer("coupon_valid_days").notNull().default(30),
+  coolingDays: integer("cooling_days").notNull().default(7),
+  minOrderCents: integer("min_order_cents").notNull().default(0),
+  monthlyCap: integer("monthly_cap").notNull().default(10),
+  /** 管理员关闭时记一下，代理端提示是平台关的。 */
+  disabledByAdminAt: text("disabled_by_admin_at"),
+  updatedAt: text("updated_at").notNull().default(nowIsoDefault),
+});
+
+/** 每个商品邀请券立减多少；没有行 = 这个商品不能用邀请券。 */
+export const agentReferralPlanRewards = sqliteTable(
+  "agent_referral_plan_rewards",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    agentId: integer("agent_id").notNull(),
+    planKey: text("plan_key").notNull(),
+    amountCents: integer("amount_cents").notNull(),
+    updatedAt: text("updated_at").notNull().default(nowIsoDefault),
+  },
+  (t) => ({
+    agentPlanIdx: uniqueIndex("agent_referral_plan_rewards_agent_plan_uq").on(t.agentId, t.planKey),
+  }),
+);
+
+/** 邀请码：一个（店铺，邀请人邮箱）一个。 */
+export const agentReferralCodes = sqliteTable(
+  "agent_referral_codes",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    agentId: integer("agent_id").notNull(),
+    code: text("code").notNull(),
+    /** 归一化邮箱的 hash（见 referral-core normalizeReferralEmail）。 */
+    ownerEmailHash: text("owner_email_hash").notNull(),
+    ownerEmailEncrypted: text("owner_email_encrypted").notNull(),
+    firstOrderId: integer("first_order_id").notNull(),
+    createdAt: text("created_at").notNull().default(nowIsoDefault),
+  },
+  (t) => ({
+    agentCodeIdx: uniqueIndex("agent_referral_codes_agent_code_uq").on(t.agentId, t.code),
+    agentOwnerIdx: uniqueIndex("agent_referral_codes_agent_owner_uq").on(t.agentId, t.ownerEmailHash),
+  }),
+);
+
+/** 邀请记录：被邀请人的一笔首单。 */
+export const agentReferrals = sqliteTable(
+  "agent_referrals",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    agentId: integer("agent_id").notNull(),
+    codeId: integer("code_id").notNull(),
+    inviteeEmailHash: text("invitee_email_hash").notNull(),
+    inviteeEmailEncrypted: text("invitee_email_encrypted").notNull(),
+    storeOrderId: integer("store_order_id").notNull(),
+    orderAmountCents: integer("order_amount_cents").notNull(),
+    /** cooling | rewarded | capped | void */
+    status: text("status").notNull(),
+    voidReason: text("void_reason").notNull().default(""),
+    /** 发货时间 + 冷静期。 */
+    qualifyAt: text("qualify_at").notNull(),
+    couponId: integer("coupon_id"),
+    createdAt: text("created_at").notNull().default(nowIsoDefault),
+    updatedAt: text("updated_at").notNull().default(nowIsoDefault),
+  },
+  (t) => ({
+    orderIdx: uniqueIndex("agent_referrals_order_uq").on(t.storeOrderId),
+    inviteeIdx: uniqueIndex("agent_referrals_agent_invitee_uq").on(t.agentId, t.inviteeEmailHash),
+    codeIdx: index("agent_referrals_code_idx").on(t.codeId, t.status),
+    dueIdx: index("agent_referrals_due_idx").on(t.status, t.qualifyAt),
+  }),
+);
+
+/** 邀请券：一张一行。 */
+export const agentReferralCoupons = sqliteTable(
+  "agent_referral_coupons",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    agentId: integer("agent_id").notNull(),
+    referralId: integer("referral_id").notNull(),
+    codeId: integer("code_id").notNull(),
+    code: text("code").notNull(),
+    ownerEmailHash: text("owner_email_hash").notNull(),
+    /** 发券时的 { planKey: 立减分 } 快照。 */
+    rewardsJson: text("rewards_json").notNull(),
+    /** unused | reserved | used | expired | revoked */
+    status: text("status").notNull().default("unused"),
+    expiresAt: text("expires_at").notNull(),
+    reservedOrderId: integer("reserved_order_id"),
+    usedOrderId: integer("used_order_id"),
+    usedDiscountCents: integer("used_discount_cents"),
+    revokedReason: text("revoked_reason").notNull().default(""),
+    revokedBy: integer("revoked_by"),
+    createdAt: text("created_at").notNull().default(nowIsoDefault),
+    updatedAt: text("updated_at").notNull().default(nowIsoDefault),
+  },
+  (t) => ({
+    codeIdx: uniqueIndex("agent_referral_coupons_code_uq").on(t.code),
+    referralIdx: uniqueIndex("agent_referral_coupons_referral_uq").on(t.referralId),
+    ownerIdx: index("agent_referral_coupons_owner_idx").on(t.agentId, t.ownerEmailHash, t.status),
+    expiryIdx: index("agent_referral_coupons_expiry_idx").on(t.status, t.expiresAt),
   }),
 );

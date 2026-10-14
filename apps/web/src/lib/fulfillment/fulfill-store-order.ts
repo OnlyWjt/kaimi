@@ -831,6 +831,14 @@ export async function retryPendingStoreOrders(limit = 10) {
 
 /** 整单发齐后通知买家（邮件）和代理（order.delivered 回调）。只在切到 delivered 的那次调用。 */
 export function announceDelivered(orderId: number) {
+  // 生成邀请码、记邀请。人工补录的单在补录时已标成处理过，这里调用也不会处理。
+  void import("@/lib/referrals")
+    .then(({ processDeliveredOrderReferral }) => processDeliveredOrderReferral(orderId))
+    .catch((error) => {
+      console.warn(
+        `[fulfill] 邀请处理失败，定时任务会补跑：${error instanceof Error ? error.message : error}`,
+      );
+    });
   void import("@/lib/mail")
     .then(({ sendDeliveryMail }) => sendDeliveryMail(orderId))
     .catch((error) => {

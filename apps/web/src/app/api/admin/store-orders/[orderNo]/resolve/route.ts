@@ -246,6 +246,8 @@ export async function PATCH(
           .set({
             fulfillStatus: complete ? "delivered" : "partially_delivered",
             deliveredAt: complete ? now : freshOrder.deliveredAt,
+            // 人工补录的单不算邀请、也不生成邀请码（设计 §4）
+            referralProcessedAt: complete ? now : freshOrder.referralProcessedAt,
             // 和自动发卡一致：补齐时把发货邮件排上，否则 sendDeliveryMail 认领不到。
             deliveryMailStatus:
               complete && !freshOrder.deliveryMailStatus ? "pending" : freshOrder.deliveryMailStatus,

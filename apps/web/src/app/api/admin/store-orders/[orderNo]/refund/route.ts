@@ -22,6 +22,7 @@ function isFinishedDelivery(cdk: {
   );
 }
 import { releaseCouponForTransition } from "@/lib/coupons";
+import { handleReferralRefund } from "@/lib/referrals";
 import { recordOpsAlert } from "@/lib/ops-health";
 
 // 退款中间态：已有展示标签/筛选（status-labels），之前没有写入方。
@@ -268,6 +269,7 @@ export async function PATCH(
       if (!updated) throw new Error("订单状态已变化");
       // 只有这次条件 update 拿到了行才会走到这里，所以优惠券次数只还一次。
       await releaseCouponForTransition(tx, updated, "paid", "refunded");
+      await handleReferralRefund(tx, updated);
       for (const cdk of cdks) {
         const deliveredAccount = isFinishedDelivery(cdk) && cdk.status === "used";
         if (cdk.status !== "unused" && !deliveredAccount) continue;

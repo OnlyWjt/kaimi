@@ -14,6 +14,7 @@ import { gatewayPaidCheckOutcome, type GatewayPaidCheck } from "@/lib/store-orde
 import { recordOpsAlert } from "@/lib/ops-health";
 import { epayReady, getEpayConfig } from "@/lib/payments/config";
 import { moneyYuan, parseMoneyYuan, queryEpayOrder } from "@/lib/payments/epay";
+import { markReferralCouponUsed } from "@/lib/referrals";
 
 export type ConfirmPaidResult =
   | { kind: "missing" }
@@ -193,6 +194,7 @@ export async function confirmStoreOrderPaid(input: {
       }
       return { kind: "unexpected_state", current: after };
     }
+    await markReferralCouponUsed(tx, updated);
     await tx
       .insert(backgroundJobs)
       .values([

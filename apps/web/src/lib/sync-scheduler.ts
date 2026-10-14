@@ -140,6 +140,17 @@ async function maybeTick() {
       } catch (err) {
         console.warn("[kaimi-sync] expired store order close failed", sanitizeLog(err));
       }
+      try {
+        // 邀请返券：补跑发货后的邀请处理、发到期的券、过期的券改状态
+        const referral = await import("@/lib/referrals").then((m) => m.runReferralJobs());
+        if (referral.processed > 0 || referral.issued > 0 || referral.expired > 0) {
+          console.log(
+            `[kaimi-sync] referral: processed=${referral.processed} issued=${referral.issued} expired=${referral.expired}`,
+          );
+        }
+      } catch (err) {
+        console.warn("[kaimi-sync] referral jobs failed", sanitizeLog(err));
+      }
       // 周结已停。对账改走 reconciliation 批次，任务不能再自动占用收益。
       try {
         const alerted = await alertAgentsOfStuckOrders();

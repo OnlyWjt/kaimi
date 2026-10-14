@@ -44,6 +44,13 @@ import {
   reserveCoupon,
 } from "@/lib/coupons";
 import { specFromRecord } from "@/lib/coupon-core";
+import {
+  applyReferralCoupon,
+  findReferralCoupon,
+  releaseReferralCouponForClosedOrder,
+  reserveReferralCoupon,
+  resolveCheckoutReferralCode,
+} from "@/lib/referrals";
 
 /** 配置没弄好是我们的问题，买家只需要知道买不了；真实原因留在服务端日志里。 */
 function unavailable(detail: string): never {
@@ -178,28 +185,46 @@ async function quoteCheckoutAmounts(input: {
   quantity?: number;
   couponCode?: string;
   invoiceRequested?: boolean;
+  /** 邀请券要核对下单邮箱。 */
+  customerEmail?: string;
 }) {
   const checkout = await resolveStoreCheckout(input);
   const listGoodsCents = checkout.listGoodsCents;
   let goodsCents = listGoodsCents;
   let discountCents = 0;
   let coupon: Awaited<ReturnType<typeof loadCheckoutCoupon>> | null = null;
+  let referralCoupon: Awaited<ReturnType<typeof findReferralCoupon>> = null;
   const code = (input.couponCode || "").trim();
   if (code) {
-    const loaded = await loadCheckoutCoupon({
-      agentId: checkout.agent.id,
-      code,
-      planKey: checkout.offer.planKey,
-    });
-    coupon = loaded;
-    const applied = applyCheckoutCoupon({
-      listGoodsCents,
-      costTotalCents: checkout.agentCostTotalCents,
-      feeRule: checkout.feeRule,
-      spec: specFromRecord(loaded),
-    });
-    goodsCents = applied.goodsCents;
-    discountCents = applied.discountCents;
+    // 先按代理手建的券查，查不到再按邀请券查；两种券一单只能用一张。
+    referralCoupon = await findReferralCoupon(checkout.agent.id, code);
+    if (referralCoupon) {
+      const applied = applyReferralCoupon({
+        coupon: referralCoupon,
+        customerEmail: input.customerEmail,
+        planKey: checkout.offer.planKey,
+        listGoodsCents,
+        costTotalCents: checkout.agentCostTotalCents,
+        feeRule: checkout.feeRule,
+      });
+      goodsCents = applied.goodsCents;
+      discountCents = applied.discountCents;
+    } else {
+      const loaded = await loadCheckoutCoupon({
+        agentId: checkout.agent.id,
+        code,
+        planKey: checkout.offer.planKey,
+      });
+      coupon = loaded;
+      const applied = applyCheckoutCoupon({
+        listGoodsCents,
+        costTotalCents: checkout.agentCostTotalCents,
+        feeRule: checkout.feeRule,
+        spec: specFromRecord(loaded),
+      });
+      goodsCents = applied.goodsCents;
+      discountCents = applied.discountCents;
+    }
   }
   const quote = quoteStorePayment({
     goodsCents,
@@ -208,14 +233,14 @@ async function quoteCheckoutAmounts(input: {
     feeRule: checkout.feeRule,
   });
   if (quote.earningCents < 0) {
-    if (coupon) {
+    if (coupon || referralCoupon) {
       throw new Error("这张券用在当前商品上后，扣完通道费会低于成本");
     }
     unavailable(
       `套餐 ${checkout.offer.planKey} 扣手续费后代理收益为负：零售 ${checkout.offer.retailPriceCents}，成本 ${checkout.costCents}，数量 ${checkout.quantity}，手续费 ${quote.feeCents}`,
     );
   }
-  return { checkout, coupon, listGoodsCents, goodsCents, discountCents, quote };
+  return { checkout, coupon, referralCoupon, listGoodsCents, goodsCents, discountCents, quote };
 }
 
 export async function quoteStoreCheckout(input: {
@@ -225,6 +250,7 @@ export async function quoteStoreCheckout(input: {
   quantity?: number;
   couponCode?: string;
   invoiceRequested?: boolean;
+  customerEmail?: string;
 }) {
   const priced = await quoteCheckoutAmounts(input);
   return {
@@ -233,7 +259,9 @@ export async function quoteStoreCheckout(input: {
     goodsCents: priced.goodsCents,
     surchargeCents: priced.quote.surchargeCents,
     payCents: priced.quote.payCents,
-    couponCode: priced.coupon?.code || "",
+    couponCode: priced.coupon?.code || priced.referralCoupon?.code || "",
+    /** 邀请券：结账页显示「邀请券 立减 ¥x」。 */
+    couponKind: priced.referralCoupon ? "referral" : priced.coupon ? "store" : "",
   };
 }
 
@@ -254,10 +282,13 @@ export async function createStoreOrder(input: {
   regionConfirmed?: boolean;
   /** 付款后跳回的地址，开放 API 代客下单用；已校验过，可含 {order_no}。不传回本站订单页。 */
   returnUrl?: string;
+  /** 邀请链接带进来的邀请码；不是这家店的当没带，是否算有效邀请等发货后再判。 */
+  referralCode?: string;
 }) {
   await assertStoreSalesOpen();
   const priced = await quoteCheckoutAmounts(input);
-  const { checkout, coupon, listGoodsCents, discountCents, quote } = priced;
+  const { checkout, coupon, referralCoupon, listGoodsCents, discountCents, quote } = priced;
+  const referralCodeId = await resolveCheckoutReferralCode(checkout.agent.id, input.referralCode);
   const { agent, offer, localAccount, quantity, costCents, displayName, channelConfig } =
     checkout;
 
@@ -375,13 +406,15 @@ export async function createStoreOrder(input: {
         invoiceAmountCents: invoice.requested ? invoiceQuote.payCents : 0,
         invoiceSurchargeCents: invoiceQuote.surchargeCents,
         couponId: coupon?.id ?? null,
-        couponCodeSnapshot: coupon?.code ?? "",
-        couponKindSnapshot: coupon?.kind ?? "",
+        couponCodeSnapshot: coupon?.code ?? referralCoupon?.code ?? "",
+        couponKindSnapshot: coupon?.kind ?? (referralCoupon ? "referral" : ""),
         couponPercentSnapshot: coupon?.percentZhe ?? 0,
         couponThresholdCents: coupon?.thresholdCents ?? 0,
-        couponAmountSnapshot: coupon?.amountCents ?? 0,
+        couponAmountSnapshot: coupon?.amountCents ?? (referralCoupon ? discountCents : 0),
         listGoodsCents,
         couponDiscountCents: discountCents,
+        referralCodeId,
+        referralCouponId: referralCoupon?.id ?? null,
         customerEmail: input.customerEmail.trim().toLowerCase(),
         fulfillmentIdempotencyKey,
         cardplatformAccountId: cardplatform?.id ?? null,
@@ -390,6 +423,7 @@ export async function createStoreOrder(input: {
       })
       .returning();
     if (!created) throw new Error("订单创建失败");
+    if (referralCoupon) await reserveReferralCoupon(tx, referralCoupon.id, created.id);
     return created;
   });
 
@@ -456,9 +490,10 @@ export async function closeStoreOrder(orderNo: string) {
         updatedAt: now,
       })
       .where(and(eq(storeOrders.orderNo, orderNo), eq(storeOrders.payStatus, "unpaid")))
-      .returning({ id: storeOrders.id, couponId: storeOrders.couponId });
+      .returning({ id: storeOrders.id, couponId: storeOrders.couponId, referralCouponId: storeOrders.referralCouponId });
     for (const row of closed) {
       await releaseCouponForTransition(tx, row, "unpaid", STORE_ORDER_CLOSED_PAY_STATUS);
+      await releaseReferralCouponForClosedOrder(tx, row);
     }
     return closed.length > 0;
   });
@@ -515,12 +550,13 @@ export async function closeExpiredStoreOrders(options: {
           lt(storeOrders.createdAt, cutoff),
         ),
       )
-      .returning({ id: storeOrders.id, couponId: storeOrders.couponId });
+      .returning({ id: storeOrders.id, couponId: storeOrders.couponId, referralCouponId: storeOrders.referralCouponId });
     let couponsReleased = 0;
     for (const row of closed) {
       if (await releaseCouponForTransition(tx, row, "unpaid", STORE_ORDER_CLOSED_PAY_STATUS)) {
         couponsReleased += 1;
       }
+      await releaseReferralCouponForClosedOrder(tx, row);
     }
     return { closed: closed.length, couponsReleased };
   });

@@ -18,6 +18,7 @@ import {
 } from "@/lib/payments/confirm-store-order";
 import { verifyEpayNotify } from "@/lib/payments/epay";
 import { getPublicBaseUrl } from "@/lib/public-url";
+import { buyerReferralView } from "@/lib/referrals";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import {
   isLocalAccountPlan,
@@ -127,6 +128,11 @@ async function serializePublicOrder(
     cdkStatus: cdks[0]?.status ?? null,
     paidAt: order.paidAt,
     deliveredAt: order.deliveredAt,
+    // 邀请卡片和这个邮箱的邀请券。能进到这里的已经交过完整订单号或查询凭证。
+    referral:
+      order.payStatus === "paid" && origin
+        ? await buyerReferralView(order, origin).catch(() => null)
+        : null,
   };
 }
 

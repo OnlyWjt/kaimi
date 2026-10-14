@@ -1700,6 +1700,112 @@ async function ensureRedeemGuardSchema() {
     if (!/duplicate column/i.test(String(error))) throw error;
   }
   await ensureReconciliationSchema();
+  await ensureReferralSchema();
+}
+
+/** 店铺邀请返券。全是 IF NOT EXISTS / 重复列忽略，可以反复跑。 */
+async function ensureReferralSchema() {
+  await client.executeMultiple(`
+    CREATE TABLE IF NOT EXISTS agent_referral_settings (
+      agent_id INTEGER PRIMARY KEY,
+      enabled INTEGER NOT NULL DEFAULT 0,
+      first_enabled_at TEXT,
+      coupon_valid_days INTEGER NOT NULL DEFAULT 30,
+      cooling_days INTEGER NOT NULL DEFAULT 7,
+      min_order_cents INTEGER NOT NULL DEFAULT 0,
+      monthly_cap INTEGER NOT NULL DEFAULT 10,
+      disabled_by_admin_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE TABLE IF NOT EXISTS agent_referral_plan_rewards (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id INTEGER NOT NULL,
+      plan_key TEXT NOT NULL,
+      amount_cents INTEGER NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS agent_referral_plan_rewards_agent_plan_uq
+      ON agent_referral_plan_rewards(agent_id, plan_key);
+    CREATE TABLE IF NOT EXISTS agent_referral_codes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id INTEGER NOT NULL,
+      code TEXT NOT NULL,
+      owner_email_hash TEXT NOT NULL,
+      owner_email_encrypted TEXT NOT NULL,
+      first_order_id INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS agent_referral_codes_agent_code_uq ON agent_referral_codes(agent_id, code);
+    CREATE UNIQUE INDEX IF NOT EXISTS agent_referral_codes_agent_owner_uq
+      ON agent_referral_codes(agent_id, owner_email_hash);
+    CREATE TABLE IF NOT EXISTS agent_referrals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id INTEGER NOT NULL,
+      code_id INTEGER NOT NULL,
+      invitee_email_hash TEXT NOT NULL,
+      invitee_email_encrypted TEXT NOT NULL,
+      store_order_id INTEGER NOT NULL,
+      order_amount_cents INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      void_reason TEXT NOT NULL DEFAULT '',
+      qualify_at TEXT NOT NULL,
+      coupon_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS agent_referrals_order_uq ON agent_referrals(store_order_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS agent_referrals_agent_invitee_uq
+      ON agent_referrals(agent_id, invitee_email_hash);
+    CREATE INDEX IF NOT EXISTS agent_referrals_code_idx ON agent_referrals(code_id, status);
+    CREATE INDEX IF NOT EXISTS agent_referrals_due_idx ON agent_referrals(status, qualify_at);
+    CREATE TABLE IF NOT EXISTS agent_referral_coupons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id INTEGER NOT NULL,
+      referral_id INTEGER NOT NULL,
+      code_id INTEGER NOT NULL,
+      code TEXT NOT NULL,
+      owner_email_hash TEXT NOT NULL,
+      rewards_json TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'unused',
+      expires_at TEXT NOT NULL,
+      reserved_order_id INTEGER,
+      used_order_id INTEGER,
+      used_discount_cents INTEGER,
+      revoked_reason TEXT NOT NULL DEFAULT '',
+      revoked_by INTEGER,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS agent_referral_coupons_code_uq ON agent_referral_coupons(code);
+    CREATE UNIQUE INDEX IF NOT EXISTS agent_referral_coupons_referral_uq ON agent_referral_coupons(referral_id);
+    CREATE INDEX IF NOT EXISTS agent_referral_coupons_owner_idx
+      ON agent_referral_coupons(agent_id, owner_email_hash, status);
+    CREATE INDEX IF NOT EXISTS agent_referral_coupons_expiry_idx ON agent_referral_coupons(status, expires_at);
+  `);
+  for (const sqlText of [
+    "ALTER TABLE store_orders ADD COLUMN referral_code_id INTEGER",
+    "ALTER TABLE store_orders ADD COLUMN referral_coupon_id INTEGER",
+    "ALTER TABLE store_orders ADD COLUMN referral_processed_at TEXT",
+  ]) {
+    try {
+      await client.execute(sqlText);
+    } catch (error) {
+      if (!/duplicate column/i.test(String(error))) throw error;
+    }
+  }
+  // 上线前已经发货的单不参与邀请（老买家不补邀请码），标成处理过。只跑一次：
+  // 每次启动都跑的话，刚发货、邀请还没处理就重启的单会被误标。
+  const flag = await client.execute(
+    "SELECT value FROM settings WHERE key = 'migration_referral_backfill_v1'",
+  );
+  if (flag.rows[0]?.value !== "done") {
+    await client.execute(
+      "UPDATE store_orders SET referral_processed_at = COALESCE(delivered_at, updated_at) WHERE referral_processed_at IS NULL AND fulfill_status = 'delivered'",
+    );
+    await client.execute(
+      "INSERT INTO settings (key, value) VALUES ('migration_referral_backfill_v1', 'done') ON CONFLICT(key) DO UPDATE SET value = 'done'",
+    );
+  }
 }
 
 async function ensureReconciliationSchema() {

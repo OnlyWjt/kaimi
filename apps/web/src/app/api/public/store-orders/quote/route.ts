@@ -17,6 +17,8 @@ const schema = z.object({
     .optional(),
   couponCode: z.string().trim().max(20).optional(),
   invoiceRequested: z.boolean().optional(),
+  // 邀请券只能本人用，询价时也要核对邮箱；空串当没填
+  customerEmail: z.string().trim().max(254).optional(),
 });
 
 export async function POST(req: Request) {
