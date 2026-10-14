@@ -9,18 +9,7 @@ import { getCardplatformClientById } from "@/lib/cardplatform/config";
 import { CardplatformError } from "@/lib/cardplatform/client";
 import { bootDb } from "@/lib/config";
 import { isLocalAccountPlan } from "@/lib/finished-account-core";
-
-function isFinishedDelivery(cdk: {
-  planKey: string;
-  upstreamRef: string;
-  cardplatformAccountId: number;
-}) {
-  return (
-    isLocalAccountPlan(cdk) ||
-    cdk.cardplatformAccountId === 0 ||
-    cdk.upstreamRef.startsWith("finished:")
-  );
-}
+import { classifyRefundCdks, isFinishedDelivery } from "@/lib/store-refund-core";
 import { releaseCouponForTransition } from "@/lib/coupons";
 import { handleReferralRefund } from "@/lib/referrals";
 import { recordOpsAlert } from "@/lib/ops-health";
@@ -33,6 +22,8 @@ const schema = z.object({
   reference: z.string().trim().min(1).max(128),
   reason: z.string().trim().min(1).max(500),
   confirmation: z.string().trim(),
+  // 卡台卡密已被兑换时，管理员确认由平台承担成本才放行。
+  acceptRedeemed: z.boolean().optional(),
 });
 
 export async function PATCH(
@@ -113,14 +104,21 @@ export async function PATCH(
       { status: 409 },
     );
   }
-  if (
-    cdks.some(
-      (cdk) =>
-        ["used", "locked", "redeeming"].includes(cdk.status) && !isFinishedDelivery(cdk),
-    )
-  ) {
+  const { inFlight, redeemed } = classifyRefundCdks(cdks);
+  if (inFlight.length) {
     return NextResponse.json(
-      { error: "卡密已使用或正在兑换，禁止直接退款，请先人工核对" },
+      { error: "卡密正在兑换，结果未确定，禁止直接退款，请先人工核对" },
+      { status: 409 },
+    );
+  }
+  // 已兑换的卡退不回卡台，跳过上游，只改本地账务；必须由管理员显式确认。
+  if (redeemed.length && !parsed.data.acceptRedeemed) {
+    return NextResponse.json(
+      {
+        error: "卡台卡密已被兑换，无法退卡",
+        code: "CDK_REDEEMED",
+        redeemedCount: redeemed.length,
+      },
       { status: 409 },
     );
   }
@@ -375,6 +373,8 @@ export async function PATCH(
     metadata: {
       orderNo,
       reference: parsed.data.reference,
+      // 这些卡已被兑换、卡台未退卡，成本由平台承担。
+      redeemedCdkIds: redeemed,
       earningAdjustmentCents:
         earning?.status === "settled" ? -earning.earningCents : 0,
     },

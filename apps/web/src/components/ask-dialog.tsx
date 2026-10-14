@@ -37,6 +37,8 @@ export type AskOptions = {
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
+  /** 给一个必须勾选才放行的确认项，用于「我知道后果」这类兜底。 */
+  acknowledge?: string;
 };
 
 type Pending = {
@@ -53,6 +55,7 @@ export function useAskDialog() {
   const [pending, setPending] = useState<Pending | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
+  const [acknowledged, setAcknowledged] = useState(false);
   const pendingRef = useRef<Pending | null>(null);
 
   const settle = useCallback((value: Record<string, string> | null) => {
@@ -77,6 +80,7 @@ export function useAskDialog() {
         ),
       );
       setError("");
+      setAcknowledged(false);
       setPending(next);
     });
   }, []);
@@ -99,6 +103,10 @@ export function useAskDialog() {
   function submit(action = "confirm") {
     if (!pending) return;
     const fields = pending.options.fields ?? [];
+    if (pending.options.acknowledge && !acknowledged) {
+      setError("请先勾选确认");
+      return;
+    }
     for (const field of fields) {
       const value = readField(field);
       if (field.required && !value) {
@@ -184,6 +192,17 @@ export function useAskDialog() {
               </label>
             ))}
           </div>
+        ) : null}
+        {pending.options.acknowledge ? (
+          <label className="mt-4 flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={acknowledged}
+              onChange={(event) => setAcknowledged(event.target.checked)}
+            />
+            <span>{pending.options.acknowledge}</span>
+          </label>
         ) : null}
         {error ? (
           <p className="mt-3 text-sm text-[var(--km-danger)]">{error}</p>
