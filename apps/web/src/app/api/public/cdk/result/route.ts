@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { pollCardplatformResult } from "@/lib/cardplatform/redeem";
 import { pollRechargeByRequestId, pollRechargeIfNeeded } from "@/lib/orders";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { publicErrorMessage } from "@/lib/public-error";
 
 export async function GET(req: Request) {
   const limited = enforceRateLimit(req, "public-cdk-result", 30);
@@ -44,7 +45,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "无效的兑换请求" }, { status: 400 });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "查询失败" },
+      { error: publicErrorMessage(error, "查询失败", "public/cdk/result") },
       { status: 400 },
     );
   }

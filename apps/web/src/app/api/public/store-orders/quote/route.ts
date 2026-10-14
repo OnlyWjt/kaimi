@@ -4,6 +4,7 @@ import { bootDb } from "@/lib/config";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { HARD_MAX_ORDER_QUANTITY } from "@/lib/store-quantity-core";
 import { quoteStoreCheckout } from "@/lib/store-orders";
+import { publicErrorMessage } from "@/lib/public-error";
 
 const schema = z.object({
   slug: z.string().trim().min(3).max(32),
@@ -37,7 +38,7 @@ export async function POST(req: Request) {
     return NextResponse.json(quote);
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "询价失败" },
+      { error: publicErrorMessage(error, "询价失败", "public/store-orders/quote") },
       { status: 400 },
     );
   }

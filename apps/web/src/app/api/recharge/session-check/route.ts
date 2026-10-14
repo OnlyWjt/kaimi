@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { verifySessionForRedeem } from "@/lib/session-check";
+import { publicErrorMessage } from "@/lib/public-error";
 
 const schema = z.object({
   session: z.string().min(1),
@@ -34,7 +35,7 @@ export async function POST(req: Request) {
       { status: checked.ok ? 200 : 400 },
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : "预检失败";
+    const message = publicErrorMessage(err, "预检失败", "recharge/session-check");
     return NextResponse.json({ ok: false, error: message, errors: [message] }, { status: 400 });
   }
 }

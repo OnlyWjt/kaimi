@@ -5,6 +5,7 @@ import { DrawError, revealDrawItemCode } from "@/lib/agent-draw";
 import { isApiKeyContext, requireApiKey } from "@/lib/open-api/auth";
 import { agentDrawAccessStatus } from "@/lib/open-api/draw-access";
 import { openFail, openOk } from "@/lib/open-api/respond";
+import { publicErrorMessage } from "@/lib/public-error";
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
   const auth = await requireApiKey(req, "draw:reveal");
@@ -27,6 +28,6 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     return openOk({ id: revealed.id, code: revealed.code });
   } catch (error) {
     if (error instanceof DrawError && error.status === 404) return openFail("NOT_FOUND", error.message);
-    return openFail("VALIDATION_FAILED", error instanceof Error ? error.message : "查看失败");
+    return openFail("VALIDATION_FAILED", publicErrorMessage(error, "查看失败", "v1/open/draws/items/[id]/reveal"));
   }
 }

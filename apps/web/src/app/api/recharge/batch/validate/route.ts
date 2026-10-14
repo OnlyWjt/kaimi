@@ -8,6 +8,7 @@ import { ANON_BATCH_CODES_PER_REQUEST } from "@/lib/redeem-guard-core";
 import { checkBatchCodeBudget } from "@/lib/redeem-guard";
 import { getSession } from "@/lib/auth";
 import { clientIp } from "@/lib/rate-limit";
+import { publicErrorMessage } from "@/lib/public-error";
 
 const schema = z.object({
   codes: z.array(z.string()).min(1).max(200),
@@ -43,7 +44,7 @@ export async function POST(req: Request) {
       list: await previewRedeemCodes(codes, { ip: clientIp(req) }),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "校验失败";
+    const message = publicErrorMessage(error, "校验失败", "recharge/batch/validate");
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

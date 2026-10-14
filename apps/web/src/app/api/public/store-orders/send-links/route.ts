@@ -8,6 +8,7 @@ import { bootDb } from "@/lib/config";
 import { sendOrderLinksMail } from "@/lib/mail";
 import { requirePublicBaseUrl } from "@/lib/public-url";
 import { enforceRateLimit, enforceRateLimitFor } from "@/lib/rate-limit";
+import { publicErrorMessage } from "@/lib/public-error";
 
 const schema = z.object({
   slug: z.string().trim().min(3).max(32),
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "发送失败，请稍后再试" },
+      { error: publicErrorMessage(error, "发送失败，请稍后再试", "public/store-orders/send-links") },
       { status: 400 },
     );
   }

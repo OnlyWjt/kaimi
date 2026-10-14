@@ -9,6 +9,7 @@ import { orderLinksMailAvailable } from "@/lib/mail";
 import { createStoreOrder, listStoreOrdersByEmail } from "@/lib/store-orders";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { HARD_MAX_ORDER_QUANTITY } from "@/lib/store-quantity-core";
+import { publicErrorMessage } from "@/lib/public-error";
 
 const schema = z.object({
   slug: z.string().trim().min(3).max(32),
@@ -62,7 +63,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ list, canMailLinks });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "查单失败" },
+      { error: publicErrorMessage(error, "查单失败", "public/store-orders") },
       { status: 400 },
     );
   }
@@ -88,7 +89,7 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "下单失败" },
+      { error: publicErrorMessage(error, "下单失败", "public/store-orders") },
       { status: 400 },
     );
   }

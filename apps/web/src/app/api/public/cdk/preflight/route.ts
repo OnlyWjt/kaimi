@@ -4,6 +4,7 @@ import { preflightRedeemableCdk } from "@/lib/cardplatform/redeem";
 import { clientIp, enforceRateLimit } from "@/lib/rate-limit";
 import { assertRedeemCodeKnown, recordRedeemFailure, redeemBlockResponse } from "@/lib/redeem-guard";
 import { RedeemRejectedError } from "@/lib/redeem-guard-core";
+import { publicErrorMessage } from "@/lib/public-error";
 
 const schema = z.object({
   code: z.string().min(6),
@@ -52,7 +53,7 @@ export async function POST(req: Request) {
       await recordRedeemFailure({ ip, outcome: error.outcome, route: "public-cdk-preflight" });
     }
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "预检失败" },
+      { error: publicErrorMessage(error, "预检失败", "public/cdk/preflight") },
       { status: 400 },
     );
   }

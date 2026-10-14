@@ -17,6 +17,7 @@ import { getSession } from "@/lib/auth";
 import { clientIp } from "@/lib/rate-limit";
 import type { AgentCredential } from "@/lib/recharge-types";
 import { checkChatGPTSessionLocal } from "@/lib/session-check";
+import { publicErrorMessage } from "@/lib/public-error";
 
 const schema = z
   .object({
@@ -137,7 +138,7 @@ export async function POST(req: Request) {
           code,
           ok: false,
           orderNo: error instanceof RedeemInFlightError ? error.orderNo : "",
-          error: error instanceof Error ? error.message : "兑换订单创建失败",
+          error: publicErrorMessage(error, "兑换订单创建失败", "recharge/batch/submit"),
         });
       }
     }
@@ -155,7 +156,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, list });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "提交失败";
+    const message = publicErrorMessage(error, "提交失败", "recharge/batch/submit");
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

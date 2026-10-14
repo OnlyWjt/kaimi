@@ -7,6 +7,7 @@ import { decryptSecret } from "@/lib/crypto";
 import { isApiKeyContext, requireApiKey } from "@/lib/open-api/auth";
 import { agentDrawAccessStatus } from "@/lib/open-api/draw-access";
 import { openFail, openOk } from "@/lib/open-api/respond";
+import { publicErrorMessage } from "@/lib/public-error";
 
 const schema = z.object({
   plan_key: z.string().trim().min(1).max(64),
@@ -21,7 +22,7 @@ function failFromDraw(error: unknown) {
     if (error.status === 403) return openFail("FORBIDDEN_SCOPE", error.message);
     return openFail("VALIDATION_FAILED", error.message);
   }
-  return openFail("VALIDATION_FAILED", error instanceof Error ? error.message : "提卡失败");
+  return openFail("VALIDATION_FAILED", publicErrorMessage(error, "提卡失败", "v1/open/draws"));
 }
 
 export async function GET(req: Request) {

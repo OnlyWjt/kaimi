@@ -4,6 +4,7 @@ import { previewRedeemableCdk, summarizePreview } from "@/lib/cardplatform/redee
 import { clientIp, enforceRateLimit } from "@/lib/rate-limit";
 import { assertRedeemCodeKnown, recordRedeemFailure, redeemBlockResponse } from "@/lib/redeem-guard";
 import { RedeemRejectedError } from "@/lib/redeem-guard-core";
+import { publicErrorMessage } from "@/lib/public-error";
 
 const schema = z.object({
   code: z.string().min(6),
@@ -33,7 +34,7 @@ export async function POST(req: Request) {
       });
     }
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "预览失败" },
+      { error: publicErrorMessage(error, "预览失败", "public/cdk/preview") },
       { status: 400 },
     );
   }

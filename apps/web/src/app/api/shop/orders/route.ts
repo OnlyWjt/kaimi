@@ -4,6 +4,7 @@ import { authorizeAdmin } from "@/lib/admin-guard";
 import { createCodeOrder } from "@/lib/orders";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { isShopEnabled } from "@/lib/storefront";
+import { publicErrorMessage } from "@/lib/public-error";
 
 const schema = z.object({
   productId: z.number().int().positive(),
@@ -37,7 +38,7 @@ export async function POST(req: Request) {
           : [],
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "下单失败";
+    const message = publicErrorMessage(err, "下单失败", "shop/orders");
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

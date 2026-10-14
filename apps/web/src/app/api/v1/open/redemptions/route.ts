@@ -12,6 +12,7 @@ import { openFail, openOk } from "@/lib/open-api/respond";
 import { recordRedeemFailure, redeemBlockResponse } from "@/lib/redeem-guard";
 import { RedeemRejectedError } from "@/lib/redeem-guard-core";
 import { checkChatGPTSessionLocal } from "@/lib/session-check";
+import { publicErrorMessage } from "@/lib/public-error";
 
 const schema = z.object({
   code: z.string().min(6),
@@ -97,7 +98,7 @@ export async function POST(req: Request) {
     if (error instanceof z.ZodError || error instanceof SyntaxError) {
       return finish(openFail("VALIDATION_FAILED", error instanceof z.ZodError ? error.issues[0]?.message || "参数无效" : "请求体不是 JSON"));
     }
-    return finish(openFail("INTERNAL", error instanceof Error ? error.message : "兑换失败"));
+    return finish(openFail("INTERNAL", publicErrorMessage(error, "兑换失败", "v1/open/redemptions")));
   }
 }
 

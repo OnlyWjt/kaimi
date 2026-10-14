@@ -6,6 +6,7 @@ import { isApiKeyContext, requireApiKey } from "@/lib/open-api/auth";
 import { openFail, openOk } from "@/lib/open-api/respond";
 import { HARD_MAX_ORDER_QUANTITY } from "@/lib/store-quantity-core";
 import { quoteStoreCheckout } from "@/lib/store-orders";
+import { publicErrorMessage } from "@/lib/public-error";
 
 const quoteSchema = z.object({
   plan_key: z.string().trim().min(1).max(64),
@@ -53,6 +54,6 @@ export async function POST(req: Request) {
       currency: "CNY",
     });
   } catch (error) {
-    return openFail("VALIDATION_FAILED", error instanceof Error ? error.message : "询价失败");
+    return openFail("VALIDATION_FAILED", publicErrorMessage(error, "询价失败", "v1/open/orders/quote"));
   }
 }

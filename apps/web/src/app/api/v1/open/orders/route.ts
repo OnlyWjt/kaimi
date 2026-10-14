@@ -10,6 +10,7 @@ import { requirePublicBaseUrl } from "@/lib/public-url";
 import { openFail, openOk } from "@/lib/open-api/respond";
 import { HARD_MAX_ORDER_QUANTITY } from "@/lib/store-quantity-core";
 import { createStoreOrder } from "@/lib/store-orders";
+import { publicErrorMessage } from "@/lib/public-error";
 
 const createSchema = z.object({
   plan_key: z.string().trim().min(1).max(64),
@@ -92,7 +93,7 @@ export async function POST(req: Request) {
         ),
       );
     } catch (error) {
-      return finish(openFail("VALIDATION_FAILED", error instanceof Error ? error.message : "下单失败"));
+      return finish(openFail("VALIDATION_FAILED", publicErrorMessage(error, "下单失败", "v1/open/orders")));
     }
   }
   try {
@@ -124,7 +125,7 @@ export async function POST(req: Request) {
       }),
     );
   } catch (error) {
-    return finish(openFail("VALIDATION_FAILED", error instanceof Error ? error.message : "下单失败"));
+    return finish(openFail("VALIDATION_FAILED", publicErrorMessage(error, "下单失败", "v1/open/orders")));
   }
 }
 

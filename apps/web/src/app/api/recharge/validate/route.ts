@@ -4,6 +4,7 @@ import { validateCodeForRedeem } from "@/lib/inventory";
 import { clientIp, enforceRateLimit } from "@/lib/rate-limit";
 import { assertRedeemCodeKnown, recordRedeemFailure, redeemBlockResponse } from "@/lib/redeem-guard";
 import { RedeemRejectedError } from "@/lib/redeem-guard-core";
+import { publicErrorMessage } from "@/lib/public-error";
 
 const schema = z.object({
   code: z.string().min(6),
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
       await recordRedeemFailure({ ip, outcome: err.outcome, route: "recharge-validate" });
       return NextResponse.json({ ok: false, error: err.message }, { status: 400 });
     }
-    const message = err instanceof Error ? err.message : "校验失败";
+    const message = publicErrorMessage(err, "校验失败", "recharge/validate");
     return NextResponse.json({ ok: false, error: message }, { status: 400 });
   }
 }

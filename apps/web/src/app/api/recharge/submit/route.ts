@@ -10,6 +10,7 @@ import { clientIp, enforceRateLimit } from "@/lib/rate-limit";
 import { recordRedeemFailure, redeemBlockResponse } from "@/lib/redeem-guard";
 import { RedeemRejectedError } from "@/lib/redeem-guard-core";
 import { checkChatGPTSessionLocal } from "@/lib/session-check";
+import { publicErrorMessage } from "@/lib/public-error";
 
 const schema = z
   .object({
@@ -121,7 +122,7 @@ export async function POST(req: Request) {
         route: "recharge-submit",
       });
     }
-    const message = err instanceof Error ? err.message : "提交失败";
+    const message = publicErrorMessage(err, "提交失败", "recharge/submit");
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

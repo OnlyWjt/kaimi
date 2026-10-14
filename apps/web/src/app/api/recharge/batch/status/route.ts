@@ -3,6 +3,7 @@ import { z } from "zod";
 import { enforceBatchRateLimit } from "@/lib/batch-rate-limit";
 import { getBatchRedeemLimit } from "@/lib/batch-redeem-limit";
 import { readRechargeBatchOrders } from "@/lib/recharge-batch";
+import { publicErrorMessage } from "@/lib/public-error";
 
 const schema = z.object({
   orderNos: z.array(z.string()).min(1).max(200),
@@ -30,7 +31,7 @@ export async function POST(req: Request) {
       list: await readRechargeBatchOrders(orderNos),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "查询失败";
+    const message = publicErrorMessage(error, "查询失败", "recharge/batch/status");
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
