@@ -3216,3 +3216,8 @@ a.km-sf-contact:hover {
 .km-fold > summary:hover {
   color: var(--km-fg);
 }
+
+.km-badge-muted {
+  color: var(--km-fg-muted);
+  background: var(--km-bg-muted);
+}

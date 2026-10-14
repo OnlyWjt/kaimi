@@ -36,6 +36,8 @@ type AgentRow = {
   currentSlug: string;
   lastLoginAt: string | null;
   allowedPlans: Array<{ planKey: string; name: string } & RegionFields>;
+  /** 管理员开放了、但代理自己从店里下架的套餐 */
+  hiddenPlans?: Array<{ planKey: string; name: string } & RegionFields>;
 };
 
 type CatalogPlan = {
@@ -56,6 +58,8 @@ type AgentPlanRow = {
   cardplatformSellable: boolean;
   platformEnabled: boolean;
   enabled: boolean;
+  /** 代理自己从店里下架了 */
+  agentHidden?: boolean;
   costOverrideCents: number | null;
   retailPriceCents: number;
 } & RegionFields;
@@ -1184,8 +1188,20 @@ export function AdminAgents() {
                         ))}
                       </span>
                     ) : (
-                      <span className="text-[var(--km-fg-muted)]">未分配</span>
+                      <span className="text-[var(--km-fg-muted)]">
+                        {agent.hiddenPlans?.length ? "全部被代理下架" : "未分配"}
+                      </span>
                     )}
+                    {agent.hiddenPlans?.length ? (
+                      <span className="mt-1 flex flex-wrap items-center gap-1 text-xs text-[var(--km-fg-muted)]">
+                        代理已下架：
+                        {allowedPlanLabels(agent.hiddenPlans).map((label) => (
+                          <span key={label} className="km-badge km-badge-muted line-through">
+                            {label}
+                          </span>
+                        ))}
+                      </span>
+                    ) : null}
                   </td>
                   <td className="whitespace-nowrap py-3 pr-6">
                     {agent.status === "active" ? "启用" : "停用"}
@@ -1413,6 +1429,11 @@ export function AdminAgents() {
                                 plan.maxRetailPriceCents,
                               ) ? (
                                 <span className="km-badge ml-2">已超上限</span>
+                              ) : null}
+                              {plan.enabled && plan.agentHidden ? (
+                                <span className="km-badge ml-2" title="你开放了这个套餐，但代理选择不在自己店里卖">
+                                  代理已下架
+                                </span>
                               ) : null}
                             </td>
                           </tr>,

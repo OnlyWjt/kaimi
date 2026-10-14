@@ -911,6 +911,7 @@ async function ensureAgentDrawSchema() {
     "CREATE INDEX IF NOT EXISTS issued_cdks_draw_order_idx ON issued_cdks(draw_order_id)",
   );
   await addColumn("ALTER TABLE agent_plan_prices ADD COLUMN draw_price_cents INTEGER");
+  await addColumn("ALTER TABLE agent_plan_prices ADD COLUMN agent_hidden INTEGER NOT NULL DEFAULT 0");
   // 提成品号：提卡单记交付方式，成品号记被哪张提卡单领走，代理逐个开通。
   await addColumn(
     "ALTER TABLE agent_draw_orders ADD COLUMN fulfillment_kind TEXT NOT NULL DEFAULT 'cardplatform'",

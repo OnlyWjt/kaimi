@@ -246,6 +246,11 @@ export const agentPlanPrices = sqliteTable(
     /** 自助提卡专用单价。NULL 表示按代理成本价。 */
     drawPriceCents: integer("draw_price_cents"),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+    /**
+     * 代理自己把这个套餐从店里下架。和管理员的 enabled（能不能卖）分开：
+     * 管理员开放了，代理也可以选择不卖，随时再打开。
+     */
+    agentHidden: integer("agent_hidden", { mode: "boolean" }).notNull().default(false),
     createdAt: text("created_at")
       .notNull()
       .default(sql`(datetime('now'))`),

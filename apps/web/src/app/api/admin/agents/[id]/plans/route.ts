@@ -46,6 +46,7 @@ export async function GET(
       platformEnabled: platformPlans.enabled,
       cardplatformSellable: platformPlans.cardplatformSellable,
       enabled: agentPlanPrices.enabled,
+      agentHidden: agentPlanPrices.agentHidden,
       costOverrideCents: agentPlanPrices.costOverrideCents,
       retailPriceCents: agentPlanPrices.retailPriceCents,
     })
@@ -62,6 +63,7 @@ export async function GET(
     list: plans.map((plan) => ({
       ...plan,
       enabled: plan.enabled ?? false,
+      agentHidden: plan.agentHidden ?? false,
       retailPriceCents:
         plan.retailPriceCents ??
         plan.costOverrideCents ??
