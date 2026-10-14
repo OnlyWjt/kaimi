@@ -2,7 +2,7 @@
  * 店铺邀请返券：设置、下单接入、发货后记邀请、定时发券、退款作废、统计。
  * 设计见 docs/agent-store-referral-coupon-design.md。
  */
-import { and, desc, eq, gte, inArray, isNotNull, isNull, like, lte, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, like, lt, lte, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   agentPlanPrices,
@@ -23,6 +23,9 @@ import type { AuthSession } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit";
 import { planNameWithRegion } from "@/lib/cardplatform/regions";
 import { decryptSecret, encryptSecret, hashLookupValue } from "@/lib/crypto";
+import { formatBeijingDateTime } from "@/lib/datetime";
+import { yuanTextFromCents } from "@/lib/money";
+import { getPublicBaseUrl } from "@/lib/public-url";
 import { isLocalAccountPlan } from "@/lib/finished-account-core";
 import type { FeeRule } from "@/lib/payments/fees";
 import {
@@ -535,6 +538,17 @@ export async function handleReferralRefund(
  */
 export async function processDeliveredOrderReferral(orderId: number) {
   const now = nowIso();
+  // 事务提交后再通知代理，免得事务回滚了消息却发出去了
+  // 在事务回调里赋值，TS 看不到，用断言保住类型
+  let recorded = null as {
+    agentId: number;
+    inviter: string;
+    invitee: string;
+    orderNo: string;
+    amountCents: number;
+    coolingDays: number;
+    qualifyAt: string;
+  } | null;
   await db.transaction(async (tx) => {
     const [order] = await tx
       .update(storeOrders)
@@ -594,7 +608,8 @@ export async function processDeliveredOrderReferral(orderId: number) {
       monthlyCap: settings.monthlyCap,
     });
     if (!judged.record) return;
-    await tx
+    const qualifyAt = addDaysIso(deliveredAt, settings.coolingDays);
+    const inserted = await tx
       .insert(agentReferrals)
       .values({
         agentId: order.agentId,
@@ -605,12 +620,37 @@ export async function processDeliveredOrderReferral(orderId: number) {
         orderAmountCents: order.grossCents,
         status: judged.status,
         voidReason: judged.status === "capped" ? "monthly_cap" : "",
-        qualifyAt: addDaysIso(deliveredAt, settings.coolingDays),
+        qualifyAt,
         createdAt: now,
         updatedAt: now,
       })
-      .onConflictDoNothing();
+      .onConflictDoNothing()
+      .returning({ id: agentReferrals.id });
+    if (inserted.length && judged.status === "cooling") {
+      recorded = {
+        agentId: order.agentId,
+        inviter: safeDecrypt(code.ownerEmailEncrypted),
+        invitee: email,
+        orderNo: order.orderNo,
+        amountCents: order.grossCents,
+        coolingDays: settings.coolingDays,
+        qualifyAt,
+      };
+    }
   });
+  if (recorded) {
+    const r = recorded;
+    await notifyAgentReferral(
+      r.agentId,
+      (shop) =>
+        [
+          `[邀请有礼] ${shop}`,
+          `买家 ${maskReferralEmail(r.inviter)} 邀请的好友 ${maskReferralEmail(r.invitee)} 首单成交 ¥${yuanTextFromCents(r.amountCents)}`,
+          `订单 ${r.orderNo}`,
+          `${r.coolingDays} 天冷静期后给邀请人发券（${formatBeijingDateTime(r.qualifyAt)}，北京时间）`,
+        ].join("\n"),
+    );
+  }
 }
 
 /** 这个邮箱（归一化后）在这家店除这一单外有没有付过款。 */
@@ -763,9 +803,272 @@ async function issueOne(referralId: number, now: Date) {
       .where(and(eq(agentReferrals.id, referral.id), eq(agentReferrals.status, "cooling")))
       .returning({ id: agentReferrals.id });
     if (!updated) throw new Error("邀请状态已变化");
-    return { couponId, agentId: referral.agentId, couponCode };
+    return {
+      couponId,
+      agentId: referral.agentId,
+      couponCode,
+      inviter: safeDecrypt(code.ownerEmailEncrypted),
+      validDays: settings.couponValidDays,
+      rewards,
+    };
   });
-  return Boolean(issuedCoupon);
+  if (!issuedCoupon) return false;
+  // 发券已经提交；邮件、Telegram 失败都不影响券，邮件由定时任务重试
+  await sendReferralCouponNotice(issuedCoupon.couponId).catch((error) => {
+    console.warn(`[referral] 得券邮件失败，稍后重试：${error instanceof Error ? error.message : error}`);
+  });
+  const names = await planDisplayNames(issuedCoupon.agentId, Object.keys(issuedCoupon.rewards));
+  await notifyAgentReferral(issuedCoupon.agentId, (shop) =>
+    [
+      `[邀请有礼] ${shop}`,
+      `已给 ${maskReferralEmail(issuedCoupon.inviter)} 发邀请券 ${issuedCoupon.couponCode}`,
+      describeRewards(issuedCoupon.rewards, names),
+      `${issuedCoupon.validDays} 天内有效`,
+    ].join("\n"),
+  );
+  return true;
+}
+
+function describeRewards(rewards: ReferralRewards, names: Map<string, string>) {
+  return describeReferralRewards(
+    Object.entries(rewards).map(([planKey, amountCents]) => ({
+      planName: names.get(planKey) || planKey,
+      amountCents,
+    })),
+  );
+}
+
+/* —————————————————— 通知 —————————————————— */
+
+/** 给代理发 Telegram。没绑定、关了通知就不发；失败只记日志，不影响业务。 */
+async function notifyAgentReferral(agentId: number, text: (shop: string) => string) {
+  try {
+    const agent = await db.query.agents.findFirst({
+      where: eq(agents.id, agentId),
+      columns: { displayName: true, shopName: true, telegramChatId: true, telegramNotifyEnabled: true },
+    });
+    if (!agent?.telegramChatId || agent.telegramNotifyEnabled === false) return;
+    const { dispatchNotifyText } = await import("@/lib/notify");
+    await dispatchNotifyText(
+      text(publicShopName(agent)),
+      { audience: "agent" },
+      "referral.agent",
+      { telegramChatId: agent.telegramChatId, webhookUrl: "" },
+    );
+  } catch (error) {
+    console.warn(`[referral] 代理 Telegram 通知失败：${error instanceof Error ? error.message : error}`);
+  }
+}
+
+/** 发货邮件末尾的「邀请好友」一段。没开活动、没邀请码、没配公网地址就返回空。 */
+export async function referralInviteMailLines(order: {
+  id: number;
+  agentId: number;
+  customerEmail: string;
+  fulfillStatus: string;
+  referralProcessedAt: string | null;
+}) {
+  const origin = await getPublicBaseUrl();
+  if (!origin) return [];
+  // 发货邮件和邀请处理是同时触发的，先把邀请码补上（幂等）
+  if (order.fulfillStatus === "delivered" && !order.referralProcessedAt) {
+    await processDeliveredOrderReferral(order.id);
+  }
+  const view = await buyerReferralView(order, origin);
+  if (!view?.invite) return [];
+  return [
+    "",
+    "————————",
+    "邀请好友，得邀请券",
+    view.invite.rule,
+    view.invite.link,
+    `好友没点链接的话，下单时填邀请码 ${view.invite.code} 也行。`,
+  ];
+}
+
+const MAIL_ATTEMPTS = 5;
+const MAIL_SENDING_STALE_MS = 2 * 60_000;
+const REMIND_BEFORE_MS = 3 * 86_400_000;
+/** 有效期太短的券不发到期提醒，免得刚到账就提醒要过期。 */
+const REMIND_MIN_VALID_MS = 4 * 86_400_000;
+
+async function couponMailContext(couponId: number) {
+  const coupon = await db.query.agentReferralCoupons.findFirst({
+    where: eq(agentReferralCoupons.id, couponId),
+  });
+  if (!coupon) return null;
+  const [code, agent] = await Promise.all([
+    db.query.agentReferralCodes.findFirst({ where: eq(agentReferralCodes.id, coupon.codeId) }),
+    db.query.agents.findFirst({ where: eq(agents.id, coupon.agentId), columns: { currentSlug: true } }),
+  ]);
+  const rewards = parseReferralRewards(coupon.rewardsJson);
+  const names = await planDisplayNames(coupon.agentId, Object.keys(rewards));
+  const origin = await getPublicBaseUrl();
+  const email = code ? safeDecrypt(code.ownerEmailEncrypted) : "";
+  return {
+    coupon,
+    email,
+    description: describeRewards(rewards, names),
+    shopUrl: origin && agent?.currentSlug ? `${origin}/s/${agent.currentSlug}` : "",
+  };
+}
+
+function couponUseLines(ctx: NonNullable<Awaited<ReturnType<typeof couponMailContext>>>) {
+  return [
+    `券码 ${ctx.coupon.code}`,
+    `可用于：${ctx.description}`,
+    `有效期至 ${formatBeijingDateTime(ctx.coupon.expiresAt)}（北京时间）`,
+    "",
+    `下次在本店下单时，在「优惠券」里填券码。下单邮箱要用这个邮箱（${maskReferralEmail(ctx.email)}），别的邮箱用不了。`,
+    ...(ctx.shopUrl ? [ctx.shopUrl] : []),
+  ];
+}
+
+/** 得券通知邮件。认领 notice_status，并发和重试都只发一次。 */
+export async function sendReferralCouponNotice(couponId: number) {
+  const now = nowIso();
+  const stale = new Date(Date.now() - MAIL_SENDING_STALE_MS).toISOString();
+  const [claimed] = await db
+    .update(agentReferralCoupons)
+    .set({ noticeStatus: "sending", updatedAt: now })
+    .where(
+      and(
+        eq(agentReferralCoupons.id, couponId),
+        lt(agentReferralCoupons.noticeAttempts, MAIL_ATTEMPTS),
+        or(
+          inArray(agentReferralCoupons.noticeStatus, ["pending", "failed"]),
+          and(eq(agentReferralCoupons.noticeStatus, "sending"), lt(agentReferralCoupons.updatedAt, stale)),
+        ),
+      ),
+    )
+    .returning({ id: agentReferralCoupons.id });
+  if (!claimed) return;
+  const finish = (status: string, error = "", countAttempt = false) =>
+    db
+      .update(agentReferralCoupons)
+      .set({
+        noticeStatus: status,
+        noticeError: error.slice(0, 300),
+        ...(countAttempt ? { noticeAttempts: sql`${agentReferralCoupons.noticeAttempts} + 1` } : {}),
+        updatedAt: nowIso(),
+      })
+      .where(eq(agentReferralCoupons.id, couponId));
+  try {
+    const ctx = await couponMailContext(couponId);
+    if (!ctx || ctx.coupon.status !== "unused") {
+      await finish("skipped", "券已不可用");
+      return;
+    }
+    const { sendShopMail } = await import("@/lib/mail");
+    const result = await sendShopMail({
+      agentId: ctx.coupon.agentId,
+      to: ctx.email,
+      subject: (shop) => `${shop} 邀请券到账`,
+      lines: () => ["你邀请的好友在本店下单成功，送你一张邀请券：", "", ...couponUseLines(ctx)],
+    });
+    await finish(result.sent ? "sent" : "skipped", result.sent ? "" : result.reason);
+  } catch (error) {
+    await finish("failed", error instanceof Error ? error.message : "发信失败", true);
+    throw error;
+  }
+}
+
+/** 定时补发失败的得券邮件。只补发券后 3 天内的，过久就不打扰了。 */
+export async function retryReferralCouponNotices(limit = 10) {
+  const since = new Date(Date.now() - 3 * 86_400_000).toISOString();
+  const rows = await db
+    .select({ id: agentReferralCoupons.id })
+    .from(agentReferralCoupons)
+    .where(
+      and(
+        inArray(agentReferralCoupons.noticeStatus, ["pending", "failed", "sending"]),
+        lt(agentReferralCoupons.noticeAttempts, MAIL_ATTEMPTS),
+        gte(agentReferralCoupons.createdAt, since),
+      ),
+    )
+    .limit(limit);
+  let sent = 0;
+  for (const row of rows) {
+    try {
+      await sendReferralCouponNotice(row.id);
+      sent += 1;
+    } catch {
+      /* 已记 failed，下一轮再试 */
+    }
+  }
+  return sent;
+}
+
+/** 到期前 3 天提醒还没用的券，每张只提醒一次。 */
+export async function sendReferralCouponReminders(now = new Date(), limit = 20) {
+  const nowIsoValue = now.toISOString();
+  const soon = new Date(now.getTime() + REMIND_BEFORE_MS).toISOString();
+  const stale = new Date(now.getTime() - MAIL_SENDING_STALE_MS).toISOString();
+  const candidates = await db
+    .select({
+      id: agentReferralCoupons.id,
+      createdAt: agentReferralCoupons.createdAt,
+      expiresAt: agentReferralCoupons.expiresAt,
+    })
+    .from(agentReferralCoupons)
+    .where(
+      and(
+        eq(agentReferralCoupons.status, "unused"),
+        gt(agentReferralCoupons.expiresAt, nowIsoValue),
+        lte(agentReferralCoupons.expiresAt, soon),
+        inArray(agentReferralCoupons.remindStatus, ["", "failed", "sending"]),
+        lt(agentReferralCoupons.remindAttempts, 3),
+      ),
+    )
+    .limit(limit);
+  let sent = 0;
+  for (const row of candidates) {
+    if (Date.parse(row.expiresAt) - Date.parse(row.createdAt) < REMIND_MIN_VALID_MS) {
+      await db
+        .update(agentReferralCoupons)
+        .set({ remindStatus: "skipped" })
+        .where(and(eq(agentReferralCoupons.id, row.id), eq(agentReferralCoupons.remindStatus, "")));
+      continue;
+    }
+    const [claimed] = await db
+      .update(agentReferralCoupons)
+      .set({ remindStatus: "sending", updatedAt: nowIso() })
+      .where(
+        and(
+          eq(agentReferralCoupons.id, row.id),
+          eq(agentReferralCoupons.status, "unused"),
+          or(
+            inArray(agentReferralCoupons.remindStatus, ["", "failed"]),
+            and(eq(agentReferralCoupons.remindStatus, "sending"), lt(agentReferralCoupons.updatedAt, stale)),
+          ),
+        ),
+      )
+      .returning({ id: agentReferralCoupons.id });
+    if (!claimed) continue;
+    try {
+      const ctx = await couponMailContext(row.id);
+      if (!ctx) continue;
+      const { sendShopMail } = await import("@/lib/mail");
+      const result = await sendShopMail({
+        agentId: ctx.coupon.agentId,
+        to: ctx.email,
+        subject: (shop) => `${shop} 邀请券快到期了`,
+        lines: () => ["你在本店的邀请券还没用，3 天内就要到期了：", "", ...couponUseLines(ctx)],
+      });
+      await db
+        .update(agentReferralCoupons)
+        .set({ remindStatus: result.sent ? "sent" : "skipped" })
+        .where(eq(agentReferralCoupons.id, row.id));
+      if (result.sent) sent += 1;
+    } catch (error) {
+      console.warn(`[referral] 到期提醒失败：${error instanceof Error ? error.message : error}`);
+      await db
+        .update(agentReferralCoupons)
+        .set({ remindStatus: "failed", remindAttempts: sql`${agentReferralCoupons.remindAttempts} + 1` })
+        .where(eq(agentReferralCoupons.id, row.id));
+    }
+  }
+  return sent;
 }
 
 export async function expireReferralCoupons(now = new Date()) {
@@ -782,7 +1085,9 @@ export async function runReferralJobs() {
   const processed = await processPendingReferralOrders();
   const { issued } = await issueDueReferralCoupons();
   const expired = await expireReferralCoupons();
-  return { processed, issued, expired };
+  const noticed = await retryReferralCouponNotices();
+  const reminded = await sendReferralCouponReminders();
+  return { processed, issued, expired, noticed, reminded };
 }
 
 /* —————————————————— 买家查单页 —————————————————— */

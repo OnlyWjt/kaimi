@@ -191,7 +191,11 @@ export async function sendDeliveryMail(orderId: number) {
     const displayName = mailDisplayName(agent?.mailFromName || "") || mailDisplayName(settings.fromName) || shop;
     const from = buildMailFrom(displayName, settings.from || settings.user);
     const replyTo = agent && validReplyTo(agent.mailReplyTo) ? agent.mailReplyTo.trim() : undefined;
-    const body = [shop, `订单号 ${order.orderNo}`, "", ...lines]
+    // 邀请好友卡片：店铺开了邀请有礼、这个买家有邀请码时才有。出错不影响发货邮件。
+    const inviteLines = await import("@/lib/referrals")
+      .then(({ referralInviteMailLines }) => referralInviteMailLines(order))
+      .catch(() => [] as string[]);
+    const body = [shop, `订单号 ${order.orderNo}`, "", ...lines, ...inviteLines]
       .filter((line, index) => line || index > 0)
       .join("\n");
     await mailer.sendMail({
@@ -207,6 +211,39 @@ export async function sendDeliveryMail(orderId: number) {
     console.warn(`[kaimi-mail] 发货邮件失败：${message}`);
     await writeDeliveryMail(orderId, "failed", message, true);
   }
+}
+
+export type ShopMailResult = { sent: true } | { sent: false; reason: string };
+
+/**
+ * 以某家店的名义给买家发一封信（邀请券到账、到期提醒等）。
+ * 和发货邮件同一套开关：平台订单邮件没开、代理关了发货邮件就不发，返回原因。
+ */
+export async function sendShopMail(input: {
+  agentId: number;
+  to: string;
+  subject: (shop: string) => string;
+  lines: (shop: string) => string[];
+}): Promise<ShopMailResult> {
+  const settings = await readMailSettings();
+  if (!settings.enabled || !settings.orderEnabled || !settings.host) {
+    return { sent: false, reason: "平台订单邮件未开启" };
+  }
+  const agent = await db.query.agents.findFirst({ where: eq(agents.id, input.agentId) });
+  if (!agent) return { sent: false, reason: "店铺不存在" };
+  if (!agent.mailDeliveryEnabled) return { sent: false, reason: "代理关闭了发货邮件" };
+  if (!input.to.trim()) return { sent: false, reason: "没有买家邮箱" };
+  const { mailer } = await transporter();
+  const shop = publicShopName(agent);
+  const displayName = mailDisplayName(agent.mailFromName || "") || mailDisplayName(settings.fromName) || shop;
+  await mailer.sendMail({
+    from: buildMailFrom(displayName, settings.from || settings.user),
+    replyTo: validReplyTo(agent.mailReplyTo) ? agent.mailReplyTo.trim() : undefined,
+    to: input.to.trim(),
+    subject: input.subject(shop),
+    text: [shop, "", ...input.lines(shop)].join("\n"),
+  });
+  return { sent: true };
 }
 
 export async function retryPendingDeliveryMails(limit = 10) {

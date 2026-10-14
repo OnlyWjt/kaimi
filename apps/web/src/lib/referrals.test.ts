@@ -16,6 +16,28 @@ const DB_FILE = vi.hoisted(() => {
 });
 
 vi.mock("@/lib/sync-scheduler", () => ({ ensureSyncScheduler: () => undefined }));
+// 邮件和 Telegram 不真发，记下调用
+const sent = vi.hoisted(() => ({
+  mails: [] as Array<{ agentId: number; to: string; subject: string; text: string }>,
+  telegram: [] as Array<{ chatId: string; text: string }>,
+  mailMode: "sent" as "sent" | "skip" | "throw",
+}));
+vi.mock("@/lib/mail", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/mail")>()),
+  sendShopMail: vi.fn(async (input: { agentId: number; to: string; subject: (s: string) => string; lines: (s: string) => string[] }) => {
+    if (sent.mailMode === "throw") throw new Error("SMTP 连不上");
+    if (sent.mailMode === "skip") return { sent: false, reason: "平台订单邮件未开启" };
+    sent.mails.push({ agentId: input.agentId, to: input.to, subject: input.subject("测试店"), text: input.lines("测试店").join("\n") });
+    return { sent: true };
+  }),
+}));
+vi.mock("@/lib/notify", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/notify")>()),
+  dispatchNotifyText: vi.fn(async (text: string, _extra: unknown, _event: string, overrides: { telegramChatId?: string }) => {
+    sent.telegram.push({ chatId: overrides.telegramChatId || "", text });
+    return { telegram: { ok: true, attempted: true }, webhook: { ok: true, attempted: false } };
+  }),
+}));
 
 type Modules = {
   db: typeof import("@/db").db;
@@ -457,5 +479,92 @@ describe("查看和权限", () => {
     expect(list.list[0]).toMatchObject({ email: mail("wang26"), rewardedCount: 1, couponCount: 1 });
     const overview = await m.ref.adminReferralOverview();
     expect(overview.agents.some((row) => row.agentId === shop.agentId && row.disabledByAdmin)).toBe(true);
+  });
+});
+
+describe("第二期：邮件和 Telegram", () => {
+  it("记邀请、发券时通知绑了 Telegram 的代理；没绑不发", async () => {
+    const shop = await seedShop();
+    await m.db.update(m.schema.agents).set({ telegramChatId: "777001" }).where(m.orm.eq(m.schema.agents.id, shop.agentId));
+    await enable(shop);
+    sent.telegram.length = 0;
+    const { coupon } = await invitedCoupon(shop, mail("wangtg"), mail("litg"));
+    const mine = sent.telegram.filter((row) => row.chatId === "777001");
+    expect(mine).toHaveLength(2);
+    expect(mine[0].text).toContain("首单成交 ¥150.00");
+    expect(mine[0].text).not.toContain(mail("litg"));
+    expect(mine[1].text).toContain(coupon!.code);
+
+    const quiet = await seedShop();
+    await enable(quiet);
+    sent.telegram.length = 0;
+    await invitedCoupon(quiet, mail("wangq"), mail("liq"));
+    expect(sent.telegram).toHaveLength(0);
+  });
+
+  it("发券后给邀请人发得券邮件，只发一次", async () => {
+    const shop = await seedShop();
+    await enable(shop);
+    sent.mailMode = "sent";
+    sent.mails.length = 0;
+    const { coupon } = await invitedCoupon(shop, mail("wangmail"), mail("limail"));
+    expect(sent.mails).toHaveLength(1);
+    expect(sent.mails[0]).toMatchObject({ to: mail("wangmail"), subject: "测试店 邀请券到账" });
+    expect(sent.mails[0].text).toContain(coupon!.code);
+    expect(sent.mails[0].text).toContain("Plus 立减 ¥10.00");
+    expect((await couponById(coupon!.id)).noticeStatus).toBe("sent");
+    await m.ref.retryReferralCouponNotices();
+    expect(sent.mails).toHaveLength(1);
+  });
+
+  it("邮件没开记 skipped；发信失败记 failed，定时任务重试", async () => {
+    const shop = await seedShop();
+    await enable(shop);
+    sent.mailMode = "skip";
+    const skipped = (await invitedCoupon(shop, mail("wangskip"), mail("liskip"))).coupon!;
+    expect((await couponById(skipped.id)).noticeStatus).toBe("skipped");
+
+    sent.mailMode = "throw";
+    const failed = (await invitedCoupon(shop, mail("wangfail"), mail("lifail"))).coupon!;
+    expect(await couponById(failed.id)).toMatchObject({ noticeStatus: "failed", noticeAttempts: 1 });
+    sent.mailMode = "sent";
+    sent.mails.length = 0;
+    await m.ref.retryReferralCouponNotices();
+    expect((await couponById(failed.id)).noticeStatus).toBe("sent");
+    expect(sent.mails.map((row) => row.to)).toEqual([mail("wangfail")]);
+  });
+
+  it("到期前 3 天提醒一次；有效期太短的不提醒；用掉的不提醒", async () => {
+    const shop = await seedShop();
+    await enable(shop);
+    sent.mailMode = "sent";
+    const { coupon } = await invitedCoupon(shop, mail("wangrm"), mail("lirm"));
+    const short = (await invitedCoupon(shop, mail("wangrs"), mail("lirs"))).coupon!;
+    const used = (await invitedCoupon(shop, mail("wangru"), mail("liru"))).coupon!;
+    const set = (id: number, values: Partial<typeof m.schema.agentReferralCoupons.$inferInsert>) =>
+      m.db.update(m.schema.agentReferralCoupons).set(values).where(m.orm.eq(m.schema.agentReferralCoupons.id, id));
+    const inTwoDays = new Date(Date.now() + 2 * DAY).toISOString();
+    await set(coupon!.id, { createdAt: new Date(Date.now() - 28 * DAY).toISOString(), expiresAt: inTwoDays });
+    await set(short.id, { expiresAt: inTwoDays });
+    await set(used.id, { createdAt: new Date(Date.now() - 28 * DAY).toISOString(), expiresAt: inTwoDays, status: "used" });
+    sent.mails.length = 0;
+    await m.ref.sendReferralCouponReminders();
+    expect(sent.mails.map((row) => row.to)).toEqual([mail("wangrm")]);
+    expect(sent.mails[0].subject).toBe("测试店 邀请券快到期了");
+    expect((await couponById(short.id)).remindStatus).toBe("skipped");
+    await m.ref.sendReferralCouponReminders();
+    expect(sent.mails).toHaveLength(1);
+  });
+
+  it("发货邮件末尾的邀请段：有公网地址、有邀请码才有", async () => {
+    const shop = await seedShop();
+    await enable(shop);
+    const order = await deliveredOrder(shop, mail("wanglines"));
+    await m.config.setSetting("public_base_url", "");
+    expect(await m.ref.referralInviteMailLines(order)).toEqual([]);
+    await m.config.setSetting("public_base_url", "https://shop.example.com");
+    const lines = await m.ref.referralInviteMailLines({ ...order, referralProcessedAt: "x" });
+    const code = await inviteCodeOf(shop, mail("wanglines"));
+    expect(lines.join("\n")).toContain(`https://shop.example.com/s/${shop.slug}?ref=${code}`);
   });
 });

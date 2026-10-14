@@ -1786,6 +1786,11 @@ async function ensureReferralSchema() {
     "ALTER TABLE store_orders ADD COLUMN referral_code_id INTEGER",
     "ALTER TABLE store_orders ADD COLUMN referral_coupon_id INTEGER",
     "ALTER TABLE store_orders ADD COLUMN referral_processed_at TEXT",
+    "ALTER TABLE agent_referral_coupons ADD COLUMN notice_status TEXT NOT NULL DEFAULT 'pending'",
+    "ALTER TABLE agent_referral_coupons ADD COLUMN notice_attempts INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE agent_referral_coupons ADD COLUMN notice_error TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE agent_referral_coupons ADD COLUMN remind_status TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE agent_referral_coupons ADD COLUMN remind_attempts INTEGER NOT NULL DEFAULT 0",
   ]) {
     try {
       await client.execute(sqlText);

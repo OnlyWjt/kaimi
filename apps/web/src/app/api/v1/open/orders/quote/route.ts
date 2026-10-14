@@ -13,6 +13,8 @@ const quoteSchema = z.object({
   quantity: z.number().int().min(1).max(HARD_MAX_ORDER_QUANTITY).optional(),
   coupon_code: z.string().trim().max(20).optional(),
   invoice_requested: z.boolean().optional(),
+  // 邀请券只能发券的邮箱用，询价时带上才能校验
+  customer_email: z.string().trim().max(254).optional(),
 });
 
 /** 下单前算实付金额、校验优惠券。不建单、不占券，按 Key 限流。 */
@@ -37,6 +39,7 @@ export async function POST(req: Request) {
       quantity: parsed.data.quantity,
       couponCode: parsed.data.coupon_code,
       invoiceRequested: parsed.data.invoice_requested,
+      customerEmail: parsed.data.customer_email,
     });
     return openOk({
       list_goods_cents: quote.listGoodsCents,
@@ -45,6 +48,8 @@ export async function POST(req: Request) {
       invoice_surcharge_cents: quote.surchargeCents,
       pay_cents: quote.payCents,
       coupon_code: quote.couponCode,
+      /** store = 代理手建的券；referral = 邀请券；空 = 没用券。 */
+      coupon_kind: quote.couponKind,
       currency: "CNY",
     });
   } catch (error) {

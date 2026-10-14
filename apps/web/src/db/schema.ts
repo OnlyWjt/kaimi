@@ -1724,6 +1724,13 @@ export const agentReferralCoupons = sqliteTable(
     usedDiscountCents: integer("used_discount_cents"),
     revokedReason: text("revoked_reason").notNull().default(""),
     revokedBy: integer("revoked_by"),
+    /** 得券通知邮件：pending | sending | sent | skipped | failed。 */
+    noticeStatus: text("notice_status").notNull().default("pending"),
+    noticeAttempts: integer("notice_attempts").notNull().default(0),
+    noticeError: text("notice_error").notNull().default(""),
+    /** 到期前提醒邮件：空 = 还没到时候。 */
+    remindStatus: text("remind_status").notNull().default(""),
+    remindAttempts: integer("remind_attempts").notNull().default(0),
     createdAt: text("created_at").notNull().default(nowIsoDefault),
     updatedAt: text("updated_at").notNull().default(nowIsoDefault),
   },

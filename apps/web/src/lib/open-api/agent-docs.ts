@@ -149,7 +149,8 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
             ["customer_email", "是", "买家邮箱，发卡和查单用"],
             ["quantity", "否", "张数，默认 1，不能超过店铺的单笔上限"],
             ["region_confirmed", "多地区时必填", "同一套餐有两个及以上在售地区时必须为 true"],
-            ["coupon_code", "否", "本店优惠券"],
+            ["coupon_code", "否", "本店优惠券，或买家的邀请券（邀请券只能用发券的邮箱下单）"],
+            ["referral_code", "否", "邀请码。买家从别人的邀请链接（?ref=…）进来时带上，首单发货并过冷静期后给邀请人发券"],
             ["return_url", "否", "买家付完款跳回的 https 地址，例如你自己站上的订单页。可以写 {order_no}，会换成本单单号。不传则跳回本站订单页"],
           ],
         },
@@ -162,9 +163,9 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
       id: "quote",
       title: "POST /orders/quote  询价",
       blocks: [
-        { kind: "p", text: "权限 orders:read。参数和 POST /orders 一样（plan_key、channel、quantity、coupon_code、invoice_requested），只算钱，不建单、不占券，不需要 Idempotency-Key。用它在下单前显示实付金额，或校验买家输入的优惠券：券不能用时返回 VALIDATION_FAILED，message 可以直接给买家看。" },
+        { kind: "p", text: "权限 orders:read。参数和 POST /orders 一样（plan_key、channel、quantity、coupon_code、invoice_requested，校验邀请券时再带 customer_email），只算钱，不建单、不占券，不需要 Idempotency-Key。用它在下单前显示实付金额，或校验买家输入的优惠券：券不能用时返回 VALIDATION_FAILED，message 可以直接给买家看。" },
         { kind: "code", text: `curl -X POST ${base}/orders/quote \\\n  -H "Authorization: Bearer km_live_你的Key" \\\n  -H "Content-Type: application/json" \\\n  -d "{\\"plan_key\\":\\"plus\\",\\"channel\\":\\"alipay\\",\\"quantity\\":2,\\"coupon_code\\":\\"NEW10\\"}"` },
-        { kind: "code", text: `{ "data": { "list_goods_cents": 35000, "discount_cents": 1000, "goods_cents": 34000, "invoice_surcharge_cents": 0, "pay_cents": 34000, "coupon_code": "NEW10", "currency": "CNY" }, "request_id": "req_..." }` },
+        { kind: "code", text: `{ "data": { "list_goods_cents": 35000, "discount_cents": 1000, "goods_cents": 34000, "invoice_surcharge_cents": 0, "pay_cents": 34000, "coupon_code": "NEW10", "coupon_kind": "store", "currency": "CNY" }, "request_id": "req_..." }` },
       ],
     },
     {

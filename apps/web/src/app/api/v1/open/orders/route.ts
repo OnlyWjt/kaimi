@@ -18,6 +18,8 @@ const createSchema = z.object({
   quantity: z.number().int().min(1).max(HARD_MAX_ORDER_QUANTITY).optional(),
   region_confirmed: z.boolean().optional(),
   coupon_code: z.string().trim().max(20).optional(),
+  /** 买家是被谁邀请来的，分销站从自己的邀请链接里取。 */
+  referral_code: z.string().trim().max(16).optional(),
   invoice_requested: z.boolean().optional(),
   invoice_title: z.string().max(120).optional(),
   invoice_tax_no: z.string().max(32).optional(),
@@ -103,6 +105,7 @@ export async function POST(req: Request) {
       quantity: body.quantity,
       regionConfirmed: body.region_confirmed,
       couponCode: body.coupon_code,
+      referralCode: body.referral_code,
       invoiceRequested: body.invoice_requested,
       invoiceTitle: body.invoice_title,
       invoiceTaxNo: body.invoice_tax_no,
