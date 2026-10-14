@@ -136,6 +136,7 @@ async function sellablePlans(agentId: number) {
       and(
         eq(agentPlanPrices.agentId, agentId),
         eq(agentPlanPrices.enabled, true),
+        eq(agentPlanPrices.agentHidden, false),
         eq(platformPlans.enabled, true),
       ),
     )
@@ -349,6 +350,7 @@ async function currentRewards(agentId: number, conn: Conn): Promise<ReferralRewa
       and(
         eq(agentReferralPlanRewards.agentId, agentId),
         eq(agentPlanPrices.enabled, true),
+        eq(agentPlanPrices.agentHidden, false),
         eq(platformPlans.enabled, true),
       ),
     );
