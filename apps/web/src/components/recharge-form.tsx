@@ -7,7 +7,16 @@ import {
   type ProgressEvent,
 } from "@/components/order-progress-panel";
 import { isOrderTerminalStatus, normalizeOrderStatus } from "@/lib/order-status";
+import Link from "next/link";
 import { RegionBadge } from "@/components/region-badge";
+import {
+  CredentialSwitch,
+  MIN_CODE_LENGTH,
+  RedeemSteps,
+  SessionGuide,
+  redeemApiError,
+} from "@/components/redeem-ui";
+import { useShopToolPaths } from "@/components/use-shop-tool-paths";
 
 type Validated = {
   codeMasked: string;
@@ -70,6 +79,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
   const [events, setEvents] = useState<ProgressEvent[]>([]);
   const [autoPoll, setAutoPoll] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const paths = useShopToolPaths();
 
   const sessionOk = Boolean(preview?.ok && preview.source === "cardplatform");
 
@@ -131,6 +141,10 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
       setError("请填写卡密");
       return;
     }
+    if (trimmed.length < MIN_CODE_LENGTH) {
+      setError("卡密不完整，请粘贴完整的一串");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -140,7 +154,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
         body: JSON.stringify({ code: trimmed }),
       });
       const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data.error || "校验失败");
+      if (!res.ok || !data.ok) throw new Error(redeemApiError(data, "校验失败"));
       setValidated({
         codeMasked: data.codeMasked,
         planKey: data.planKey,
@@ -185,7 +199,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
         setEmail(data.email);
       }
       if (!data.ok && !data.errors?.length) {
-        setError(data.error || "Session 预检未通过");
+        setError(redeemApiError(data, "Session 预检未通过"));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "预检失败");
@@ -237,7 +251,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "提交失败");
+      if (!res.ok) throw new Error(redeemApiError(data, "提交失败"));
 
       const orderNo = String(data.orderNo || "");
       const st = normalizeOrderStatus(String(data.fulfillStatus || "pending"));
@@ -275,242 +289,269 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
     setPreview(null);
   }
 
+  const stepIndex = progress ? 2 : step === "session" ? 1 : 0;
+  const progressStatus = normalizeOrderStatus(String(progress?.fulfillStatus || ""));
+  const finished = progressStatus === "success";
+  const showRegion = Boolean(validated && (validated.regionLabel || validated.planName.includes("·")));
+  // 校验时拿到的是「未使用」，提交以后要跟着进度变，不然开通成功了这里还写着未使用。
+  const statusLabel = progress
+    ? finished
+      ? "已兑换"
+      : progressStatus === "failed"
+        ? "未兑换"
+        : "兑换中"
+    : validated?.status === "unused" || validated?.status === "未使用"
+      ? "未使用"
+      : validated?.status || "";
+  const statusTone = !progress || finished ? "km-badge-ok" : progressStatus === "failed" ? "km-badge-bad" : "km-badge-wait";
+
   return (
-    <div className="mx-auto w-full space-y-6">
+    <div className="km-rx-flow">
+      <RedeemSteps current={stepIndex} done={finished} />
       {step === "code" ? (
-        <div className="km-sf-query">
-          <div className="min-w-0 flex-1 space-y-1">
-            <h2 className="km-sf-query-title">粘贴卡密</h2>
-            <p className="km-sf-query-desc">购买后订单页或邮箱查单里那一串，校验后会识别套餐</p>
-            <div className="km-sf-query-row">
-              <input
-                className="km-input"
-                placeholder="粘贴卡密"
-                value={code}
-                autoComplete="off"
-                spellCheck={false}
-                onChange={(e) => setCode(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void validateCode();
-                }}
-                aria-label="卡密"
-              />
-              <button
-                type="button"
-                className="km-btn km-btn-sm km-sf-query-go"
-                disabled={busy}
-                onClick={() => void validateCode()}
-              >
-                {busy ? "校验中…" : "校验"}
-              </button>
-            </div>
-            {error ? <p className="km-sf-query-note" style={{ color: "var(--km-danger)" }}>{error}</p> : null}
+        <section className="km-rx-card">
+          <div className="km-rx-card-head">
+            <h2 className="km-rx-card-title">粘贴卡密</h2>
+            <p className="km-rx-card-desc">购买后订单页或邮件里的那一串，校验后自动识别套餐</p>
           </div>
-        </div>
+          <div className="km-rx-code-row">
+            <input
+              className="km-input km-rx-code-input"
+              placeholder="例如 ZC-XXXXXXXX-XXXX"
+              value={code}
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(e) => {
+                setCode(e.target.value);
+                if (error) setError("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void validateCode();
+              }}
+              aria-label="卡密"
+              aria-invalid={Boolean(error)}
+            />
+            <button type="button" className="km-btn km-rx-code-go" disabled={busy} onClick={() => void validateCode()}>
+              {busy ? "校验中…" : "校验"}
+            </button>
+          </div>
+          {error ? (
+            <p className="km-rx-error" role="alert">
+              {error}
+            </p>
+          ) : null}
+          <p className="km-rx-card-foot">
+            已经提交过？<Link href={paths.lookup}>查看订单进度</Link>
+          </p>
+        </section>
       ) : (
-        <div className="space-y-4">
-          <div className="km-panel space-y-3">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <p className="text-xs text-[var(--km-fg-muted)]">已识别套餐</p>
-                <h2 className="mt-1 text-xl font-semibold" style={{ fontFamily: "var(--font-sora)" }}>
-                  {validated?.planName}
-                </h2>
-              </div>
-              <span className="km-badge">{validated?.status === "unused" ? "未使用" : validated?.status}</span>
-            </div>
-            <p className="text-sm text-[var(--km-fg-muted)]">卡密 {validated?.codeMasked}</p>
-            {validated && (validated.regionLabel || validated.planName.includes("·")) ? (
-              <p className="text-sm">
-                付款地区 <RegionBadge country={validated.paymentCountry || ""} regionLabel={validated.regionLabel} size="md" />
-                {validated.paymentCountry ? " · 这张卡密按该地区结账，与你账号所在地无关。" : null}
-              </p>
-            ) : null}
-            {!progress ? (
-              <button type="button" className="text-sm text-[var(--km-accent)] hover:underline" onClick={resetCode}>
-                更换卡密
-              </button>
-            ) : null}
-          </div>
-
-          <div className="km-panel km-form-stack">
-            {!progress ? (
-              <div className="km-tabs">
-                <button
-                  type="button"
-                  className={`km-tab ${credMode === "session" ? "km-tab-active" : ""}`}
-                  onClick={() => {
-                    setCredMode("session");
-                    setError("");
-                  }}
-                >
-                  Session
-                </button>
-                <button
-                  type="button"
-                  className={`km-tab ${credMode === "mailbox" ? "km-tab-active" : ""}`}
-                  onClick={() => {
-                    setCredMode("mailbox");
-                    setPreview(null);
-                    setError("");
-                  }}
-                >
-                  邮箱密码
-                </button>
-              </div>
-            ) : null}
-
-            {credMode === "session" ? (
-              <>
-                <label className="block space-y-1.5 text-sm">
-                  <span className="font-medium">ChatGPT Session</span>
-                  <textarea
-                    className="km-input min-h-28 font-mono text-xs"
-                    placeholder='粘贴整页 JSON，例如 { "user": {...}, "accessToken": "..." }'
-                    value={session}
-                    disabled={Boolean(progress)}
-                    onChange={(e) => {
-                      setSession(e.target.value);
-                      setPreview(null);
-                    }}
-                  />
-                </label>
-                {!progress ? (
-                  <ol className="list-decimal space-y-1 pl-4 text-xs leading-relaxed text-[var(--km-fg-muted)]">
-                    <li>先登录 ChatGPT 账号</li>
-                    <li>
-                      打开{" "}
-                      <a
-                        href="https://chatgpt.com/api/auth/session"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-[var(--km-accent)] underline underline-offset-2"
-                      >
-                        https://chatgpt.com/api/auth/session
-                      </a>
-                    </li>
-                    <li>复制整页内容粘贴到此处</li>
-                  </ol>
-                ) : null}
-              </>
-            ) : (
-              <>
-                <label className="block space-y-1.5 text-sm">
-                  <span className="font-medium">账号邮箱</span>
-                  <input
-                    className="km-input"
-                    placeholder="you@example.com"
-                    value={email}
-                    disabled={Boolean(progress)}
-                    onChange={(e) => setEmail(e.target.value)}
-                  />
-                </label>
-                <label className="block space-y-1.5 text-sm">
-                  <span className="font-medium">邮箱密码</span>
-                  <input
-                    className="km-input"
-                    type="password"
-                    placeholder="该邮箱对应的登录密码"
-                    value={mailboxPassword}
-                    disabled={Boolean(progress)}
-                    onChange={(e) => setMailboxPassword(e.target.value)}
-                  />
-                </label>
-              </>
-            )}
-
-            {preview && !progress && credMode === "session" ? (
-              <div
-                className={`km-result km-submit-reveal space-y-2 text-sm ${
-                  preview.ok ? "km-session-pass" : "km-session-fail"
-                }`}
-              >
-                <p className="font-medium" style={{ color: preview.ok ? "var(--km-success)" : "var(--km-danger)" }}>
-                  {preview.ok ? "Session 校验通过" : "Session 校验未通过"}
-                </p>
-                {preview.ok ? (
-                  <div className="grid gap-1 text-[var(--km-fg)]">
-                    {preview.email ? <p>账号 {preview.email}</p> : null}
-                    {preview.name ? <p>显示名 {preview.name}</p> : null}
-                    {preview.summary?.plan_type || preview.planHint ? (
-                      <p>当前订阅 {String(preview.summary?.plan_type || preview.planHint)}</p>
-                    ) : null}
-                    {typeof preview.summary?.has_active_subscription === "boolean" ? (
-                      <p>有效订阅 {preview.summary.has_active_subscription ? "是" : "否"}</p>
-                    ) : null}
-                    {preview.summary?.expires_at ? <p>到期 {String(preview.summary.expires_at)}</p> : null}
+        <>
+          <section className="km-rx-card km-rx-plan">
+            <div className="km-rx-plan-main">
+              <p className="km-rx-eyebrow">已识别套餐</p>
+              <h2 className="km-rx-plan-name">{validated?.planName}</h2>
+              <dl className="km-rx-meta">
+                <div>
+                  <dt>卡密</dt>
+                  <dd className="font-mono">{validated?.codeMasked}</dd>
+                </div>
+                {showRegion && validated ? (
+                  <div>
+                    <dt>付款地区</dt>
+                    <dd>
+                      <RegionBadge country={validated.paymentCountry || ""} regionLabel={validated.regionLabel} />
+                    </dd>
                   </div>
                 ) : null}
-                {preview.errors?.map((msg) => (
-                  <p key={msg} className="text-[var(--km-danger)]">
-                    {msg}
+              </dl>
+              {showRegion && validated?.paymentCountry ? (
+                <p className="km-rx-plan-note">这张卡密按该地区结账，与你账号所在地无关。</p>
+              ) : null}
+            </div>
+            <div className="km-rx-plan-side">
+              {statusLabel ? <span className={`km-badge ${statusTone}`}>{statusLabel}</span> : null}
+              {!progress ? (
+                <button type="button" className="km-rx-link" onClick={resetCode}>
+                  更换卡密
+                </button>
+              ) : null}
+            </div>
+          </section>
+
+          {progress ? (
+            <OrderProgressPanel
+              row={progress}
+              polling={autoPoll}
+              events={events}
+              showLookupLink
+              onRetry={() => {
+                setProgress(null);
+                setEvents([]);
+                setAutoPoll(false);
+                setError("");
+              }}
+            />
+          )   : (
+            <section className="km-rx-card km-form-stack">
+              <div className="km-rx-card-head km-rx-card-head-row">
+                <div>
+                  <h2 className="km-rx-card-title">开通账号</h2>
+                  <p className="km-rx-card-desc">
+                    {credMode === "session" ? "粘贴 ChatGPT Session，先预检账号再提交" : "填写要开通的账号邮箱和登录密码"}
                   </p>
-                ))}
-                {preview.warnings?.map((msg) => (
-                  <p key={msg} className="text-[var(--km-fg-muted)]">
-                    {msg}
-                  </p>
-                ))}
+                </div>
+                <CredentialSwitch
+                  value={credMode}
+                  onChange={(mode) => {
+                    setCredMode(mode);
+                    if (mode === "mailbox") setPreview(null);
+                    setError("");
+                  }}
+                />
               </div>
-            ) : null}
 
-            {error ? <p className="text-sm text-[var(--km-danger)]">{error}</p> : null}
+              {credMode === "session" ? (
+                <>
+                  <label className="km-rx-field">
+                    <span className="km-rx-field-label">ChatGPT Session</span>
+                    <textarea
+                      className="km-input km-rx-session"
+                      placeholder='整页 JSON，形如 { "user": {…}, "accessToken": "…" }'
+                      value={session}
+                      spellCheck={false}
+                      onChange={(e) => {
+                        setSession(e.target.value);
+                        setPreview(null);
+                      }}
+                    />
+                  </label>
+                  <SessionGuide />
+                </>
+              ) : null}
 
-            {!progress && credMode === "session" ? (
-              <div className="space-y-3">
-                {!sessionOk ? (
-                  <button
-                    type="button"
-                    className="km-btn w-full"
-                    disabled={!session.trim() || busy || checking}
-                    onClick={() => void precheckSession()}
-                  >
-                    {checking ? "校验中…" : "预检 Session"}
-                  </button>
-                ) : (
-                  <div className="km-submit-reveal space-y-2">
-                    <button className="km-btn w-full" disabled={busy || checking} onClick={() => void submit()}>
+              {credMode === "mailbox" ? (
+                <div className="km-rx-fields">
+                  <label className="km-rx-field">
+                    <span className="km-rx-field-label">账号邮箱</span>
+                    <input
+                      className="km-input"
+                      type="email"
+                      autoComplete="off"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                    />
+                  </label>
+                  <label className="km-rx-field">
+                    <span className="km-rx-field-label">登录密码</span>
+                    <input
+                      className="km-input"
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder="这个邮箱登录 ChatGPT 的密码"
+                      value={mailboxPassword}
+                      onChange={(e) => setMailboxPassword(e.target.value)}
+                    />
+                  </label>
+                </div>
+              ) : null}
+
+              {preview && credMode === "session" ? (
+                <div className={`km-rx-check km-submit-reveal ${preview.ok ? "km-rx-check-pass" : "km-rx-check-fail"}`}>
+                  <p className="km-rx-check-title">{preview.ok ? "Session 预检通过" : "Session 预检未通过"}</p>
+                  {preview.ok ? (
+                    <dl className="km-rx-meta">
+                      {preview.email ? (
+                        <div>
+                          <dt>账号</dt>
+                          <dd>{preview.email}</dd>
+                        </div>
+                      ) : null}
+                      {preview.name ? (
+                        <div>
+                          <dt>显示名</dt>
+                          <dd>{preview.name}</dd>
+                        </div>
+                      ) : null}
+                      {preview.summary?.plan_type || preview.planHint ? (
+                        <div>
+                          <dt>当前订阅</dt>
+                          <dd>{String(preview.summary?.plan_type || preview.planHint)}</dd>
+                        </div>
+                      ) : null}
+                      {typeof preview.summary?.has_active_subscription === "boolean" ? (
+                        <div>
+                          <dt>有效订阅</dt>
+                          <dd>{preview.summary.has_active_subscription ? "是" : "否"}</dd>
+                        </div>
+                      ) : null}
+                      {preview.summary?.expires_at ? (
+                        <div>
+                          <dt>到期</dt>
+                          <dd>{String(preview.summary.expires_at)}</dd>
+                        </div>
+                      ) : null}
+                    </dl>
+                  ) : null}
+                  {preview.errors?.map((msg) => (
+                    <p key={msg} className="km-rx-check-error">
+                      {msg}
+                    </p>
+                  ))}
+                  {preview.warnings?.map((msg) => (
+                    <p key={msg} className="km-rx-check-warn">
+                      {msg}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+
+              {error ? (
+                <p className="km-rx-error" role="alert">
+                  {error}
+                </p>
+              ) : null}
+
+              {credMode === "session" ? (
+                sessionOk ? (
+                  <div className="km-rx-actions km-submit-reveal">
+                    <button className="km-btn km-rx-primary" disabled={busy || checking} onClick={() => void submit()}>
                       {busy ? "提交中…" : "提交兑换"}
                     </button>
                     <button
                       type="button"
-                      className="km-btn km-btn-ghost w-full"
+                      className="km-rx-link"
                       disabled={busy || checking || !session.trim()}
                       onClick={() => void precheckSession()}
                     >
-                      {checking ? "校验中…" : "重新预检"}
+                      {checking ? "预检中…" : "改了 Session？重新预检"}
                     </button>
                   </div>
-                )}
-              </div>
-            ) : null}
+                ) : (
+                  <button
+                    type="button"
+                    className="km-btn km-rx-primary"
+                    disabled={!session.trim() || busy || checking}
+                    onClick={() => void precheckSession()}
+                  >
+                    {checking ? "预检中…" : session.trim() ? "预检 Session" : "先粘贴 Session"}
+                  </button>
+                )
+              ) : null}
 
-            {!progress && credMode === "mailbox" ? (
-              <button
-                className="km-btn w-full"
-                disabled={!email.trim() || !mailboxPassword.trim() || busy}
-                onClick={() => void submit()}
-              >
-                {busy ? "提交中…" : "提交兑换"}
-              </button>
-            ) : null}
+              {credMode === "mailbox" ? (
+                <button
+                  className="km-btn km-rx-primary"
+                  disabled={!email.trim() || !mailboxPassword.trim() || busy}
+                  onClick={() => void submit()}
+                >
+                  {busy ? "提交中…" : "提交兑换"}
+                </button>
+              ) : null}
 
-            {progress ? (
-              <OrderProgressPanel
-                row={progress}
-                polling={autoPoll}
-                events={events}
-                showLookupLink
-                onRetry={() => {
-                  setProgress(null);
-                  setEvents([]);
-                  setAutoPoll(false);
-                  setError("");
-                }}
-              />
-            ) : null}
-          </div>
-        </div>
+            </section>
+          )}
+        </>
       )}
     </div>
   );

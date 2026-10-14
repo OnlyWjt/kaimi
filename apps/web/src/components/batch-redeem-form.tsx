@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useAskDialog } from "@/components/ask-dialog";
+import { CredentialSwitch, SessionGuide, redeemApiError } from "@/components/redeem-ui";
 import { useShopToolPaths } from "@/components/use-shop-tool-paths";
 import { toast } from "@/components/toast";
 import { copyText } from "@/lib/copy-text";
@@ -229,7 +230,7 @@ export function BatchRedeemForm({
         body: JSON.stringify({ codes: parsed.codes }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "校验失败");
+      if (!res.ok) throw new Error(redeemApiError(data, "校验失败"));
       const list = (data.list || []) as ValidateRow[];
       setRows((current) => {
         const committed = new Map(
@@ -272,7 +273,7 @@ export function BatchRedeemForm({
       setPreview(data);
       if (data.ok && data.email) setEmail(data.email);
       if (!data.ok && !data.errors?.length) {
-        setError(data.error || "Session 预检未通过");
+        setError(redeemApiError(data, "Session 预检未通过"));
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "预检失败");
@@ -312,7 +313,7 @@ export function BatchRedeemForm({
       const data = await res.json();
       const list = (data.list || []) as SubmitRow[];
       if (!res.ok || !list.length) {
-        throw new Error(data.error || "提交失败");
+        throw new Error(redeemApiError(data, "提交失败"));
       }
       const byCode = new Map(list.map((item) => [item.code, item]));
       setRows((current) =>
@@ -394,7 +395,7 @@ export function BatchRedeemForm({
           body: JSON.stringify({ codes: [row.code] }),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "校验失败");
+        if (!res.ok) throw new Error(redeemApiError(data, "校验失败"));
         const item = ((data.list || []) as ValidateRow[])[0];
         if (!item) throw new Error("校验失败");
         setRows((current) =>
@@ -454,255 +455,246 @@ export function BatchRedeemForm({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="km-rx-flow">
       {dialog}
-      <div className="km-sf-query">
-        <div className="min-w-0 flex-1 space-y-1">
-          <h2 className="km-sf-query-title">粘贴卡密</h2>
-          <p className="km-sf-query-desc">
-            一行一张，也可以用逗号或空格隔开，最多 {parsed.limit} 张。重复的会自动合并。
+      <section className="km-rx-card">
+        <div className="km-rx-card-head">
+          <h2 className="km-rx-card-title">粘贴卡密</h2>
+          <p className="km-rx-card-desc">
+            一行一张，也可以用逗号或空格隔开，最多 {parsed.limit} 张，重复的会自动合并。
           </p>
-          <textarea
-            className="km-input km-rx-codes"
-            placeholder="在这里粘贴多张卡密"
-            value={codeText}
-            onChange={(event) => setCodeText(event.target.value)}
-            aria-label="卡密列表"
-          />
-          <button
-            type="button"
-            className="km-btn km-sf-query-go km-rx-codes-go"
-            disabled={busy}
-            onClick={() => void validateAll()}
-          >
-            {busy && !checked
-              ? "校验中…"
-              : parsed.codes.length
-                ? `校验 ${parsed.codes.length} 张`
-                : "校验"}
-          </button>
-          {note || parsed.dropped > 0 ? (
-            <p className="km-sf-query-note">
-              {note}
-              {parsed.dropped > 0 ? `${note ? " · " : ""}超出上限的 ${parsed.dropped} 张没有收下` : ""}
-            </p>
-          ) : null}
-          {error && !checked ? (
-            <p className="km-sf-query-note" style={{ color: "var(--km-danger)" }}>
-              {error}
-            </p>
-          ) : null}
         </div>
-      </div>
+        <textarea
+          className="km-input km-rx-codes"
+          placeholder={"ZC-XXXXXXXX-XXXX\nZC-XXXXXXXX-XXXX"}
+          value={codeText}
+          spellCheck={false}
+          onChange={(event) => setCodeText(event.target.value)}
+          aria-label="卡密列表"
+        />
+        <button
+          type="button"
+          className="km-btn km-rx-primary km-rx-codes-go"
+          disabled={busy || !parsed.codes.length}
+          onClick={() => void validateAll()}
+        >
+          {busy && !checked
+            ? "校验中…"
+            : parsed.codes.length
+              ? `校验 ${parsed.codes.length} 张`
+              : "先粘贴卡密"}
+        </button>
+        {note || parsed.dropped > 0 ? (
+          <p className="km-rx-card-desc km-rx-codes-note">
+            {note}
+            {parsed.dropped > 0 ? `${note ? " · " : ""}超出上限的 ${parsed.dropped} 张没有收下` : ""}
+          </p>
+        ) : null}
+        {error && !checked ? (
+          <p className="km-rx-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </section>
 
       {checked ? (
-        <div className="km-panel km-form-stack">
-          <div>
-            <p className="font-medium">开通账号</p>
-            <p className="mt-1 text-xs text-[var(--km-fg-muted)]">
-              这一批全部兑换到同一个账号，凭证只填一次。
-            </p>
-          </div>
-          <div className="km-tabs">
-            <button
-              type="button"
-              className={`km-tab ${credMode === "session" ? "km-tab-active" : ""}`}
-              onClick={() => {
-                setCredMode("session");
+        <section className="km-rx-card km-form-stack">
+          <div className="km-rx-card-head km-rx-card-head-row">
+            <div>
+              <h2 className="km-rx-card-title">开通账号</h2>
+              <p className="km-rx-card-desc">这一批全部兑换到同一个账号，凭证只填一次。</p>
+            </div>
+            <CredentialSwitch
+              value={credMode}
+              onChange={(mode) => {
+                setCredMode(mode);
+                if (mode === "mailbox") setPreview(null);
                 setError("");
               }}
-            >
-              Session
-            </button>
-            <button
-              type="button"
-              className={`km-tab ${credMode === "mailbox" ? "km-tab-active" : ""}`}
-              onClick={() => {
-                setCredMode("mailbox");
-                setPreview(null);
-                setError("");
-              }}
-            >
-              邮箱密码
-            </button>
+            />
           </div>
 
           {credMode === "session" ? (
             <>
-              <label className="block space-y-1.5 text-sm">
-                <span className="font-medium">ChatGPT Session</span>
+              <label className="km-rx-field">
+                <span className="km-rx-field-label">ChatGPT Session</span>
                 <textarea
-                  className="km-input min-h-28 font-mono text-xs"
-                  placeholder='粘贴整页 JSON，例如 { "user": {...}, "accessToken": "..." }'
+                  className="km-input km-rx-session"
+                  placeholder='整页 JSON，形如 { "user": {…}, "accessToken": "…" }'
                   value={session}
+                  spellCheck={false}
                   onChange={(event) => {
                     setSession(event.target.value);
                     setPreview(null);
                   }}
                 />
               </label>
-              <ol className="list-decimal space-y-1 pl-4 text-xs leading-relaxed text-[var(--km-fg-muted)]">
-                <li>先登录 ChatGPT 账号</li>
-                <li>
-                  打开{" "}
-                  <a
-                    href="https://chatgpt.com/api/auth/session"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[var(--km-accent)] underline underline-offset-2"
-                  >
-                    https://chatgpt.com/api/auth/session
-                  </a>
-                </li>
-                <li>复制整页内容粘贴到此处</li>
-              </ol>
+              <SessionGuide />
               {preview ? (
-                <div
-                  className={`km-result space-y-1 text-sm ${
-                    preview.ok ? "km-session-pass" : "km-session-fail"
-                  }`}
-                >
-                  <p
-                    className="font-medium"
-                    style={{ color: preview.ok ? "var(--km-success)" : "var(--km-danger)" }}
-                  >
-                    {preview.ok ? "Session 校验通过" : "Session 校验未通过"}
-                  </p>
-                  {preview.ok && preview.email ? <p>账号 {preview.email}</p> : null}
+                <div className={`km-rx-check km-submit-reveal ${preview.ok ? "km-rx-check-pass" : "km-rx-check-fail"}`}>
+                  <p className="km-rx-check-title">{preview.ok ? "Session 预检通过" : "Session 预检未通过"}</p>
+                  {preview.ok && preview.email ? (
+                    <dl className="km-rx-meta">
+                      <div>
+                        <dt>账号</dt>
+                        <dd>{preview.email}</dd>
+                      </div>
+                    </dl>
+                  ) : null}
                   {preview.errors?.map((msg) => (
-                    <p key={msg} className="text-[var(--km-danger)]">
+                    <p key={msg} className="km-rx-check-error">
                       {msg}
                     </p>
                   ))}
                   {preview.warnings?.map((msg) => (
-                    <p key={msg} className="text-[var(--km-fg-muted)]">
+                    <p key={msg} className="km-rx-check-warn">
                       {msg}
                     </p>
                   ))}
                 </div>
               ) : null}
-              <button
-                type="button"
-                className="km-btn km-btn-ghost w-full"
-                disabled={!session.trim() || checking || busy}
-                onClick={() => void precheckSession()}
-              >
-                {checking ? "校验中…" : sessionOk ? "重新预检" : "预检 Session"}
-              </button>
             </>
           ) : (
-            <>
-              <label className="block space-y-1.5 text-sm">
-                <span className="font-medium">账号邮箱</span>
+            <div className="km-rx-fields">
+              <label className="km-rx-field">
+                <span className="km-rx-field-label">账号邮箱</span>
                 <input
                   className="km-input"
+                  type="email"
+                  autoComplete="off"
                   placeholder="you@example.com"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                 />
               </label>
-              <label className="block space-y-1.5 text-sm">
-                <span className="font-medium">邮箱密码</span>
+              <label className="km-rx-field">
+                <span className="km-rx-field-label">登录密码</span>
                 <input
                   className="km-input"
                   type="password"
-                  placeholder="该邮箱对应的登录密码"
+                  autoComplete="new-password"
+                  placeholder="这个邮箱登录 ChatGPT 的密码"
                   value={mailboxPassword}
                   onChange={(event) => setMailboxPassword(event.target.value)}
                 />
               </label>
-            </>
+            </div>
           )}
 
-          {error ? <p className="text-sm text-[var(--km-danger)]">{error}</p> : null}
+          {error ? (
+            <p className="km-rx-error" role="alert">
+              {error}
+            </p>
+          ) : null}
 
-          <button
-            className="km-btn km-btn-primary w-full"
-            disabled={busy || checking || !readyCodes.length || !credentialReady}
-            onClick={() => void submitBatch()}
-          >
-            {busy ? "提交中…" : `提交兑换（${readyCodes.length} 张）`}
-          </button>
-        </div>
+          {credMode === "session" && !sessionOk ? (
+            <button
+              type="button"
+              className="km-btn km-rx-primary"
+              disabled={!session.trim() || checking || busy}
+              onClick={() => void precheckSession()}
+            >
+              {checking ? "预检中…" : session.trim() ? "预检 Session" : "先粘贴 Session"}
+            </button>
+          ) : (
+            <div className="km-rx-actions">
+              <button
+                className="km-btn km-rx-primary"
+                disabled={busy || checking || !readyCodes.length || !credentialReady}
+                onClick={() => void submitBatch()}
+              >
+                {busy
+                  ? "提交中…"
+                  : readyCodes.length
+                    ? `提交兑换（${readyCodes.length} 张）`
+                    : rows.some((row) => batchRowIsCommitted(row.state))
+                      ? "已提交，进度见下方"
+                      : "没有可兑换的卡密"}
+              </button>
+              {credMode === "session" ? (
+                <button
+                  type="button"
+                  className="km-rx-link"
+                  disabled={!session.trim() || checking || busy}
+                  onClick={() => void precheckSession()}
+                >
+                  {checking ? "预检中…" : "改了 Session？重新预检"}
+                </button>
+              ) : null}
+            </div>
+          )}
+        </section>
       ) : null}
 
       {rows.length ? (
-        <div className="km-panel space-y-4">
-          <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-5">
+        <section className="km-rx-card km-rx-batch">
+          <div className="km-rx-card-head km-rx-card-head-row">
+            <h2 className="km-rx-card-title">本批卡密</h2>
+            <div className="km-rx-batch-tools">
+              <button type="button" className="km-rx-link" onClick={() => void copyResult()}>
+                复制结果
+              </button>
+              <button type="button" className="km-rx-link" disabled={busy} onClick={reset}>
+                换一批
+              </button>
+            </div>
+          </div>
+          <div className="km-rx-stats">
             {(
               [
-                ["共", stats.total],
-                ["待兑换", stats.wait],
-                ["处理中", stats.run],
-                ["已成功", stats.ok],
-                ["失败", stats.bad],
+                ["共", stats.total, ""],
+                ["待兑换", stats.wait, ""],
+                ["处理中", stats.run, "wait"],
+                ["已成功", stats.ok, "ok"],
+                ["失败", stats.bad, "bad"],
               ] as const
-            ).map(([label, value]) => (
-              <div key={label} className="km-stat">
-                <p className="text-lg font-semibold">{value}</p>
-                <p className="text-xs text-[var(--km-fg-muted)]">{label}</p>
+            ).map(([label, value, tone]) => (
+              <div key={label} className={tone && value ? `km-rx-stat-${tone}` : undefined}>
+                <strong>{value}</strong>
+                <span>{label}</span>
               </div>
             ))}
           </div>
           {stats.unsure > 0 ? (
-            <p className="text-sm text-[var(--km-fg-muted)]">
+            <p className="km-rx-card-desc">
               有 {stats.unsure} 张结果待确认，我们正在和卡台核对，请不要重复提交。核对完会显示在下面。
             </p>
           ) : null}
 
-          <ul className="divide-y divide-[var(--km-border)]">
+          <ul className="km-rx-rows">
             {rows.map((row, index) => (
-              <li key={row.code} className="space-y-1 py-3 text-sm">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="w-6 text-xs text-[var(--km-fg-muted)]">{index + 1}</span>
-                  <span className="font-mono">{row.codeMasked}</span>
-                  {row.planName ? (
-                    <span className="text-xs text-[var(--km-fg-muted)]">{row.planName}</span>
-                  ) : null}
-                  <span className={`ml-auto ${badgeClass(row.state)}`}>
-                    {publicStatusLabel(row.state, "batch")}
-                  </span>
-                </div>
-                <div className="space-y-1 pl-8 text-xs text-[var(--km-fg-muted)]">
-                  {row.accountEmail ? <p>账号 {row.accountEmail}</p> : null}
-                  {row.message ? <p>{row.message}</p> : null}
-                  {row.state === "unknown" ? (
-                    <p className="text-[var(--km-fg)]">正在确认，请不要重复提交。</p>
-                  ) : null}
-                  <div className="flex flex-wrap items-center gap-3">
-                    {row.orderNo ? (
-                      <Link
-                        className="underline"
-                        href={paths.lookupOrder(row.orderNo)}
-                      >
-                        查看这张的进度
-                      </Link>
-                    ) : null}
-                    {canRetryBatchRow(row.state) ? (
-                      <button
-                        type="button"
-                        className="km-btn km-btn-ghost"
-                        disabled={busy}
-                        onClick={() => void retryRow(row)}
-                      >
-                        {row.state === "invalid" ? "重新校验" : "重试这一张"}
-                      </button>
-                    ) : null}
+              <li key={row.code} className="km-rx-row">
+                <span className="km-rx-row-no">{index + 1}</span>
+                <div className="km-rx-row-main">
+                  <div className="km-rx-row-head">
+                    <span className="font-mono">{row.codeMasked}</span>
+                    {row.planName ? <span className="km-rx-row-plan">{row.planName}</span> : null}
+                    <span className={`km-rx-row-badge ${badgeClass(row.state)}`}>
+                      {publicStatusLabel(row.state, "batch")}
+                    </span>
                   </div>
+                  {row.accountEmail || row.message || row.state === "unknown" ? (
+                    <div className="km-rx-row-detail">
+                      {row.accountEmail ? <p>账号 {row.accountEmail}</p> : null}
+                      {row.message ? <p>{row.message}</p> : null}
+                      {row.state === "unknown" ? <p className="km-rx-row-warn">正在确认，请不要重复提交。</p> : null}
+                    </div>
+                  ) : null}
+                  {row.orderNo || canRetryBatchRow(row.state) ? (
+                    <div className="km-rx-row-actions">
+                      {row.orderNo ? <Link href={paths.lookupOrder(row.orderNo)}>查看进度</Link> : null}
+                      {canRetryBatchRow(row.state) ? (
+                        <button type="button" className="km-rx-link" disabled={busy} onClick={() => void retryRow(row)}>
+                          {row.state === "invalid" ? "重新校验" : "重试这一张"}
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               </li>
             ))}
           </ul>
-
-          <div className="grid gap-2 sm:grid-cols-2">
-            <button type="button" className="km-btn km-btn-ghost" onClick={() => void copyResult()}>
-              复制本批结果
-            </button>
-            <button type="button" className="km-btn km-btn-ghost" disabled={busy} onClick={reset}>
-              换一批卡密
-            </button>
-          </div>
-        </div>
+        </section>
       ) : null}
     </div>
   );

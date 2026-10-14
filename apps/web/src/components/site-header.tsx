@@ -42,7 +42,7 @@ export function SiteHeader(props: {
           <span className="km-brand-name">{props.siteName}</span>
         </Link>
         <nav className="km-nav" aria-label="站点导航">
-          {links.filter((l) => l.external || !isActivePath(l.href, pathname)).map((l) => {
+          {links.map((l) => {
             const active = !l.external && isActivePath(l.href, pathname);
             const className = `km-nav-link${active ? " km-nav-link-active" : ""}`;
             return l.external ? (
