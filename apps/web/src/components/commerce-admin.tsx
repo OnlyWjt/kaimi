@@ -442,9 +442,6 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
             返回后台
           </Link>
         )}
-        <a href="/admin#agents" className="km-btn km-btn-ghost">
-          代理管理
-        </a>
         <a href="/api/admin/earnings/export.xlsx" className="km-btn km-btn-ghost">
           导出全部收益
         </a>
@@ -468,20 +465,45 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
               </button>
             </div>
           </div>
-          <p className="text-sm">
-            {health.salesOpen ? "店铺购买开放" : health.reason || "店铺购买已关闭"}
+          <p className="flex flex-wrap items-center gap-2 text-sm">
+            <span className={`km-badge ${health.salesOpen ? "km-badge-ok" : "km-badge-bad"}`}>
+              {health.salesOpen ? "营业中" : "已停售"}
+            </span>
+            {health.salesOpen ? "买家现在可以下单。" : "买家现在下不了单，原因见下面。"}
           </p>
-          <p className="text-sm text-[var(--km-fg-muted)]">
-            {health.cardplatform.message} · {health.payment.message}
-            {health.jobs.failed ? ` · 失败任务 ${health.jobs.failed}` : ""}
-          </p>
-          {health.alerts.length ? (
-            <ul className="space-y-1 text-sm text-red-600">
-              {health.alerts.slice(0, 5).map((alert) => (
-                <li key={`${alert.code}-${alert.at}`}>{alert.message}</li>
-              ))}
-            </ul>
-          ) : null}
+          {(() => {
+            // 停售原因、卡台、支付、告警常常是同一句话，拆开去重后只列真有问题的
+            const issues = [
+              ...new Set(
+                [
+                  health.salesOpen ? "" : health.reason,
+                  health.cardplatform.ok ? "" : health.cardplatform.message,
+                  health.payment.ok ? "" : health.payment.message,
+                  health.jobs.failed ? `后台任务失败 ${health.jobs.failed} 个` : "",
+                  ...health.alerts.slice(0, 5).map((alert) => alert.message),
+                ]
+                  .flatMap((text) => String(text || "").split(" · "))
+                  .map((text) => text.trim())
+                  .filter(Boolean),
+              ),
+            ];
+            const fine = [
+              health.cardplatform.ok ? health.cardplatform.message : "",
+              health.payment.ok ? health.payment.message : "",
+            ].filter(Boolean);
+            return (
+              <>
+                {issues.length ? (
+                  <ul className="km-health-issues">
+                    {issues.map((text) => (
+                      <li key={text}>{text}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {fine.length ? <p className="text-xs text-[var(--km-fg-muted)]">{fine.join(" · ")}</p> : null}
+              </>
+            );
+          })()}
         </section>
       ) : null}
 
@@ -693,7 +715,7 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
                     {adminStatusLabel(order.feeReconcileStatus, "fee")}
                   </td>
                   <td className="py-2">
-                    <div className="flex flex-wrap gap-2">
+                    <div className="km-row-actions">
                       {order.payStatus === "paid" &&
                       [
                         "paid_undelivered",
@@ -733,31 +755,37 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
                           重对手续费
                         </button>
                       ) : null}
-                      <button
-                        className="km-btn km-btn-ghost"
-                        disabled={busy}
-                        onClick={() => storeOrderAction(order, "recovery")}
-                      >
-                        复制查单链接
-                      </button>
-                      {order.invoiceRequested && order.payStatus === "paid" ? (
-                        <button
-                          className="km-btn km-btn-ghost"
-                          disabled={busy}
-                          onClick={() => storeOrderAction(order, "invoice")}
-                        >
-                          {order.invoiceNotifyStatus === "sent" ? "再推开票通知" : "补推开票通知"}
-                        </button>
-                      ) : null}
-                      {order.payStatus === "paid" ? (
-                        <button
-                          className="km-btn km-btn-ghost"
-                          disabled={busy}
-                          onClick={() => recordRefund(order)}
-                        >
-                          登记退款/拒付
-                        </button>
-                      ) : null}
+                      <details className="km-more">
+                        <summary className="km-btn km-btn-ghost">更多</summary>
+                        <div className="km-more-menu">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => storeOrderAction(order, "recovery")}
+                          >
+                            复制查单链接
+                          </button>
+                          {order.invoiceRequested && order.payStatus === "paid" ? (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => storeOrderAction(order, "invoice")}
+                            >
+                              {order.invoiceNotifyStatus === "sent" ? "再推开票通知" : "补推开票通知"}
+                            </button>
+                          ) : null}
+                          {order.payStatus === "paid" ? (
+                            <button
+                              type="button"
+                              className="text-[var(--km-danger)]"
+                              disabled={busy}
+                              onClick={() => recordRefund(order)}
+                            >
+                              登记退款 / 拒付
+                            </button>
+                          ) : null}
+                        </div>
+                      </details>
                     </div>
                   </td>
                 </tr>

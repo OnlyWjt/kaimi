@@ -284,7 +284,7 @@ export function AgentBooks() {
       <header className="km-acp-head">
         <div>
           <h1>账本</h1>
-          <p>上面是累计未结和对账批次，和平台看到的是同一个数；下面的日期只筛经营统计和成交明细。时间均为北京时间。</p>
+          <p>累计未结和平台看到的是同一个数；下面按日期看经营情况。时间均为北京时间。</p>
         </div>
       </header>
 
@@ -303,7 +303,7 @@ export function AgentBooks() {
         <div className="km-acp-section-title km-books-period-head">
           <div>
             <h2>经营统计</h2>
-            <p>只影响下方经营统计和成交明细，不影响上方累计未结。</p>
+            <p>按所选时间段统计，不影响上面的累计未结。</p>
           </div>
           <div className="km-acp-tools">
             {RANGES.map(([value, label]) => (
@@ -325,38 +325,6 @@ export function AgentBooks() {
           </div>
         </div>
         <PeriodKpis state={period.state} onRetry={period.reload} usage={usage} onRetryUsage={reloadUsage} />
-      </section>
-
-      <section className="km-panel">
-        <div className="km-acp-section-title">
-          <div>
-            <h2>这段时间的单</h2>
-            <p>下单、已付、未兑放在账本里，一眼能对上钱。</p>
-          </div>
-        </div>
-        {usage.status === "loading" ? <Muted>加载中…</Muted> : null}
-        {usage.status === "error" ? <Retry onRetry={reloadUsage} /> : null}
-        {usage.status === "ok" ? (
-          <div className="km-acp-kpis km-books-kpis">
-            <div className="km-acp-kpi">
-              <span>下单</span>
-              <strong>{usage.data.orders.placed}</strong>
-            </div>
-            <div className="km-acp-kpi">
-              <span>已付</span>
-              <strong>{usage.data.orders.paid}</strong>
-            </div>
-            <div className="km-acp-kpi">
-              <span>已发齐</span>
-              <strong>{usage.data.orders.delivered}</strong>
-            </div>
-            <div className="km-acp-kpi">
-              <span>未兑换</span>
-              <strong>{usage.data.cdks.unusedBacklog}</strong>
-              <small>当前积压，不只看这一段</small>
-            </div>
-          </div>
-        ) : null}
       </section>
 
       <PeriodDetail paged={period} />
@@ -399,37 +367,34 @@ function UnsettledPanel({
             自上次结算起累计，不受下方日期筛选影响。
           </p>
         </div>
-        {totals ? <span className="km-acp-pill">{netDirectionLabel(totals.netCents)}</span> : null}
       </div>
       {state.status === "loading" ? <Muted>加载中…</Muted> : null}
       {state.status === "error" ? <Retry onRetry={onRetry} /> : null}
       {totals ? (
         <>
-          <p className="km-books-equation">
-            商店收益 {signedMoneyYuan(totals.storeEarningCents)} ＋ 调整 {signedMoneyYuan(totals.adjustmentCents)} −
-            提卡欠款 {moneyYuanAbs(totals.drawDebtCents)} ＝ <b>{netDirectionText(totals.netCents)}</b>
-          </p>
-          <div className="km-acp-kpis km-books-kpis">
-            <div className="km-acp-kpi">
+          <div className="km-books-net">
+            <div>
               <span>{netDirectionLabel(totals.netCents)}</span>
               <strong>{moneyYuanAbs(totals.netCents)}</strong>
               <small>{data?.note || "可对账净额，不含待核对项"}</small>
             </div>
-            <div className="km-acp-kpi">
-              <span>商店收益</span>
-              <strong>{signedMoneyYuan(totals.storeEarningCents)}</strong>
-              <small>平台应付</small>
-            </div>
-            <div className="km-acp-kpi">
-              <span>调整</span>
-              <strong>{signedMoneyYuan(totals.adjustmentCents)}</strong>
-              <small>退款、手续费更正等，负数为扣减</small>
-            </div>
-            <div className="km-acp-kpi">
-              <span>提卡欠款</span>
-              <strong>{moneyYuanAbs(totals.drawDebtCents)}</strong>
-              <small>应付平台</small>
-            </div>
+            <dl>
+              <div>
+                <dt>商店收益</dt>
+                <dd>{signedMoneyYuan(totals.storeEarningCents)}</dd>
+                <small>平台应付</small>
+              </div>
+              <div>
+                <dt>调整</dt>
+                <dd>{signedMoneyYuan(totals.adjustmentCents)}</dd>
+                <small>退款、手续费更正</small>
+              </div>
+              <div>
+                <dt>提卡欠款</dt>
+                <dd>− {moneyYuanAbs(totals.drawDebtCents)}</dd>
+                <small>应付平台</small>
+              </div>
+            </dl>
           </div>
           {hasSplitLocked ? (
             <>
@@ -678,6 +643,7 @@ function PeriodKpis({
   const couponOff =
     usage.status === "ok" ? usage.data.coupons.reduce((sum, item) => sum + item.discountPaidCents, 0) : 0;
   return (
+    <>
     <div className="km-acp-kpis km-books-kpis">
       <div className="km-acp-kpi">
         <span>成交额</span>
@@ -699,17 +665,21 @@ function PeriodKpis({
         <small>通道总手续费 {moneyYuanAbs(summary.totalFeeCents)}（含平台承担）</small>
       </div>
       <div className="km-acp-kpi">
-        <span>本期内未结（参考）</span>
-        <strong>{signedMoneyYuan(summary.pendingCents)}</strong>
-        <small>以上方累计未结为准</small>
-      </div>
-      <div className="km-acp-kpi">
         <span>券减免</span>
         {usage.status === "ok" ? <strong>{moneyYuanAbs(couponOff)}</strong> : null}
         {usage.status === "loading" ? <strong>…</strong> : null}
         {usage.status === "error" ? <Retry onRetry={onRetryUsage} /> : null}
       </div>
     </div>
+    {usage.status === "ok" ? (
+      <p className="km-books-flow">
+        下单 <b>{usage.data.orders.placed}</b>
+        <span aria-hidden>·</span>已付 <b>{usage.data.orders.paid}</b>
+        <span aria-hidden>·</span>已发齐 <b>{usage.data.orders.delivered}</b>
+        <span aria-hidden>·</span>当前未兑换积压 <b>{usage.data.cdks.unusedBacklog}</b>
+      </p>
+    ) : null}
+    </>
   );
 }
 

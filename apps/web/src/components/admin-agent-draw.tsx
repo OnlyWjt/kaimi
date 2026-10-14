@@ -362,25 +362,39 @@ export function AdminAgentDraw() {
         <div className="km-stat">
           <p className="text-xs text-[var(--km-fg-muted)]">成品号可提</p>
           <p className="km-stat-value">{finishedStock?.available ?? "…"}</p>
-          <div className="mt-1 flex items-center gap-1 text-xs text-[var(--km-fg-muted)]">
-            <span>未售 {finishedStock?.unused ?? 0}，给商城留</span>
-            <input
-              className="km-input w-16 px-1 py-0.5 text-xs"
-              inputMode="numeric"
-              value={reserveDraft}
-              onChange={(event) => setReserveDraft(event.target.value.replace(/\D/g, ""))}
-            />
-            <button
-              type="button"
-              className="km-btn km-btn-ghost km-btn-sm"
-              disabled={busy === "post" || reserveDraft === String(finishedStock?.reserve ?? "")}
-              onClick={() =>
-                void post({ action: "finished-reserve", reserve: Number(reserveDraft || 0) }, "已保存商城保留数")
-              }
-            >
-              保存
-            </button>
-          </div>
+          <p className="text-xs text-[var(--km-fg-muted)]">
+            未售 {finishedStock?.unused ?? 0} 个，给商城留 {finishedStock?.reserve ?? 0} 个
+          </p>
+        </div>
+      </section>
+
+      {/* 保留数是设置，不塞进统计卡：单独一行，输入框和按钮都有地方放 */}
+      <section className="km-draw-reserve">
+        <div>
+          <p className="font-medium">成品号给商城保留</p>
+          <p className="text-xs text-[var(--km-fg-muted)]">
+            代理自助提卡最多提到「未售 − 保留数」，保证店铺前台还有货卖。
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            className="km-input w-24"
+            inputMode="numeric"
+            aria-label="给商城保留的成品号数量"
+            value={reserveDraft}
+            onChange={(event) => setReserveDraft(event.target.value.replace(/D/g, ""))}
+          />
+          <span className="text-sm text-[var(--km-fg-muted)]">个</span>
+          <button
+            type="button"
+            className="km-btn km-btn-ghost km-btn-sm"
+            disabled={busy === "post" || reserveDraft === String(finishedStock?.reserve ?? "")}
+            onClick={() =>
+              void post({ action: "finished-reserve", reserve: Number(reserveDraft || 0) }, "已保存商城保留数")
+            }
+          >
+            保存
+          </button>
         </div>
       </section>
 

@@ -14,16 +14,21 @@ import { isExternalRedeemUrl } from "@/lib/agent-redeem-core";
 import "./agent-console.css";
 
 const NAV = [
-  { href: "/agent", label: "概览", hint: "概况", group: "日常" },
-  { href: "/agent/notices", label: "公告", hint: "平台", group: "日常" },
-  { href: "/agent/notify", label: "通知", hint: "绑定", group: "日常" },
-  { href: "/agent/orders", label: "订单", hint: "售后", group: "销售" },
-  { href: "/agent/sell", label: "售价与优惠", hint: "定价", group: "销售" },
-  { href: "/agent/storefront", label: "店铺", hint: "装修", group: "销售" },
-  { href: "/agent/books", label: "账本", hint: "收益", group: "账务" },
-  { href: "/agent/draw", label: "自助提卡", hint: "提卡", group: "账务" },
-  { href: "/agent/codes", label: "已售卡密", hint: "售后", group: "账务" },
-  { href: "/agent/api", label: "开放 API", hint: "对接", group: "账务" },
+  { href: "/agent", label: "概览", group: "日常" },
+  { href: "/agent/notices", label: "公告", group: "日常" },
+  { href: "/agent/notify", label: "通知", group: "日常" },
+  { href: "/agent/orders", label: "订单", group: "销售" },
+  { href: "/agent/sell", label: "售价与优惠", group: "销售" },
+  { href: "/agent/storefront", label: "店铺装修", group: "销售" },
+  { href: "/agent/books", label: "账本", group: "账务" },
+  { href: "/agent/draw", label: "自助提卡", group: "账务" },
+  { href: "/agent/codes", label: "卡密查询", group: "账务" },
+  { href: "/agent/api", label: "开放 API", group: "账务" },
+] as const;
+
+const TOOLS = [
+  { href: "/agent/guide", label: "使用说明" },
+  { href: "/agent/batch-redeem", label: "批量兑换" },
 ] as const;
 
 function navActive(href: string, pathname: string) {
@@ -45,6 +50,7 @@ export function AgentConsoleShell({
   const [pendingHref, setPendingHref] = useState("");
   const [passwordBusy, setPasswordBusy] = useState(false);
   const [dismissedId, setDismissedId] = useState<number | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const unread = profile.unreadAnnouncement;
   const showModal =
     Boolean(unread) &&
@@ -59,7 +65,12 @@ export function AgentConsoleShell({
 
   useEffect(() => {
     setPendingHref("");
+    setMenuOpen(false);
   }, [pathname]);
+
+  const current =
+    [...NAV, ...TOOLS].find((item) => navActive(item.href, pendingHref || pathname))?.label ?? "代理后台";
+  const hasUnread = Boolean(unread) && unread?.id !== dismissedId;
 
   async function copyShop() {
     try {
@@ -141,8 +152,25 @@ export function AgentConsoleShell({
   return (
     <div className="km-acp">
       <ApplyTheme themeId={profile.themeId} />
+      <header className="km-acp-mbar">
+        <button
+          type="button"
+          className="km-acp-mbar-btn"
+          aria-expanded={menuOpen}
+          aria-controls="km-acp-side"
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          <span aria-hidden>{menuOpen ? "✕" : "☰"}</span>
+          {hasUnread ? <i className="km-acp-dot" aria-hidden /> : null}
+        </button>
+        <strong>{current}</strong>
+        <a className="km-acp-mbar-shop" href={shopPath} target="_blank" rel="noreferrer">
+          店铺 ↗
+        </a>
+      </header>
+      {menuOpen ? <div className="km-acp-scrim" onClick={() => setMenuOpen(false)} /> : null}
       <div className="km-acp-frame">
-        <aside className="km-acp-side">
+        <aside id="km-acp-side" className={`km-acp-side${menuOpen ? " is-open" : ""}`}>
           <div className="km-acp-brand">
             <strong>{publicShopName(profile)} 的店</strong>
             <small>登录账号 {profile.username}</small>
@@ -156,32 +184,28 @@ export function AgentConsoleShell({
                 <Link
                   href={item.href}
                   prefetch
-                  className={
-                    navActive(item.href, pendingHref || pathname) ? "is-on" : ""
-                  }
+                  className={navActive(item.href, pendingHref || pathname) ? "is-on" : ""}
                   onClick={() => setPendingHref(item.href)}
                 >
                   {item.label}
-                  <em>
-                    {item.href === "/agent/notices"
-                      ? agentAnnouncementHint(
-                          Boolean(unread) && unread?.id !== dismissedId,
-                        )
-                      : item.hint}
-                  </em>
+                  {item.href === "/agent/notices" && hasUnread ? (
+                    <i className="km-acp-dot" aria-label={agentAnnouncementHint(true)} />
+                  ) : null}
                 </Link>
               </div>
             ))}
             <div className="km-acp-nav-label">工具</div>
-            <Link
-              href="/agent/guide"
-              prefetch
-              className={navActive("/agent/guide", pendingHref || pathname) ? "is-on" : ""}
-              onClick={() => setPendingHref("/agent/guide")}
-            >
-              使用说明
-              <em>第一次</em>
-            </Link>
+            {TOOLS.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                prefetch
+                className={navActive(item.href, pendingHref || pathname) ? "is-on" : ""}
+                onClick={() => setPendingHref(item.href)}
+              >
+                {item.label}
+              </Link>
+            ))}
             <a
               href={profile.redeemUrl}
               {...(isExternalRedeemUrl(profile.redeemUrl)
@@ -189,17 +213,8 @@ export function AgentConsoleShell({
                 : {})}
             >
               兑换卡密
-              <em>开通</em>
+              <span aria-hidden className="km-acp-ext">↗</span>
             </a>
-            <Link
-              href="/agent/batch-redeem"
-              prefetch
-              className={navActive("/agent/batch-redeem", pendingHref || pathname) ? "is-on" : ""}
-              onClick={() => setPendingHref("/agent/batch-redeem")}
-            >
-              批量兑换
-              <em>工具</em>
-            </Link>
           </nav>
           <div className="km-acp-shopchip">
             <span className="text-xs text-[var(--km-fg-muted)]">店铺一直在手边</span>

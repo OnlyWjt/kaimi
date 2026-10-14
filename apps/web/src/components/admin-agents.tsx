@@ -915,16 +915,24 @@ export function AdminAgents() {
           <div>
             <h2 className="text-xl font-semibold">代理管理</h2>
             <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-              代理用同一套登录页进入自己的后台改零售价。登录
-              <a className="mx-1 underline" href="/login" target="_blank" rel="noreferrer">
-                {loginUrl}
-              </a>
-              ，上手说明
-              <a className="mx-1 underline" href="/start" target="_blank" rel="noreferrer">
-                {startUrl}
-              </a>
-              。新建时会复制一份开户说明，你也可以在列表里再复制。
+              代理和你用同一个登录页。新建代理时会复制一份开户说明，之后也能在列表里再复制。
             </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="km-btn km-btn-ghost km-btn-sm"
+                onClick={() => void copyText(loginUrl).then(() => toast("登录地址已复制"))}
+              >
+                复制登录地址
+              </button>
+              <button
+                type="button"
+                className="km-btn km-btn-ghost km-btn-sm"
+                onClick={() => void copyText(startUrl).then(() => toast("上手说明地址已复制"))}
+              >
+                复制上手说明地址
+              </button>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" className="km-btn km-btn-ghost" onClick={() => void load()}>
@@ -947,6 +955,9 @@ export function AdminAgents() {
             </button>
           </div>
         </div>
+        <details className="km-fold">
+        <summary>代理后台「兑换卡密」跳到哪里（{redeemUrl || "/recharge"}）</summary>
+        <div className="mt-3 space-y-3">
         <label className="block space-y-1 text-sm">
           <span>兑换页面地址</span>
           <input
@@ -969,6 +980,8 @@ export function AdminAgents() {
         >
           {busy === "redeem-url" ? "保存中…" : "保存兑换页面地址"}
         </button>
+        </div>
+        </details>
       </section>
 
       <section className="km-panel space-y-4">
@@ -1137,7 +1150,6 @@ export function AdminAgents() {
             <thead>
               <tr className="border-b border-[var(--km-border)]">
                 <th className="py-3 pr-4">代理</th>
-                <th className="py-3 pr-4">用户名</th>
                 <th className="py-3 pr-4">店铺</th>
                 <th className="py-3 pr-4">可售套餐</th>
                 <th className="whitespace-nowrap py-3 pr-6">状态</th>
@@ -1147,7 +1159,7 @@ export function AdminAgents() {
             <tbody>
               {pageAgents.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-[var(--km-fg-muted)]">
+                  <td colSpan={5} className="py-8 text-center text-[var(--km-fg-muted)]">
                     {list.length === 0 ? "还没有代理，点右上角「新建代理」" : "没有符合条件的代理。"}
                   </td>
                 </tr>
@@ -1157,7 +1169,6 @@ export function AdminAgents() {
                   <td className="py-3 pr-4">
                     <div>{agentIdentityLabel(agent)}</div>
                   </td>
-                  <td className="py-3 pr-4 font-mono">{agent.username}</td>
                   <td className="py-3 pr-4">
                     <a className="underline" href={`/s/${agent.currentSlug}`} target="_blank" rel="noreferrer">
                       /s/{agent.currentSlug}

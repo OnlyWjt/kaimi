@@ -32,7 +32,23 @@ const SCOPE_LABEL: Record<string, string> = {
   "draw:reveal": "看提卡明文",
 };
 
+const API_TABS = [
+  { id: "keys", label: "API Key" },
+  { id: "hooks", label: "事件回调" },
+  { id: "docs", label: "接口文档" },
+] as const;
+type ApiTab = (typeof API_TABS)[number]["id"];
+
 export function AgentApiPanel() {
+  const [tab, setTab] = useState<ApiTab>("keys");
+  useEffect(() => {
+    const fromHash = window.location.hash.replace("#", "");
+    if (API_TABS.some((item) => item.id === fromHash)) setTab(fromHash as ApiTab);
+  }, []);
+  function chooseTab(next: ApiTab) {
+    setTab(next);
+    window.history.replaceState(null, "", `#${next}`);
+  }
   const [keys, setKeys] = useState<KeyRow[]>([]);
   const [scopes, setScopes] = useState<string[]>([]);
   const [name, setName] = useState("默认 Key");
@@ -53,7 +69,22 @@ export function AgentApiPanel() {
   }, []);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+      <div className="km-acp-chips" role="tablist" aria-label="开放 API">
+        {API_TABS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === item.id}
+            className={`km-acp-chip km-api-tab${tab === item.id ? " is-on" : ""}`}
+            onClick={() => chooseTab(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      {tab === "keys" ? (
       <section className="km-panel space-y-3">
         <h2 className="font-semibold">API Key</h2>
         <p className="text-sm text-[var(--km-fg-muted)]">
@@ -161,8 +192,9 @@ export function AgentApiPanel() {
         </table>
       </section>
 
-      <WebhookForm />
-      <AgentApiDocs />
+      ) : null}
+      {tab === "hooks" ? <WebhookForm /> : null}
+      {tab === "docs" ? <AgentApiDocs /> : null}
     </div>
   );
 }

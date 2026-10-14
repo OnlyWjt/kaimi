@@ -104,8 +104,8 @@ export function AgentCodes() {
     <>
       <header className="km-acp-head">
         <div>
-          <h1>已售卡密</h1>
-          <p>这是售后台，不是库存。买家说没收到，来这里对订单号。</p>
+          <h1>卡密查询</h1>
+          <p>按订单号或卡密查一张卡现在的状态：有没有被兑换、在不在用。查订单发货进度去「订单」。</p>
         </div>
       </header>
       {error ? <p className="text-sm text-[var(--km-danger)]">{error}</p> : null}
@@ -115,7 +115,7 @@ export function AgentCodes() {
             className="km-input max-w-xs"
             value={q}
             onChange={(event) => setQ(event.target.value)}
-            placeholder="订单号"
+            placeholder="订单号或完整卡密"
           />
           <button type="submit" className="km-btn km-btn-ghost">
             筛选

@@ -136,13 +136,8 @@ export function AgentSell({
     <>
       <header className="km-acp-head">
         <div>
-          <h1>今天卖多少钱</h1>
-          <p>零售价是底价，优惠券是临时的卖法。两件事放一页，改完心里有数。</p>
-        </div>
-        <div className="km-acp-tools">
-          <Link href="/agent/sell/coupon" className="km-btn km-btn-primary">
-            做一张券
-          </Link>
+          <h1>售价与优惠</h1>
+          <p>先定每个套餐的零售价，有活动再做优惠券。</p>
         </div>
       </header>
       {error ? <p className="text-sm text-[var(--km-danger)]">{error}</p> : null}
@@ -259,13 +254,18 @@ export function AgentSell({
         <div className="km-acp-section-title">
           <div>
             <h2>店里的券</h2>
-            <p>一张票面一张券。停用的变淡，有风险的用提醒标，不把表单摊在下面。</p>
+            <p>停用的券会变淡；券后价扣完通道费低于成本时会标出提醒。</p>
           </div>
+          {coupons.length ? (
+            <Link href="/agent/sell/coupon" className="km-btn km-btn-ghost">
+              做一张券
+            </Link>
+          ) : null}
         </div>
         {coupons.length === 0 ? (
           <div className="km-acp-empty">
             <h3>还没有券</h3>
-            <p>有活动再做。空着比永远摊着一个半成品表单更干净。</p>
+            <p>有活动时再做一张，买家在店里输入券码就能用。</p>
             <Link href="/agent/sell/coupon" className="km-btn km-btn-primary">
               做第一张券
             </Link>

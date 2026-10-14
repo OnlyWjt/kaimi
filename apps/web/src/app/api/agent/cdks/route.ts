@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { and, desc, eq, like, ne, sql } from "drizzle-orm";
+import { and, desc, eq, like, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { issuedCdks, storeOrders } from "@/db/schema";
 import { requireAgent } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
-import { decryptSecret, maskCode } from "@/lib/crypto";
+import { decryptSecret, hashLookupValue, maskCode } from "@/lib/crypto";
 
 export async function GET(req: Request) {
   let session;
@@ -23,7 +23,11 @@ export async function GET(req: Request) {
     eq(issuedCdks.agentId, session.agentId),
     ne(issuedCdks.cardplatformAccountId, 0),
   ];
-  if (q) conditions.push(like(storeOrders.orderNo, `%${q}%`));
+  // 订单号模糊匹配；整张卡密走哈希精确匹配，不存明文也能查。
+  if (q) {
+    const match = or(like(storeOrders.orderNo, `%${q}%`), eq(issuedCdks.codeHash, hashLookupValue(q.toUpperCase())));
+    if (match) conditions.push(match);
+  }
   const where = and(...conditions);
 
   const [{ total }] = await db

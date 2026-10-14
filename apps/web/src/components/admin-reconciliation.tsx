@@ -855,14 +855,43 @@ export function AdminReconciliation() {
                 <section className="km-panel space-y-2">
                   <h2 className="text-base font-semibold">不进这次的 {preview.skipped.length} 笔</h2>
                   <p className="text-xs text-[var(--km-fg-muted)]">手续费尚未核定，或账目不一致。核定后将自动进入下一次未结。</p>
-                  <ul className="space-y-1 text-xs">
-                    {preview.skipped.map((item, index) => (
-                      <li key={skippedKey(item, index)}>
-                        <span className="font-mono">{item.orderNo}</span> · {skipCodeLabel(item.code)}
-                        {item.amountCents === null ? " · 金额未知" : ` · ${formatYuan(item.amountCents)}`}
-                      </li>
+                  {/* 先按原因汇总：几十笔同一个原因时，一行就说清楚 */}
+                  <p className="flex flex-wrap gap-2 text-xs">
+                    {Object.entries(
+                      preview.skipped.reduce<Record<string, number>>((acc, item) => {
+                        const label = skipCodeLabel(item.code);
+                        acc[label] = (acc[label] || 0) + 1;
+                        return acc;
+                      }, {}),
+                    ).map(([label, count]) => (
+                      <span key={label} className="km-badge">
+                        {label} {count} 笔
+                      </span>
                     ))}
-                  </ul>
+                  </p>
+                  <details className="km-skipped" open={preview.skipped.length <= 5}>
+                    <summary>{preview.skipped.length <= 5 ? "明细" : `展开 ${preview.skipped.length} 笔明细`}</summary>
+                    <div className="km-skipped-list">
+                      <table className="km-table text-xs">
+                        <thead>
+                          <tr>
+                            <th>订单</th>
+                            <th>原因</th>
+                            <th>金额</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {preview.skipped.map((item, index) => (
+                            <tr key={skippedKey(item, index)}>
+                              <td className="font-mono">{item.orderNo}</td>
+                              <td>{skipCodeLabel(item.code)}</td>
+                              <td>{item.amountCents === null ? "未知" : formatYuan(item.amountCents)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
                   <label className="flex items-start gap-2 text-xs">
                     <input
                       type="checkbox"

@@ -43,7 +43,7 @@ function isOlder(
   return row.id < cursor.id;
 }
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 20;
 const CSV_LIMIT = 5000;
 
 export async function queryAdminOrders(searchParams: URLSearchParams) {
@@ -53,9 +53,11 @@ export async function queryAdminOrders(searchParams: URLSearchParams) {
   const cursor = parseCursor(searchParams.get("cursor") || "");
   const csv = searchParams.get("export") === "csv";
   const limit = csv ? CSV_LIMIT : PAGE_SIZE;
+  // store = 店铺订单，redeem = 买家拿卡密来兑换的单；不传两种都要
+  const kind = searchParams.get("kind") || "";
   const [storeRows, redeemRows] = await Promise.all([
-    loadStoreOrderRows({ status, q, cursor, limit }),
-    loadRedeemRows({ status, q, includeHidden, cursor, limit }),
+    kind === "redeem" ? Promise.resolve([]) : loadStoreOrderRows({ status, q, cursor, limit }),
+    kind === "store" ? Promise.resolve([]) : loadRedeemRows({ status, q, includeHidden, cursor, limit }),
   ]);
   const merged = [...storeRows, ...redeemRows].sort((a, b) => {
     if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;

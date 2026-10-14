@@ -436,11 +436,13 @@ export function CardIntegration({ publicBaseUrl = "" }: { publicBaseUrl?: string
               >
                 {busy === "sync-plans" ? "同步中…" : "同步售卖套餐"}
               </button>
+              <details className="km-more">
+                <summary className="km-btn km-btn-ghost">单项检测</summary>
+                <div className="km-more-menu">
               {(["connect", "price", "balance"] as const).map((mode) => (
                 <button
                   key={mode}
                   type="button"
-                  className="km-btn km-btn-ghost"
                   disabled={Boolean(busy)}
                   onClick={() =>
                     void run(mode, async () => {
@@ -469,12 +471,14 @@ export function CardIntegration({ publicBaseUrl = "" }: { publicBaseUrl?: string
                   {busy === mode
                     ? "请求中…"
                     : mode === "connect"
-                      ? "连通"
+                      ? "只测连通"
                       : mode === "price"
-                        ? "价格"
-                        : "余额"}
+                        ? "只拉价格"
+                        : "只查余额"}
                 </button>
               ))}
+                </div>
+              </details>
             </>
           ) : null}
         </div>
@@ -482,8 +486,7 @@ export function CardIntegration({ publicBaseUrl = "" }: { publicBaseUrl?: string
           <div className="space-y-3 border-t border-[var(--km-border)] pt-3">
             {/loca\.lt/i.test(form.webhookUrl) ? (
               <p className="text-sm text-[var(--km-danger)]">
-                当前 Webhook 还是 loca.lt，隧道很容易断。请把下方「本站公网地址」改成
-                trycloudflare 地址后再保存。
+                当前 Webhook 用的是 loca.lt 临时隧道，很容易断。请到「即时发卡」把支付回调地址填成正式域名，再回来保存一次 URL。
               </p>
             ) : null}
             <label className="block space-y-1 text-sm">

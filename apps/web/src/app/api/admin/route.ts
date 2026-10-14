@@ -4,6 +4,9 @@ import { isThemeId } from "@kaimi/themes";
 import { db } from "@/db";
 import { agents, cdkPool, issuedCdks, orders, storefronts, storeOrders, users } from "@/db/schema";
 import { agentIdentityLabel } from "@/lib/agent-identity-core";
+import { beijingDayStartIso } from "@/lib/agent-draw-core";
+import { ATTENTION_FULFILL_STATUSES } from "@/lib/agent-orders-core";
+import { publicShopName } from "@/lib/agent-names";
 import { getAgentRedeemUrl, normalizeAgentRedeemUrl } from "@/lib/agent-redeem";
 import {
   BATCH_REDEEM_LIMIT_SETTING,
@@ -103,7 +106,50 @@ export async function GET(req: Request) {
     });
     const inflightCount = await countInFlightRecharges();
     const cardAccount = await getDefaultCardplatformAccount();
+    // 店铺订单才是日常要看的：今天卖了多少、哪些付了款还没发齐。
+    const todayStart = beijingDayStartIso(new Date());
+    const paidNow = inArray(storeOrders.payStatus, ["paid", "manual"]);
+    const [[today], [attention], recentStore] = await Promise.all([
+      db
+        .select({
+          count: sql<number>`count(*)`,
+          gross: sql<number>`coalesce(sum(${storeOrders.grossCents}), 0)`,
+        })
+        .from(storeOrders)
+        .where(and(paidNow, sql`${storeOrders.paidAt} >= ${todayStart}`)),
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(storeOrders)
+        .where(and(paidNow, inArray(storeOrders.fulfillStatus, [...ATTENTION_FULFILL_STATUSES]))),
+      db
+        .select({
+          orderNo: storeOrders.orderNo,
+          productName: storeOrders.productNameSnapshot,
+          grossCents: storeOrders.grossCents,
+          payStatus: storeOrders.payStatus,
+          fulfillStatus: storeOrders.fulfillStatus,
+          createdAt: storeOrders.createdAt,
+          agentDisplayName: agents.displayName,
+          agentShopName: agents.shopName,
+        })
+        .from(storeOrders)
+        .innerJoin(agents, eq(agents.id, storeOrders.agentId))
+        .orderBy(desc(storeOrders.id))
+        .limit(8),
+    ]);
     return NextResponse.json({
+      todayPaidCount: Number(today?.count) || 0,
+      todayPaidCents: Number(today?.gross) || 0,
+      attentionCount: Number(attention?.count) || 0,
+      recentStoreOrders: recentStore.map((row) => ({
+        orderNo: row.orderNo,
+        productName: row.productName,
+        grossCents: row.grossCents,
+        payStatus: row.payStatus,
+        fulfillStatus: row.fulfillStatus,
+        createdAt: row.createdAt,
+        agentName: publicShopName({ displayName: row.agentDisplayName, shopName: row.agentShopName }),
+      })),
       setupCompleted: cfg.setupCompleted,
       paymentMode: cfg.paymentMode,
       hasCardplatform: Boolean(cardAccount),

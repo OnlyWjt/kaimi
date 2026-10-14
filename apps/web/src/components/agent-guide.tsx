@@ -131,7 +131,7 @@ export function AgentGuide({ slug }: { slug: string }) {
             <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm">
               <p className="font-medium">批量兑换</p>
               <p className="mt-1 text-[var(--km-fg-muted)]">
-                把卡密粘进去，填一次账号一起开。只兑你手动粘的码，不会读取「已售卡密」。已卖给客户的码不要自己兑。
+                把卡密粘进去，填一次账号一起开。只兑你手动粘的码，不会读取「卡密查询」里的卡。已卖给客户的码不要自己兑。
               </p>
             </div>
             <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm">
@@ -195,7 +195,7 @@ export function AgentGuide({ slug }: { slug: string }) {
             <div>
               <dt className="font-medium">「卡密用不了 / 说无效」</dt>
               <dd className="mt-1 text-[var(--km-fg-muted)]">
-                先在「已售卡密」里看状态。如果是「已使用」或「兑换中」，说明已经兑过或正在开，问他是不是之前点过。其他情况找平台。
+                先在「卡密查询」里按卡密查状态。如果是「已使用」或「兑换中」，说明已经兑过或正在开，问他是不是之前点过。其他情况找平台。
               </dd>
             </div>
             <div>

@@ -58,6 +58,18 @@ type Overview = {
   orderCount: number;
   stock: Record<string, number>;
   recentOrders: Array<Record<string, string>>;
+  todayPaidCount?: number;
+  todayPaidCents?: number;
+  attentionCount?: number;
+  recentStoreOrders?: Array<{
+    orderNo: string;
+    productName: string;
+    grossCents: number;
+    payStatus: string;
+    fulfillStatus: string;
+    createdAt: string;
+    agentName: string;
+  }>;
 };
 
 type Integration = {
@@ -98,6 +110,8 @@ const STATUS_LABEL: Record<string, string> = {
   cancelled: "已取消",
   manual: "免支付",
   skipped: "已跳过",
+  closed: "已关闭",
+  chargeback: "已拒付",
 };
 
 const KIND_LABEL: Record<string, string> = {
@@ -190,6 +204,7 @@ export default function AdminPage() {
   const [orderStatus, setOrderStatus] = useState("");
   const [includeHidden, setIncludeHidden] = useState(false);
   const [orderNextCursor, setOrderNextCursor] = useState("");
+  const [orderKind, setOrderKind] = useState<"" | "store" | "redeem">("");
   const [cdkQ, setCdkQ] = useState("");
   const [cdkStatus, setCdkStatus] = useState("");
   const [cdkPage, setCdkPage] = useState(1);
@@ -212,6 +227,21 @@ export default function AdminPage() {
     if (typeof window !== "undefined") {
       window.history.replaceState(null, "", `#${next}`);
     }
+  }
+
+  function orderQuery(kind: "" | "store" | "redeem") {
+    const qs = new URLSearchParams();
+    if (orderQ) qs.set("q", orderQ);
+    if (orderStatus) qs.set("status", orderStatus);
+    if (includeHidden) qs.set("include_hidden", "1");
+    if (kind) qs.set("kind", kind);
+    return qs;
+  }
+
+  async function reloadOrders(kind = orderKind) {
+    const data = await loadSection("orders", `&${orderQuery(kind)}`);
+    setOrders(data?.list || []);
+    setOrderNextCursor(data?.page?.next_cursor || "");
   }
 
   async function refreshBoot() {
@@ -591,75 +621,118 @@ export default function AdminPage() {
                 </div>
               </div>
             ) : null}
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm text-[var(--km-fg-muted)]">
-                第一次开店或客户问流程，看「使用说明」。发给代理的短说明在 /start，登录入口在右上角。
-              </p>
-              <button className="km-btn km-btn-ghost" onClick={() => goTab("guide")}>
-                使用说明
+            {(overview.attentionCount || 0) > 0 ? (
+              <button type="button" className="km-ov-alert" onClick={() => goTab("commerce")}>
+                <strong>{overview.attentionCount} 笔店铺订单付了款还没发齐</strong>
+                <span>去「即时发卡」看看 →</span>
               </button>
-            </div>
+            ) : null}
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <StatCard label="可用卡密" value={String(overview.unusedStock)} />
-              <StatCard label="订单总数" value={String(overview.orderCount)} />
-              <StatCard label="已核销" value={String(overview.stock?.used ?? 0)} />
+              <StatCard
+                label="今日成交"
+                value={`¥${((overview.todayPaidCents || 0) / 100).toFixed(2)}`}
+                hint={`${overview.todayPaidCount || 0} 笔已付款`}
+              />
+              <StatCard
+                label="待处理订单"
+                value={String(overview.attentionCount || 0)}
+                hint="已付款、还没发齐"
+              />
+              <StatCard
+                label="卡密"
+                value={String(overview.unusedStock)}
+                hint={`未使用 · 已核销 ${overview.stock?.used ?? 0} · 已禁用 ${overview.stock?.disabled ?? 0}`}
+              />
               <StatCard
                 label="卡台接入"
                 value={overview.hasCardplatform ? "已配置" : "未配置"}
                 hint={overview.cardplatformSiteBase || "去「接入卡台」填写"}
               />
             </div>
-            <div className="km-panel">
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-                {(["unused", "locked", "sold", "used", "disabled"] as const).map((s) => (
-                  <div key={s} className="text-center">
-                    <div className="text-xs text-[var(--km-fg-muted)]">{STATUS_LABEL[s]}</div>
-                    <div className="km-stat-value mt-1 !text-2xl">{overview.stock?.[s] ?? 0}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
             <div className="km-panel overflow-x-auto">
               <div className="mb-3 flex items-center justify-between">
-                <h3 className="font-semibold">最近订单</h3>
-                <button className="km-btn km-btn-ghost" onClick={() => goTab("orders")}>
-                  全部订单
+                <h3 className="font-semibold">最近店铺订单</h3>
+                <button className="km-btn km-btn-ghost" onClick={() => goTab("commerce")}>
+                  全部店铺订单
                 </button>
               </div>
               <table className="km-table text-sm">
                 <colgroup>
-                  <col style={{ width: "46%" }} />
-                  <col style={{ width: "22%" }} />
-                  <col style={{ width: "32%" }} />
+                  <col style={{ width: "26%" }} />
+                  <col style={{ width: "26%" }} />
+                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "10%" }} />
+                  <col style={{ width: "10%" }} />
                 </colgroup>
                 <thead>
                   <tr>
                     <th>订单</th>
-                    <th>类型</th>
+                    <th>商品</th>
+                    <th>代理</th>
+                    <th>金额</th>
+                    <th>时间</th>
                     <th>状态</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {overview.recentOrders.map((o) => (
+                  {(overview.recentStoreOrders || []).map((o) => (
                     <tr key={o.orderNo}>
-                      <td className="km-clip font-mono" title={o.orderNo}>
+                      <td className="km-clip font-mono text-xs" title={o.orderNo}>
                         {o.orderNo}
                       </td>
-                      <td>{kindLabel(o.kind)}</td>
+                      <td className="km-clip" title={o.productName}>
+                        {o.productName}
+                      </td>
+                      <td className="km-clip" title={o.agentName}>
+                        {o.agentName}
+                      </td>
+                      <td>¥{(o.grossCents / 100).toFixed(2)}</td>
+                      <td className="whitespace-nowrap text-xs text-[var(--km-fg-muted)]">{formatWhen(o.createdAt)}</td>
                       <td>
-                        <StatusBadge status={o.fulfillStatus} />
+                        <StatusBadge status={o.payStatus === "paid" || o.payStatus === "manual" ? o.fulfillStatus : o.payStatus} />
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              {!overview.recentOrders.length ? <p className="py-4 text-sm text-[var(--km-fg-muted)]">暂无订单</p> : null}
+              {!(overview.recentStoreOrders || []).length ? (
+                <p className="py-4 text-sm text-[var(--km-fg-muted)]">还没有店铺订单</p>
+              ) : null}
             </div>
+            <p className="text-sm text-[var(--km-fg-muted)]">
+              兑换记录在「订单」里看。第一次开店或客户问流程，看
+              <button type="button" className="mx-1 underline" onClick={() => goTab("guide")}>
+                使用说明
+              </button>
+              ；发给代理的短说明在 /start。
+            </p>
           </div>
         ) : null}
 
         {tab === "orders" ? (
           <div className="km-panel overflow-x-auto text-sm">
+            <div className="km-tabs mb-3">
+              {(
+                [
+                  ["", "全部"],
+                  ["store", "店铺订单"],
+                  ["redeem", "兑换记录"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value || "all"}
+                  type="button"
+                  className={`km-tab ${orderKind === value ? "km-tab-active" : ""}`}
+                  onClick={() => {
+                    setOrderKind(value);
+                    void reloadOrders(value);
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <div className="km-toolbar">
               <input
                 className="km-input max-w-xs"
@@ -702,13 +775,7 @@ export default function AdminPage() {
               <button
                 className="km-btn"
                 onClick={async () => {
-                  const qs = new URLSearchParams();
-                  if (orderQ) qs.set("q", orderQ);
-                  if (orderStatus) qs.set("status", orderStatus);
-                  if (includeHidden) qs.set("include_hidden", "1");
-                  const data = await loadSection("orders", `&${qs}`);
-                  setOrders(data?.list || []);
-                  setOrderNextCursor(data?.page?.next_cursor || "");
+                  await reloadOrders();
                 }}
               >
                 筛选
@@ -718,13 +785,7 @@ export default function AdminPage() {
                 disabled={busy}
                 onClick={async () => {
                   await postAction({ action: "poll_inflight" });
-                  const qs = new URLSearchParams();
-                  if (orderQ) qs.set("q", orderQ);
-                  if (orderStatus) qs.set("status", orderStatus);
-                  if (includeHidden) qs.set("include_hidden", "1");
-                  const data = await loadSection("orders", `&${qs}`);
-                  setOrders(data?.list || []);
-                  setOrderNextCursor(data?.page?.next_cursor || "");
+                  await reloadOrders();
                 }}
               >
                 轮询进行中
@@ -743,30 +804,28 @@ export default function AdminPage() {
               </button>
               <a
                 className="km-btn km-btn-ghost"
-                href={`/api/admin/orders?export=csv${orderQ ? `&q=${encodeURIComponent(orderQ)}` : ""}${orderStatus ? `&status=${encodeURIComponent(orderStatus)}` : ""}${includeHidden ? "&include_hidden=1" : ""}`}
+                href={`/api/admin/orders?export=csv&${orderQuery(orderKind)}`}
               >
                 导出 CSV
               </a>
             </div>
             <table className="km-table">
               <colgroup>
-                <col style={{ width: "18%" }} />
-                <col style={{ width: "8%" }} />
-                <col style={{ width: "18%" }} />
+                <col style={{ width: "22%" }} />
+                <col style={{ width: "7%" }} />
+                <col style={{ width: "20%" }} />
                 <col style={{ width: "16%" }} />
-                <col style={{ width: "10%" }} />
                 <col style={{ width: "9%" }} />
-                <col style={{ width: "9%" }} />
-                <col style={{ width: "12%" }} />
                 <col style={{ width: "8%" }} />
+                <col style={{ width: "9%" }} />
+                <col style={{ width: "9%" }} />
               </colgroup>
               <thead>
                 <tr>
                   <th>订单</th>
                   <th>类型</th>
-                  <th>邮箱</th>
-                  <th>内容</th>
-                  <th>套餐</th>
+                  <th>买家 / 卡密</th>
+                  <th>商品</th>
                   <th>支付</th>
                   <th>状态</th>
                   <th>时间</th>
@@ -792,19 +851,23 @@ export default function AdminPage() {
                         ) : null}
                       </td>
                       <td>{kindLabel(o.kind)}</td>
-                      <td className="km-clip" title={email}>
-                        {email}
-                      </td>
-                      <td className="km-clip font-mono" title={code}>
-                        {code}
+                      <td>
+                        <div className="km-clip" title={email}>
+                          {email}
+                        </div>
+                        {code !== "—" ? (
+                          <div className="km-clip font-mono text-xs text-[var(--km-fg-muted)]" title={code}>
+                            {code}
+                          </div>
+                        ) : null}
                       </td>
                       <td className="km-clip" title={plan}>
                         {plan}
                       </td>
                       <td>
                         {o.kind === "recharge" && o.payStatus === "manual" ? (
-                          <span className="km-badge km-badge-bad" title="这张兑换单没有关联商城订单">
-                            无商城单
+                          <span className="km-badge" title="买家拿卡密直接来兑换，不是在店铺下的单">
+                            直接兑换
                           </span>
                         ) : (
                           <StatusBadge status={String(o.payStatus || "")} />
@@ -817,7 +880,7 @@ export default function AdminPage() {
                         {formatWhen(o.createdAt)}
                       </td>
                       <td>
-                        <div className="flex flex-wrap gap-1">
+                        <div className="km-row-actions">
                           {!storeRow && o.kind === "recharge" && o.upstreamRequestId ? (
                             <button
                               className="km-btn km-btn-ghost"
@@ -828,13 +891,7 @@ export default function AdminPage() {
                                   orderNo: o.orderNo,
                                   requestId: o.upstreamRequestId,
                                 });
-                                const qs = new URLSearchParams();
-                                if (orderQ) qs.set("q", orderQ);
-                                if (orderStatus) qs.set("status", orderStatus);
-                                if (includeHidden) qs.set("include_hidden", "1");
-                                const data = await loadSection("orders", `&${qs}`);
-                                setOrders(data?.list || []);
-                                setOrderNextCursor(data?.page?.next_cursor || "");
+                                await reloadOrders();
                               }}
                             >
                               重拉
@@ -851,7 +908,7 @@ export default function AdminPage() {
                     </tr>
                     {expanded ? (
                       <tr>
-                        <td colSpan={9}>
+                        <td colSpan={8}>
                           {storeRow ? <StoreOrderDetail orderNo={orderNo} /> : <AdminOrderTimeline orderNo={orderNo} />}
                         </td>
                       </tr>
@@ -866,10 +923,7 @@ export default function AdminPage() {
               <button
                 className="km-btn km-btn-ghost mt-3"
                 onClick={async () => {
-                  const qs = new URLSearchParams();
-                  if (orderQ) qs.set("q", orderQ);
-                  if (orderStatus) qs.set("status", orderStatus);
-                  if (includeHidden) qs.set("include_hidden", "1");
+                  const qs = orderQuery(orderKind);
                   qs.set("cursor", orderNextCursor);
                   const data = await loadSection("orders", `&${qs}`);
                   setOrders((current) => [...current, ...(data?.list || [])]);
@@ -1264,9 +1318,9 @@ export default function AdminPage() {
 
 function statusTone(status: string) {
   const s = status.toLowerCase();
-  if (["success", "fulfilled", "unused", "used", "paid", "ok"].includes(s)) return "ok";
-  if (["failed", "unknown", "disabled", "error"].includes(s)) return "bad";
-  if (["pending", "processing", "locked", "sold", "unpaid"].includes(s)) return "wait";
+  if (["success", "fulfilled", "unused", "used", "paid", "ok", "delivered"].includes(s)) return "ok";
+  if (["failed", "unknown", "disabled", "error", "paid_undelivered", "chargeback"].includes(s)) return "bad";
+  if (["pending", "processing", "locked", "sold", "unpaid", "issuing", "partially_delivered", "refunding", "pending_pay"].includes(s)) return "wait";
   return "";
 }
 

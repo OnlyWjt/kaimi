@@ -88,10 +88,27 @@
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--km-accent) 28%, transparent);
 }
 
-.km-acp-nav em {
-  font-style: normal;
+.km-acp-ext {
   color: var(--km-fg-muted);
-  font-size: 0.72rem;
+  font-size: 0.78rem;
+}
+
+/* 公告有新的：只亮一个点，不再每项挂一个小标签 */
+.km-acp-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--km-danger);
+}
+
+/* 手机顶栏：只在窄屏出现 */
+.km-acp-mbar {
+  display: none;
+}
+
+.km-acp-scrim {
+  display: none;
 }
 
 .km-acp-shopchip {
@@ -121,6 +138,8 @@
 
 .km-acp-main {
   display: grid;
+  /* 不写列宽时隐式列按内容撑开，一行长代码就能把整页撑出横向滚动 */
+  grid-template-columns: minmax(0, 1fr);
   gap: 1.1rem;
   min-width: 0;
   align-content: start;
@@ -145,7 +164,7 @@
 
 .km-acp-head p {
   margin: 0.35rem 0 0;
-  max-width: 46ch;
+  max-width: 72ch;
   color: var(--km-fg-muted);
   font-size: 0.92rem;
   line-height: 1.55;
@@ -869,11 +888,85 @@ button.km-acp-row {
 
 /* ---------- 代理账本 ---------- */
 
-.km-books-equation {
-  margin: 0 0 0.85rem;
-  font-size: 0.92rem;
-  line-height: 1.7;
-  overflow-wrap: anywhere;
+/* 累计未结：净额一个大数，三个组成项排在右边 */
+.km-books-net {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr);
+  gap: 1.25rem;
+  align-items: center;
+  padding: 1.1rem 1.25rem;
+  border: 1px solid var(--km-border);
+  border-radius: 18px;
+  background: var(--km-bg-elevated);
+}
+
+.km-books-net > div > span {
+  color: var(--km-fg-muted);
+  font-size: 0.8rem;
+}
+
+.km-books-net > div > strong {
+  display: block;
+  margin-top: 0.25rem;
+  font-family: var(--font-sora), var(--km-font-display);
+  font-size: 2.1rem;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+}
+
+.km-books-net > div > small,
+.km-books-net dl small {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--km-fg-muted);
+  font-size: 0.74rem;
+}
+
+.km-books-net dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+  padding-left: 1.25rem;
+  border-left: 1px solid var(--km-border);
+}
+
+.km-books-net dt {
+  color: var(--km-fg-muted);
+  font-size: 0.76rem;
+}
+
+.km-books-net dd {
+  margin: 0.15rem 0 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+.km-books-flow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+  margin: 0.9rem 0 0;
+  color: var(--km-fg-muted);
+  font-size: 0.85rem;
+}
+
+.km-books-flow b {
+  color: var(--km-fg);
+  font-weight: 650;
+}
+
+@media (max-width: 767px) {
+  .km-books-net {
+    grid-template-columns: 1fr;
+  }
+
+  .km-books-net dl {
+    padding-left: 0;
+    padding-top: 0.9rem;
+    border-left: 0;
+    border-top: 1px solid var(--km-border);
+  }
 }
 
 .km-books-note {
@@ -1145,20 +1238,89 @@ button.km-acp-row {
 @media (max-width: 960px) {
   .km-acp-frame {
     grid-template-columns: 1fr;
+    padding-top: 1rem;
+  }
+
+  /* 窄屏：顶栏 + 左侧抽屉，正文第一屏就能看到 */
+  .km-acp-mbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid var(--km-border);
+    background: color-mix(in oklab, var(--km-bg) 90%, transparent);
+    backdrop-filter: blur(10px);
+  }
+
+  .km-acp-mbar strong {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.98rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .km-acp-mbar-btn {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 2.3rem;
+    height: 2.3rem;
+    border: 1px solid var(--km-border);
+    border-radius: 0.75rem;
+    background: var(--km-bg-elevated);
+    color: var(--km-fg);
+    font-size: 1rem;
+    cursor: pointer;
+  }
+
+  .km-acp-mbar-btn .km-acp-dot {
+    position: absolute;
+    top: 0.3rem;
+    right: 0.3rem;
+  }
+
+  .km-acp-mbar-shop {
+    flex-shrink: 0;
+    border: 1px solid var(--km-border);
+    border-radius: 999px;
+    padding: 0.35rem 0.8rem;
+    background: var(--km-bg-elevated);
+    color: var(--km-fg);
+    font-size: 0.82rem;
+    text-decoration: none;
   }
 
   .km-acp-side {
-    position: static;
+    position: fixed;
+    z-index: 41;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(18rem, 86vw);
+    overflow-y: auto;
+    padding: 1rem 0.9rem 1.5rem;
+    border-right: 1px solid var(--km-border);
+    background: var(--km-bg);
+    transform: translateX(-102%);
+    transition: transform 200ms ease;
   }
 
-  .km-acp-nav {
-    display: flex;
-    flex-wrap: wrap;
+  .km-acp-side.is-open {
+    transform: none;
+    box-shadow: 0 0 60px -20px rgb(0 0 0 / 45%);
   }
 
-  .km-acp-nav a,
-  .km-acp-nav button {
-    width: auto;
+  .km-acp-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: block;
+    background: rgb(0 0 0 / 32%);
   }
 
   .km-acp-kpis,
@@ -1171,5 +1333,94 @@ button.km-acp-row {
 
   .km-acp-coupon {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .km-acp-side {
+    transition: none;
+  }
+}
+
+/* ---------- 开放 API：页签 + 文档目录 ---------- */
+.km-api-tab {
+  padding: 0.45rem 1rem;
+  font-size: 0.86rem;
+  background: var(--km-bg-elevated);
+  color: var(--km-fg);
+  cursor: pointer;
+}
+
+.km-api-docs {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 13rem minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.km-api-toc {
+  position: sticky;
+  top: 1rem;
+  display: grid;
+  gap: 0.1rem;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  padding-right: 0.5rem;
+  border-right: 1px solid var(--km-border);
+}
+
+.km-api-toc a {
+  padding: 0.3rem 0.5rem;
+  border-radius: 8px;
+  color: var(--km-fg-muted);
+  font-size: 0.8rem;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.km-api-toc a:hover {
+  background: var(--km-bg-muted);
+  color: var(--km-fg);
+}
+
+.km-api-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.25rem;
+  min-width: 0;
+}
+
+.km-api-section {
+  scroll-margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--km-border);
+}
+
+.km-api-section:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+@media (max-width: 960px) {
+  .km-api-docs {
+    grid-template-columns: 1fr;
+  }
+
+  .km-api-toc {
+    position: static;
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    max-height: none;
+    padding: 0 0 0.5rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--km-border);
+  }
+
+  .km-api-toc a {
+    flex-shrink: 0;
   }
 }

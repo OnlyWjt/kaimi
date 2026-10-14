@@ -62,8 +62,17 @@ export function AgentApiDocs() {
       <p className="text-[var(--km-fg-muted)]">
         Markdown 给人看，OpenAPI JSON 可以导入 Apifox 或 Postman。导出的 OpenAPI 会写成当前站点地址。
       </p>
+      <div className="km-api-docs">
+      <nav className="km-api-toc" aria-label="接口目录">
+        {sections.map((section) => (
+          <a key={section.id} href={`#api-${section.id}`}>
+            {section.title}
+          </a>
+        ))}
+      </nav>
+      <div className="km-api-body">
       {sections.map((section) => (
-        <article key={section.id} className="space-y-2 border-t border-[var(--km-border)] pt-3">
+        <article key={section.id} id={`api-${section.id}`} className="km-api-section space-y-2">
           <h3 className="font-semibold">{section.title}</h3>
           {section.blocks.map((block, index) => {
             if (block.kind === "p") return <p key={index}>{block.text}</p>;
@@ -99,6 +108,8 @@ export function AgentApiDocs() {
           })}
         </article>
       ))}
+      </div>
+      </div>
     </section>
   );
 }
