@@ -278,6 +278,11 @@ button.km-acp-row {
   font-size: 0.8rem;
 }
 
+.km-acp-section-title > .km-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .km-acp-price {
   width: 100%;
   border-collapse: collapse;
@@ -1422,5 +1427,86 @@ button.km-acp-row {
 
   .km-api-toc a {
     flex-shrink: 0;
+  }
+}
+
+/* ---------- 售价页：在店里卖开关 ---------- */
+.km-switch {
+  position: relative;
+  display: inline-block;
+  width: 2.4rem;
+  height: 1.4rem;
+  cursor: pointer;
+}
+
+.km-switch input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: inherit;
+}
+
+.km-switch span {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--km-bg-muted);
+  border: 1px solid var(--km-border);
+  transition: background 150ms ease;
+  pointer-events: none;
+}
+
+.km-switch span::after {
+  content: "";
+  position: absolute;
+  top: 0.12rem;
+  left: 0.14rem;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  background: var(--km-bg-elevated);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 25%);
+  transition: transform 150ms ease;
+}
+
+.km-switch input:checked + span {
+  background: var(--km-accent);
+  border-color: var(--km-accent);
+}
+
+.km-switch input:checked + span::after {
+  transform: translateX(0.98rem);
+}
+
+.km-switch input:focus-visible + span {
+  outline: 2px solid var(--km-accent);
+  outline-offset: 2px;
+}
+
+.km-switch input:disabled + span {
+  opacity: 0.45;
+}
+
+.km-switch:has(input:disabled) {
+  cursor: not-allowed;
+}
+
+/* 下架的行整体变淡 */
+.km-sell-off td:not(:first-child) {
+  opacity: 0.5;
+}
+
+.km-sell-group-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .km-switch span,
+  .km-switch span::after {
+    transition: none;
   }
 }

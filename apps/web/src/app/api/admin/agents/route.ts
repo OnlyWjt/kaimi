@@ -69,6 +69,7 @@ export async function GET() {
       regionCapable: platformPlans.regionCapable,
       sortOrder: platformPlans.sortOrder,
       name: platformPlans.name,
+      agentHidden: agentPlanPrices.agentHidden,
     })
     .from(agentPlanPrices)
     .innerJoin(platformPlans, eq(platformPlans.id, agentPlanPrices.planId))
@@ -83,7 +84,9 @@ export async function GET() {
   return NextResponse.json({
     list: list.map((row) => ({
       ...row,
-      allowedPlans: plansByAgent.get(row.id) || [],
+      // 管理员开放、代理也在卖的；代理自己下架的单独列出来给管理员看
+      allowedPlans: (plansByAgent.get(row.id) || []).filter((plan) => !plan.agentHidden),
+      hiddenPlans: (plansByAgent.get(row.id) || []).filter((plan) => plan.agentHidden),
     })),
   });
 }

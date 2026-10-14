@@ -38,6 +38,7 @@ export async function loadAgentSellablePlans(agentId: number) {
       and(
         eq(agentPlanPrices.agentId, agentId),
         eq(agentPlanPrices.enabled, true),
+        eq(agentPlanPrices.agentHidden, false),
         eq(platformPlans.enabled, true),
         or(
           eq(platformPlans.cardplatformSellable, true),

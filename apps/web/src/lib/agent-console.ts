@@ -37,6 +37,7 @@ export async function listAgentConsolePlans(agentId: number): Promise<AgentPlanR
       costOverrideCents: agentPlanPrices.costOverrideCents,
       retailPriceCents: agentPlanPrices.retailPriceCents,
       enabled: agentPlanPrices.enabled,
+      agentHidden: agentPlanPrices.agentHidden,
       cardplatformSellable: platformPlans.cardplatformSellable,
       fulfillmentKind: platformPlans.fulfillmentKind,
     })
@@ -52,6 +53,7 @@ export async function listAgentConsolePlans(agentId: number): Promise<AgentPlanR
     maxRetailPriceCents: row.maxRetailPriceCents,
     retailPriceCents: row.retailPriceCents,
     enabled: row.enabled,
+    agentHidden: row.agentHidden,
     cardplatformSellable: row.cardplatformSellable,
     fulfillmentKind: row.fulfillmentKind,
     basePlanKey: row.basePlanKey,

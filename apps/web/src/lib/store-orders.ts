@@ -86,6 +86,7 @@ async function resolveStoreCheckout(input: {
       cardplatformSellable: platformPlans.cardplatformSellable,
       fulfillmentKind: platformPlans.fulfillmentKind,
       assignmentEnabled: agentPlanPrices.enabled,
+      agentHidden: agentPlanPrices.agentHidden,
       costOverrideCents: agentPlanPrices.costOverrideCents,
       retailPriceCents: agentPlanPrices.retailPriceCents,
     })
@@ -108,6 +109,7 @@ async function resolveStoreCheckout(input: {
   if (
     !offer ||
     !offer.assignmentEnabled ||
+    offer.agentHidden ||
     (!offer.cardplatformSellable && !localAccount)
   ) {
     throw new Error("这个套餐现在买不了，换一个或联系店主。");
@@ -278,6 +280,7 @@ export async function createStoreOrder(input: {
         and(
           eq(agentPlanPrices.agentId, agent.id),
           eq(agentPlanPrices.enabled, true),
+          eq(agentPlanPrices.agentHidden, false),
           eq(platformPlans.enabled, true),
           eq(platformPlans.cardplatformSellable, true),
         ),

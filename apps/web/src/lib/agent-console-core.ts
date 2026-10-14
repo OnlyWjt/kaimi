@@ -21,6 +21,8 @@ export type AgentPlanRow = {
   maxRetailPriceCents: number | null;
   retailPriceCents: number;
   enabled: boolean;
+  /** 代理自己下架了这个套餐 */
+  agentHidden?: boolean;
   cardplatformSellable: boolean;
   fulfillmentKind?: string;
   basePlanKey?: string;

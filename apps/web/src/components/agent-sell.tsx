@@ -21,6 +21,7 @@ import { RegionBadge } from "@/components/region-badge";
 
 function planStatus(plan: AgentPlanRow) {
   if (!plan.enabled) return { label: "未开放", tone: "mute" as const };
+  if (plan.agentHidden) return { label: "已下架", tone: "mute" as const };
   if (!(plan.cardplatformSellable || isLocalAccountPlan(plan))) {
     return { label: "平台暂时缺货", tone: "warn" as const };
   }
@@ -28,7 +29,7 @@ function planStatus(plan: AgentPlanRow) {
   if (plan.retailPriceCents < plan.costPriceCents) {
     return { label: "低于成本", tone: "warn" as const };
   }
-  return { label: "可售", tone: "ok" as const };
+  return { label: "在售", tone: "ok" as const };
 }
 
 export function AgentSell({
@@ -48,7 +49,7 @@ export function AgentSell({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const sellable = useMemo(() => plans.filter((plan) => plan.enabled), [plans]);
+  const sellable = useMemo(() => plans.filter((plan) => plan.enabled && !plan.agentHidden), [plans]);
 
   async function loadPlans() {
     const data = await readApiJson<{ list?: AgentPlanRow[] }>(
@@ -73,7 +74,7 @@ export function AgentSell({
     setError("");
     try {
       for (const plan of plans) {
-        if (!plan.enabled) continue;
+        if (!plan.enabled || plan.agentHidden) continue;
         const cents = centsFromYuanText(prices[plan.planKey] ?? "");
         if (cents == null || Number.isNaN(cents)) {
           throw new Error(`${planLabel(plan)} 请填写零售价`);
@@ -95,6 +96,27 @@ export function AgentSell({
       toast("零售价已保存");
     } catch (reason) {
       toast(reason instanceof Error ? reason.message : "价格保存失败", "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setHidden(targets: AgentPlanRow[], hidden: boolean) {
+    setBusy(true);
+    try {
+      for (const plan of targets) {
+        await readApiJson(
+          await fetch(`/api/agent/plans/${encodeURIComponent(plan.planKey)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ hidden }),
+          }),
+        );
+      }
+      await loadPlans();
+      toast(hidden ? "已从店里下架" : "已在店里上架");
+    } catch (reason) {
+      toast(reason instanceof Error ? reason.message : "更新失败", "err");
     } finally {
       setBusy(false);
     }
@@ -145,8 +167,8 @@ export function AgentSell({
       <section className="km-panel">
         <div className="km-acp-section-title">
           <div>
-            <h2>在售套餐</h2>
-            <p>零售价要落在成本和上限之间。低于成本，或还是 0，顾客店铺里不会出现。保存一次，全店生效。</p>
+            <h2>店里卖哪些、卖多少钱</h2>
+            <p>关掉「在店里卖」，这个套餐就从你的店里下架，零售价不用管；随时可以再打开。开着的套餐，零售价要落在成本和上限之间，保存一次全店生效。</p>
           </div>
           <button
             type="button"
@@ -166,6 +188,7 @@ export function AgentSell({
             <table className="km-acp-price">
               <thead>
                 <tr>
+                  <th>在店里卖</th>
                   <th>套餐</th>
                   <th>成本</th>
                   <th>可填</th>
@@ -190,14 +213,35 @@ export function AgentSell({
                     const sellableCount = group.plans.filter(
                       (plan) => planStatus(plan).tone === "ok",
                     ).length;
+                    const toggleable = group.plans.filter((plan) => plan.enabled);
+                    const allHidden = toggleable.length > 0 && toggleable.every((plan) => plan.agentHidden);
                     rows.push(
-                      <tr key={`group-${group.baseKey}`}>
-                        <td colSpan={5}>
-                          <b>{group.primary.name}</b>
-                          <span className="text-[var(--km-fg-muted)]">
-                            {" "}
-                            · 店里显示为一个商品，{sellableCount} 个地区规格
-                          </span>
+                      <tr key={`group-${group.baseKey}`} className="km-sell-group">
+                        <td colSpan={6}>
+                          <div className="km-sell-group-row">
+                            <span>
+                              <b>{group.primary.name}</b>
+                              <span className="text-[var(--km-fg-muted)]">
+                                {" "}
+                                · {group.plans.length} 个地区，{sellableCount} 个在售
+                              </span>
+                            </span>
+                            {toggleable.length > 1 ? (
+                              <button
+                                type="button"
+                                className="km-btn km-btn-ghost km-btn-sm"
+                                disabled={busy}
+                                onClick={() =>
+                                  void setHidden(
+                                    toggleable.filter((plan) => Boolean(plan.agentHidden) !== !allHidden),
+                                    !allHidden,
+                                  )
+                                }
+                              >
+                                {allHidden ? "整组上架" : "整组下架"}
+                              </button>
+                            ) : null}
+                          </div>
                         </td>
                       </tr>,
                     );
@@ -205,7 +249,20 @@ export function AgentSell({
                   for (const plan of group.plans) {
                     const status = planStatus(plan);
                     rows.push(
-                    <tr key={plan.planKey}>
+                    <tr key={plan.planKey} className={plan.agentHidden ? "km-sell-off" : ""}>
+                      <td>
+                        <label className="km-switch" title={plan.enabled ? "" : "管理员还没给你开放这个套餐"}>
+                          <input
+                            type="checkbox"
+                            role="switch"
+                            checked={plan.enabled && !plan.agentHidden}
+                            disabled={busy || !plan.enabled}
+                            aria-label={`在店里卖 ${planLabel(plan)}`}
+                            onChange={(event) => void setHidden([plan], !event.target.checked)}
+                          />
+                          <span aria-hidden />
+                        </label>
+                      </td>
                       <td>
                         {plan.regionCapable ? (
                           <RegionBadge country={plan.paymentCountry} regionLabel={plan.regionLabel} />
@@ -225,7 +282,7 @@ export function AgentSell({
                           className="km-input"
                           inputMode="decimal"
                           value={prices[plan.planKey] ?? ""}
-                          disabled={!plan.enabled}
+                          disabled={!plan.enabled || plan.agentHidden}
                           onChange={(event) =>
                             setPrices((current) => ({
                               ...current,

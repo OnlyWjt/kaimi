@@ -63,6 +63,7 @@ async function loadAgentPlans(agentId: number) {
       costOverrideCents: agentPlanPrices.costOverrideCents,
       globalCostPriceCents: platformPlans.globalCostPriceCents,
       enabled: agentPlanPrices.enabled,
+      agentHidden: agentPlanPrices.agentHidden,
       planEnabled: platformPlans.enabled,
     })
     .from(agentPlanPrices)
@@ -93,7 +94,7 @@ export async function assertCouponPlanKeys(agentId: number, planKeys: string[]) 
   const plans = await loadAgentPlans(agentId);
   const allowed = new Set(
     plans
-      .filter((plan) => plan.enabled && plan.planEnabled)
+      .filter((plan) => plan.enabled && plan.planEnabled && !plan.agentHidden)
       .map((plan) => plan.planKey),
   );
   const missing = planKeys.filter((key) => !allowed.has(key));
@@ -144,7 +145,7 @@ export async function listAgentCoupons(agentId: number): Promise<CouponRow[]> {
     planName: plan.planName,
     retailPriceCents: plan.retailPriceCents,
     costPriceCents: plan.costOverrideCents ?? plan.globalCostPriceCents,
-    enabled: plan.enabled && plan.planEnabled,
+    enabled: plan.enabled && plan.planEnabled && !plan.agentHidden,
   }));
   return rows.map((row) => {
     const planKeys = byCoupon.get(row.id) || [];
@@ -194,7 +195,7 @@ export async function previewAgentCoupon(
     planName: plan.planName,
     retailPriceCents: plan.retailPriceCents,
     costPriceCents: plan.costOverrideCents ?? plan.globalCostPriceCents,
-    enabled: plan.enabled && plan.planEnabled,
+    enabled: plan.enabled && plan.planEnabled && !plan.agentHidden,
   }));
   const warnings = previewCouponWarnings({
     spec: specFromDraft(draft),

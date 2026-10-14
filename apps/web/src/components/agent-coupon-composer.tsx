@@ -92,7 +92,7 @@ export function AgentCouponComposer({ couponId }: { couponId?: number }) {
   const [error, setError] = useState("");
   const [ready, setReady] = useState(!couponId);
 
-  const sellable = useMemo(() => plans.filter((plan) => plan.enabled), [plans]);
+  const sellable = useMemo(() => plans.filter((plan) => plan.enabled && !plan.agentHidden), [plans]);
   const ticket =
     tickets.find((item) => item.planKey === ticketPlan) || tickets[0] || null;
 
