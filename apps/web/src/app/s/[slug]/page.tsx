@@ -6,6 +6,7 @@ import { publicShopName } from "@/lib/agent-names";
 import { loadAgentShop } from "@/lib/agent-shop";
 import { enabledPaymentChannels, loadAgentSellablePlans } from "@/lib/agent-catalog";
 import { getStoreSalesGate } from "@/lib/ops-health";
+import { agentContactGate } from "@/lib/agent-contact";
 import { getMaxOrderQuantity } from "@/lib/store-quantity";
 
 export default async function AgentStorePage({
@@ -16,7 +17,8 @@ export default async function AgentStorePage({
   const { slug: rawSlug } = await params;
   const { agent, themeId, settings } = await loadAgentShop(rawSlug);
   const salesGate = await getStoreSalesGate();
-  const open = agent.status === "active" && salesGate.open;
+  const contactBlocked = (await agentContactGate(agent.id)).state === "blocked";
+  const open = agent.status === "active" && salesGate.open && !contactBlocked;
 
   const sellablePlans = open ? await loadAgentSellablePlans(agent.id) : [];
 
@@ -29,7 +31,11 @@ export default async function AgentStorePage({
           <header className="mx-auto max-w-xl space-y-3 text-center">
             <h1 className="km-page-title">{publicShopName(agent)}</h1>
             <p className="km-lead mx-auto">
-              {agent.status !== "active" ? "店铺暂时关闭。" : salesGate.publicReason}
+              {agent.status !== "active"
+                ? "店铺暂时关闭。"
+                : contactBlocked
+                  ? "店铺暂停接单，请稍后再来。"
+                  : salesGate.publicReason}
             </p>
           </header>
         </section>

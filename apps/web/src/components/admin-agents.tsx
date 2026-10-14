@@ -38,6 +38,8 @@ type AgentRow = {
   allowedPlans: Array<{ planKey: string; name: string } & RegionFields>;
   /** 管理员开放了、但代理自己从店里下架的套餐 */
   hiddenPlans?: Array<{ planKey: string; name: string } & RegionFields>;
+  /** 有没有有效的微信 / QQ / TG 售后联系方式 */
+  hasSupportContact?: boolean;
 };
 
 type CatalogPlan = {
@@ -1205,6 +1207,9 @@ export function AdminAgents() {
                   </td>
                   <td className="whitespace-nowrap py-3 pr-6">
                     {agent.status === "active" ? "启用" : "停用"}
+                    {agent.status === "active" && agent.hasSupportContact === false ? (
+                      <span className="ml-2 text-xs text-[var(--km-danger)]">缺售后联系方式</span>
+                    ) : null}
                   </td>
                   <td className="py-3">
                     <AgentActionMenu

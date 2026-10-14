@@ -8,6 +8,8 @@ import {
   resolveShopRedeemUrl,
 } from "@/lib/agent-redeem";
 import { bootDb, getSetting } from "@/lib/config";
+import { loadAgentContacts } from "@/lib/agent-contact";
+import { afterSalesContacts, contactHref, contactTypeLabel } from "@/lib/agent-contact-core";
 import { decryptSecret, hashLookupValue } from "@/lib/crypto";
 import { fulfillStoreOrder } from "@/lib/fulfillment/fulfill-store-order";
 import { sanitizeLog } from "@/lib/log";
@@ -74,13 +76,14 @@ async function serializePublicOrder(
         }
       })
     : [];
-  const [origin, storedRedeem, agent] = await Promise.all([
+  const [origin, storedRedeem, agent, contacts] = await Promise.all([
     getPublicBaseUrl(req),
     getSetting("agent_redeem_url", ""),
     db.query.agents.findFirst({
       where: eq(agents.id, order.agentId),
       columns: { currentSlug: true },
     }),
+    loadAgentContacts(order.agentId),
   ]);
   const queryToken = order.queryTokenEncrypted
     ? decryptSecret(order.queryTokenEncrypted)
@@ -143,6 +146,13 @@ async function serializePublicOrder(
     cdkStatus: cdks[0]?.status ?? null,
     paidAt: order.paidAt,
     deliveredAt: order.deliveredAt,
+    // 店主售后联系方式，订单页常驻展示。只给类型、名称和号码，不带其他店铺配置。
+    afterSales: afterSalesContacts(contacts).map((contact) => ({
+      type: contact.type,
+      label: contact.label.zh.trim() || contactTypeLabel(contact.type),
+      value: contact.value.trim(),
+      href: contactHref(contact),
+    })),
     // 邀请卡片和这个邮箱的邀请券。能进到这里的已经交过完整订单号或查询凭证。
     referral:
       order.payStatus === "paid" && origin

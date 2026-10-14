@@ -49,6 +49,14 @@ type StoreOrderResult = {
   rechargeUrl?: string;
   queryToken?: string;
   referral?: ReferralView | null;
+  afterSales?: AfterSalesContact[];
+};
+
+type AfterSalesContact = {
+  type: string;
+  label: string;
+  value: string;
+  href: string | null;
 };
 
 type ReferralView = {
@@ -387,7 +395,47 @@ export function StoreOrderResultPanel({
       ) : (
         <p className="km-order-note">{order.message || "等待支付完成。付款后本页会自动刷新。"}</p>
       )}
+      {order.afterSales?.length ? <AfterSalesSection contacts={order.afterSales} onCopy={copy} /> : null}
     </div>
+  );
+}
+
+/** 店主售后联系方式：任何状态都显示，买家遇到问题先找店主。 */
+function AfterSalesSection({
+  contacts,
+  onCopy,
+}: {
+  contacts: AfterSalesContact[];
+  onCopy: (text: string, ok: string) => Promise<void>;
+}) {
+  return (
+    <section className="km-order-section">
+      <div className="km-order-section-head">
+        <h2>售后联系</h2>
+      </div>
+      <p className="km-order-note">卡密、账号或发货有任何问题，请直接联系店主处理，备注订单号。</p>
+      <ul className="km-order-codes">
+        {contacts.map((contact, index) => (
+          <li key={`${contact.type}-${index}`}>
+            <span className="text-sm text-[var(--km-fg-muted)]">{contact.label}</span>
+            {contact.href ? (
+              <a href={contact.href} target="_blank" rel="noreferrer">
+                <code>{contact.value}</code>
+              </a>
+            ) : (
+              <code>{contact.value}</code>
+            )}
+            <button
+              type="button"
+              className="km-order-copy"
+              onClick={() => void onCopy(contact.value, `${contact.label}已复制`)}
+            >
+              复制
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

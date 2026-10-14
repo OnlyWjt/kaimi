@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { KmSelect } from "@/components/km-select";
 import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
 import { readApiJson } from "@/lib/http-error";
+import { contactValueError, hasSupportContact } from "@/lib/agent-contact-core";
 import {
   CONTACT_TYPES,
   DEFAULT_SETTINGS,
@@ -31,7 +33,7 @@ const CONTACT_TYPE_LABEL: Record<ContactItem["type"], string> = {
 const CONTACT_PLACEHOLDER: Record<ContactItem["type"], string> = {
   telegram: "@your_support",
   email: "help@example.com",
-  wechat: "微信号或客服二维码说明",
+  wechat: "微信号，如 kaimi_help",
   qq: "123456789",
   link: "https://example.com/support",
 };
@@ -111,6 +113,7 @@ function Toggle({
 type AssignedPlan = { planKey: string; name: string; coverUrl?: string };
 
 export function AgentStorefrontSettings() {
+  const router = useRouter();
   const { ask, dialog } = useAskDialog();
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
   const [settings, setSettings] = useState<StorefrontSettings>(DEFAULT_SETTINGS);
@@ -217,6 +220,8 @@ export function AgentStorefrontSettings() {
         }),
       );
       toast("店铺装修已保存");
+      // 顶部「未填售后联系方式」横幅由服务端算，保存后刷新一下才会消失。
+      router.refresh();
     } catch (reason) {
       const text = reason instanceof Error ? reason.message : "保存失败";
       setError(text);
@@ -499,7 +504,7 @@ export function AgentStorefrontSettings() {
 
       <div className="space-y-4 border-t border-[var(--km-border)] pt-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold">联系客服</h3>
+          <h3 className="text-sm font-semibold">售后联系方式（必填）</h3>
           <button
             type="button"
             className="km-btn km-btn-ghost"
@@ -517,8 +522,14 @@ export function AgentStorefrontSettings() {
           </button>
         </div>
         <p className="text-xs text-[var(--km-fg-muted)]">
-          显示在店铺页脚，最多 {MAX_CONTACTS} 条。买家发货异常时会找这里。
+          至少填一个微信、QQ 或 Telegram，否则店铺不能接单（只填邮箱或链接不算）。
+          会显示在店铺页脚、买家下单后的订单页和发货邮件里，最多 {MAX_CONTACTS} 条。
         </p>
+        {hasSupportContact(settings.contacts) ? null : (
+          <p className="text-sm text-[var(--km-danger)]">
+            还没有有效的微信 / QQ / Telegram，店铺会被暂停接单。
+          </p>
+        )}
         {settings.contacts.map((contact, index) => (
           <div key={index} className="space-y-2 rounded-xl border border-[var(--km-border)] p-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -558,6 +569,11 @@ export function AgentStorefrontSettings() {
                 删除
               </button>
             </div>
+            {contact.value.trim() && contactValueError(contact.type, contact.value) ? (
+              <p className="text-xs text-[var(--km-danger)]">
+                {contactValueError(contact.type, contact.value)}
+              </p>
+            ) : null}
             <BilingualField
               label="显示名称"
               hint="留空按类型显示默认名称"

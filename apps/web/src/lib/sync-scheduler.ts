@@ -159,6 +159,13 @@ async function maybeTick() {
         console.warn("[kaimi-sync] agent issue alert failed", sanitizeLog(err));
       }
       try {
+        // 售后联系方式没填的代理：宽限期开始、停止接单时各提醒一次
+        const reminded = await import("@/lib/agent-contact").then((m) => m.remindAgentsMissingContact());
+        if (reminded.sent > 0) console.log(`[kaimi-sync] agent contact reminders sent=${reminded.sent}`);
+      } catch (err) {
+        console.warn("[kaimi-sync] agent contact reminder failed", sanitizeLog(err));
+      }
+      try {
         await retryAgentStorePaidNotifies();
       } catch (err) {
         console.warn("[kaimi-sync] agent notify retry failed", sanitizeLog(err));

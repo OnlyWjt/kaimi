@@ -4,6 +4,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { agentPlanPrices, agents, platformPlans, users } from "@/db/schema";
 import { loadUnreadAnnouncement } from "@/lib/announcements";
+import { agentContactGate } from "@/lib/agent-contact";
 import {
   type AgentConsoleProfile,
   type AgentPlanRow,
@@ -88,5 +89,6 @@ export const requireAgentConsoleProfile = cache(async (): Promise<AgentConsolePr
     themeId: resolveThemeId(profile.themeId),
     redeemUrl: await getAgentRedeemUrl(profile.currentSlug),
     unreadAnnouncement: await loadUnreadAnnouncement(session.agentId),
+    contactGate: await agentContactGate(session.agentId),
   };
 });

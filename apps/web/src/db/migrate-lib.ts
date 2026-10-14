@@ -11,6 +11,7 @@ import {
   users,
 } from "./schema";
 import { computeOrderLedger } from "../lib/order-ledger-core";
+import { CONTACT_ENFORCE_SETTING, graceDeadlineFrom } from "../lib/agent-contact-core";
 import bcrypt from "bcryptjs";
 import {
   FINISHED_GPT_COST_CENTS,
@@ -1266,6 +1267,8 @@ export async function ensureSchema() {
   await ensureSetting("draw_agent_notice", "");
   await ensureSetting("draw_finished_reserve", "0");
   await ensureSetting("cardplatform_region_whitelist", "US,CL");
+  // 售后联系方式必填：首次上线这一版时给已有代理 3 天宽限，之后没填的店停止接单。只写一次。
+  await ensureSetting(CONTACT_ENFORCE_SETTING, graceDeadlineFrom());
 
   // Older saves accidentally wrote storefront titles into site_name via 外观店面卡.
   const siteNameRow = await db.query.settings.findFirst({

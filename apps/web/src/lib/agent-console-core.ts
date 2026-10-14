@@ -1,5 +1,6 @@
 import type { ThemeId } from "@kaimi/themes";
 import type { UnreadAnnouncement } from "./announcements-core";
+import type { ContactGate } from "./agent-contact-core";
 import { yuanTextFromCents } from "./money";
 
 export type AgentConsoleProfile = {
@@ -10,6 +11,8 @@ export type AgentConsoleProfile = {
   themeId: ThemeId;
   redeemUrl: string;
   unreadAnnouncement: UnreadAnnouncement | null;
+  /** 售后联系方式状态：没填时宽限期内提醒，过期后店铺停止接单。 */
+  contactGate: ContactGate;
 };
 
 export type AgentRangeKey = "today" | "7d" | "month" | "all";
