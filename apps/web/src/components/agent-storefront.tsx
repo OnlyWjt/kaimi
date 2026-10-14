@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ApplyTheme } from "@/components/apply-theme";
 import { readApiJson } from "@/lib/http-error";
+import { contactHref } from "@/lib/agent-contact-core";
 import { RegionBadge } from "@/components/region-badge";
 import { regionDisplay } from "@/lib/cardplatform/regions";
 import { invoiceSurchargeCents } from "@/lib/invoice-core";
@@ -491,13 +492,6 @@ function ContactIcon({ type }: { type: ContactItem["type"] }) {
   if (type === "email") return <IconMail />;
   if (type === "link") return <IconGlobe />;
   return <IconChat />;
-}
-
-function contactHref(contact: ContactItem): string | null {
-  if (contact.type === "email") return `mailto:${contact.value}`;
-  if (contact.type === "telegram") return `https://t.me/${contact.value.replace(/^@/, "")}`;
-  if (contact.type === "link") return contact.value;
-  return null;
 }
 
 function contactFallbackLabel(type: ContactItem["type"]): { zh: string; en: string } {

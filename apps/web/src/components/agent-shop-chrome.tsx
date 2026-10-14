@@ -2,18 +2,10 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { ApplyTheme } from "@/components/apply-theme";
 import type { AgentShopChromeData } from "@/lib/agent-shop";
+import { contactHref } from "@/lib/agent-contact-core";
 import { pickText, type ContactItem } from "@/lib/agent-storefront-config";
 
 export type ShopTool = "redeem" | "cdk" | "lookup";
-
-function contactHref(contact: ContactItem) {
-  if (contact.type === "email") return `mailto:${contact.value}`;
-  if (contact.type === "telegram") {
-    return `https://t.me/${contact.value.replace(/^@/, "")}`;
-  }
-  if (contact.type === "link") return contact.value;
-  return "";
-}
 
 function contactLabel(contact: ContactItem) {
   if (contact.type === "telegram") return "Telegram";

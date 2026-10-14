@@ -1,3 +1,4 @@
+import { assertAgentContactReady } from "@/lib/agent-contact";
 import crypto from "node:crypto";
 import { and, asc, desc, eq, inArray, lt } from "drizzle-orm";
 import { db } from "@/db";
@@ -71,6 +72,8 @@ async function resolveStoreCheckout(input: {
     ),
   });
   if (!agent) throw new Error("店铺不存在或已关闭");
+  // 没有售后联系方式的店不能收钱：买家找不到人会去支付渠道投诉。
+  await assertAgentContactReady(agent.id);
 
   const maxQuantity = await getMaxOrderQuantity();
   const quantity = resolveOrderQuantity(input.quantity, maxQuantity);

@@ -2,6 +2,8 @@ import nodemailer from "nodemailer";
 import { db } from "@/db";
 import { agents, issuedCdks, storeOrders } from "@/db/schema";
 import { publicShopName } from "@/lib/agent-names";
+import { loadAgentContacts } from "@/lib/agent-contact";
+import { afterSalesMailLines } from "@/lib/agent-contact-core";
 import { getSetting, setSetting } from "@/lib/config";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { buildMailFrom, isValidMailFrom, mailDisplayName } from "@/lib/mail-core";
@@ -195,7 +197,9 @@ export async function sendDeliveryMail(orderId: number) {
     const inviteLines = await import("@/lib/referrals")
       .then(({ referralInviteMailLines }) => referralInviteMailLines(order))
       .catch(() => [] as string[]);
-    const body = [shop, `订单号 ${order.orderNo}`, "", ...lines, ...inviteLines]
+    // 售后联系方式放在卡密后面：买家有问题先找店主，不要去支付渠道投诉。
+    const afterSalesLines = agent ? afterSalesMailLines(await loadAgentContacts(agent.id)) : [];
+    const body = [shop, `订单号 ${order.orderNo}`, "", ...lines, ...afterSalesLines, ...inviteLines]
       .filter((line, index) => line || index > 0)
       .join("\n");
     await mailer.sendMail({
@@ -311,7 +315,13 @@ export async function sendOrderLinksMail(input: {
     replyTo: validReplyTo(agent.mailReplyTo) ? agent.mailReplyTo.trim() : undefined,
     to: email,
     subject: `${shop || "订单"} 查单链接`,
-    text: [shop, "下面是你在本店的订单，点链接查看卡密和发货状态。不是你本人操作的请忽略这封邮件。", "", ...lines].join("\n"),
+    text: [
+      shop,
+      "下面是你在本店的订单，点链接查看卡密和发货状态。不是你本人操作的请忽略这封邮件。",
+      "",
+      ...lines,
+      ...afterSalesMailLines(await loadAgentContacts(agent.id)),
+    ].join("\n"),
   });
   return lines.length / 3;
 }

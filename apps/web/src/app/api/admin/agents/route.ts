@@ -4,7 +4,9 @@ import { desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { db } from "@/db";
-import { agentPlanPrices, agents, platformPlans, users } from "@/db/schema";
+import { agentPlanPrices, agentStorefronts, agents, platformPlans, users } from "@/db/schema";
+import { hasSupportContact } from "@/lib/agent-contact-core";
+import { parseContactsJson } from "@/lib/agent-storefront-config";
 import { requireAdmin } from "@/lib/auth";
 import { normalizeAgentSlug, validateAgentSlug } from "@/lib/agent-slug";
 import { bootDb } from "@/lib/config";
@@ -74,6 +76,14 @@ export async function GET() {
     .from(agentPlanPrices)
     .innerJoin(platformPlans, eq(platformPlans.id, agentPlanPrices.planId))
     .where(eq(agentPlanPrices.enabled, true));
+  const contactRows = await db
+    .select({ agentId: agentStorefronts.agentId, contactsJson: agentStorefronts.contactsJson })
+    .from(agentStorefronts);
+  const contactReady = new Set(
+    contactRows
+      .filter((row) => hasSupportContact(parseContactsJson(row.contactsJson)))
+      .map((row) => row.agentId),
+  );
   const plansByAgent = new Map<number, typeof assigned>();
   for (const row of assigned) {
     const current = plansByAgent.get(row.agentId) || [];
@@ -84,6 +94,8 @@ export async function GET() {
   return NextResponse.json({
     list: list.map((row) => ({
       ...row,
+      // 没有有效的微信 / QQ / TG，宽限期过后不能接单
+      hasSupportContact: contactReady.has(row.id),
       // 管理员开放、代理也在卖的；代理自己下架的单独列出来给管理员看
       allowedPlans: (plansByAgent.get(row.id) || []).filter((plan) => !plan.agentHidden),
       hiddenPlans: (plansByAgent.get(row.id) || []).filter((plan) => plan.agentHidden),

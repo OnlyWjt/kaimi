@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { contactValueError, hasSupportContact } from "./agent-contact-core";
 import { isLocalAccountPlan } from "./finished-account-core";
 import { normalizeCategory } from "./plan-category";
 import { normalizeStoredCoverUrl } from "./plan-cover-core";
@@ -168,7 +169,22 @@ export const storefrontSettingsSchema = z
           message: "链接需以 http:// 或 https:// 开头",
         });
       }
+      const formatError = contactValueError(contact.type, contact.value);
+      if (formatError) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["contacts", index, "value"],
+          message: formatError,
+        });
+      }
     });
+    if (!hasSupportContact(value.contacts)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["contacts"],
+        message: "请至少填写一个售后联系方式（微信、QQ 或 Telegram），否则店铺不能接单",
+      });
+    }
   });
 
 /* ———————————————————————————— 行 <-> 配置 ———————————————————————————— */
@@ -231,6 +247,27 @@ export function resolveProductName(
   return { zh, en };
 }
 
+/** contacts_json → 联系方式列表，脏数据丢掉 */
+export function parseContacts(raw: unknown): ContactItem[] {
+  return (Array.isArray(raw) ? raw : [])
+    .filter(
+      (item): item is ContactItem =>
+        Boolean(item) &&
+        CONTACT_TYPES.includes((item as ContactItem).type) &&
+        typeof (item as ContactItem).value === "string",
+    )
+    .slice(0, MAX_CONTACTS)
+    .map((item) => ({
+      type: item.type,
+      label: { zh: String(item.label?.zh ?? ""), en: String(item.label?.en ?? "") },
+      value: String(item.value),
+    }));
+}
+
+export function parseContactsJson(raw: string | null | undefined): ContactItem[] {
+  return parseContacts(parseJson<unknown>(raw || "[]", []));
+}
+
 /** DB 行 → 配置；坏数据一律退回默认值，不让店铺打不开 */
 export function rowToSettings(row: SettingsRow | null | undefined): StorefrontSettings {
   if (!row) return DEFAULT_SETTINGS;
@@ -249,19 +286,7 @@ export function rowToSettings(row: SettingsRow | null | undefined): StorefrontSe
       label: { zh: String(item.label?.zh ?? ""), en: String(item.label?.en ?? "") },
     }));
 
-  const contacts: ContactItem[] = (Array.isArray(rawContacts) ? rawContacts : [])
-    .filter(
-      (item): item is ContactItem =>
-        Boolean(item) &&
-        CONTACT_TYPES.includes((item as ContactItem).type) &&
-        typeof (item as ContactItem).value === "string",
-    )
-    .slice(0, MAX_CONTACTS)
-    .map((item) => ({
-      type: item.type,
-      label: { zh: String(item.label?.zh ?? ""), en: String(item.label?.en ?? "") },
-      value: String(item.value),
-    }));
+  const contacts = parseContacts(rawContacts);
 
   const languages = (Array.isArray(rawLanguages) ? rawLanguages : [])
     .filter((item): item is Lang => item === "zh" || item === "en");

@@ -11,7 +11,25 @@ import type { AgentConsoleProfile } from "@/lib/agent-console-core";
 import { publicShopName } from "@/lib/agent-names";
 import { agentAnnouncementHint } from "@/lib/announcements-core";
 import { isExternalRedeemUrl } from "@/lib/agent-redeem-core";
+import type { ContactGate } from "@/lib/agent-contact-core";
+import { formatDateTime } from "@/lib/datetime";
 import "./agent-console.css";
+
+/** 没填售后联系方式时每一页都挂着，直到填好。 */
+function ContactRequiredBanner({ gate }: { gate: Exclude<ContactGate, { state: "ok" }> }) {
+  return (
+    <div className="km-acp-warn mb-4 flex flex-wrap items-center justify-between gap-3">
+      <span className={gate.state === "blocked" ? "text-[var(--km-danger)]" : undefined}>
+        {gate.state === "blocked"
+          ? "店铺已暂停接单：还没有填写售后联系方式（微信、QQ 或 Telegram）。填好后立即恢复。"
+          : `请在 ${formatDateTime(gate.deadline)} 前填写售后联系方式（微信、QQ 或 Telegram），否则店铺会暂停接单。`}
+      </span>
+      <Link href="/agent/storefront" className="km-btn km-btn-primary">
+        去填写
+      </Link>
+    </div>
+  );
+}
 
 const NAV = [
   { href: "/agent", label: "概览", group: "日常" },
@@ -243,7 +261,12 @@ export function AgentConsoleShell({
             </button>
           </div>
         </aside>
-        <div className="km-acp-main">{children}</div>
+        <div className="km-acp-main">
+          {profile.contactGate.state !== "ok" ? (
+            <ContactRequiredBanner gate={profile.contactGate} />
+          ) : null}
+          {children}
+        </div>
       </div>
       {dialog}
       {showModal && unread ? (
