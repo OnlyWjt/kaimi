@@ -60,6 +60,9 @@ function yuanLineAlways(label: string, cents?: number | null) {
 
 export function formatNotifyText(payload: NotifyPayload) {
   const title = STATUS_TEXT[payload.status] || payload.status;
+  if (payload.status === "alert") {
+    return [`[Kaimi] ${title}`, payload.message || ""].filter(Boolean).join("\n");
+  }
   const quantity = payload.quantity && payload.quantity > 1 ? payload.quantity : 0;
   const plan = payload.plan
     ? quantity
