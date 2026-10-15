@@ -2,7 +2,7 @@ import { getSetting, setSetting } from "@/lib/config";
 import { pollInFlightOrders, reconcileStuckLocks } from "@/lib/orders";
 import { retryPendingStoreOrders } from "@/lib/fulfillment/fulfill-store-order";
 import { reconcilePendingPaymentFees } from "@/lib/payments/reconcile";
-import { processBackgroundJobs } from "@/lib/background-jobs";
+import { processBackgroundJobs, pruneCompletedJobs } from "@/lib/background-jobs";
 import { sanitizeLog } from "@/lib/log";
 import { refreshOpsHealth } from "@/lib/ops-health";
 import { pruneUpstreamPayloads } from "@/lib/order-timeline";
@@ -247,6 +247,12 @@ async function maybeTick() {
           if (prunedTest > 0) console.log(`[kaimi-sync] pruned sandbox orders: ${prunedTest}`);
         } catch (err) {
           console.warn("[kaimi-sync] webhook delivery prune failed", sanitizeLog(err));
+        }
+        try {
+          const prunedJobs = await pruneCompletedJobs();
+          if (prunedJobs > 0) console.log(`[kaimi-sync] pruned completed jobs: ${prunedJobs}`);
+        } catch (err) {
+          console.warn("[kaimi-sync] job prune failed", sanitizeLog(err));
         }
       }
       if (now - state.lastProductSyncMs >= 180_000 || state.lastProductSyncMs === 0) {
