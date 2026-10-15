@@ -17,22 +17,25 @@ export function RechargeSwitcher({
   const [mode, setMode] = useState<"single" | "batch">(orderRef ? "batch" : "single");
 
   return (
-    <div className="mx-auto w-full space-y-4">
-      <div className="km-tabs">
-        <button
-          type="button"
-          className={`km-tab ${mode === "single" ? "km-tab-active" : ""}`}
-          onClick={() => setMode("single")}
-        >
-          单张兑换
-        </button>
-        <button
-          type="button"
-          className={`km-tab ${mode === "batch" ? "km-tab-active" : ""}`}
-          onClick={() => setMode("batch")}
-        >
-          批量兑换
-        </button>
+    <div className="km-rx-switch">
+      <div className="km-rx-seg" role="tablist" aria-label="兑换方式">
+        {(
+          [
+            ["single", "单张兑换"],
+            ["batch", "批量兑换"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={mode === value}
+            className={`km-rx-seg-item${mode === value ? " km-rx-seg-item-active" : ""}`}
+            onClick={() => setMode(value)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
       {mode === "single" ? (
         <RechargeForm initialCode={initialCode} />

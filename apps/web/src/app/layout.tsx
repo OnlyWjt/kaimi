@@ -3,6 +3,7 @@ import { IBM_Plex_Sans, Sora } from "next/font/google";
 import { ToastHost } from "@/components/toast";
 import { getSiteAppearance } from "@/lib/storefront";
 import "./globals.css";
+import "./redeem.css";
 
 const sora = Sora({
   subsets: ["latin"],

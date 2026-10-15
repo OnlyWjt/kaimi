@@ -35,7 +35,7 @@ export function RegionBadge({
         background: `var(--km-region-bg, ${(TONE[region.code] || TONE.PH).background})`,
       }}
     >
-      <b style={{ fontFamily: "ui-monospace, monospace", fontWeight: 650 }}>{region.code}</b>
+      <b style={{ fontWeight: 700, letterSpacing: "0.02em" }}>{region.code}</b>
       {compact ? null : <span>{region.zh}</span>}
     </span>
   );

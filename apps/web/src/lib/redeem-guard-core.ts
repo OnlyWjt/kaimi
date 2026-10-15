@@ -40,18 +40,38 @@ export function normalizeGuardEmail(email: string) {
   return `${local}@${trimmed.slice(at + 1)}`;
 }
 
-/** 预检失败算半次，避免手滑的真实客户立刻被封。其它失败算一次。 */
+/**
+ * 预检失败算半次，避免手滑的真实客户立刻被封。猜码（不存在 / 已禁用）算一次。
+ * 已使用的卡不算：卡是真的，多半是买家兑换完又粘了一次，或批量里混进了用过的；撞库猜不出真卡。
+ */
 export function failureWeight(outcome: string) {
   if (outcome === "preflight_failed") return 0.5;
-  if (
-    outcome === "unknown_code" ||
-    outcome === "used_code" ||
-    outcome === "disabled_code"
-  ) {
-    return 1;
-  }
+  if (outcome === "unknown_code" || outcome === "disabled_code") return 1;
   return 0;
 }
+
+/** 批量里遇到几张这种就停掉整批。已使用的卡不算猜码，不让它把整批卡住。 */
+export function isGuessOutcome(outcome: string) {
+  return failureWeight(outcome) >= 1;
+}
+
+/**
+ * 批量校验、批量提交逐张走的时候用：猜码累计到 UNKNOWN_CODE_STOP_AFTER 张，后面的不再查。
+ * 两处共用这一份，免得一边改了规则另一边没改。
+ */
+export function createBatchGuessGuard(stopAfter = UNKNOWN_CODE_STOP_AFTER) {
+  let guesses = 0;
+  return {
+    get stopped() {
+      return guesses >= stopAfter;
+    },
+    reject(outcome: string) {
+      if (isGuessOutcome(outcome)) guesses += 1;
+    },
+  };
+}
+
+export const BATCH_STOPPED_MESSAGE = "连续多张卡密无效，已停止本批";
 
 export function sumFailureWeight(outcomes: string[]) {
   return outcomes.reduce((sum, outcome) => sum + failureWeight(outcome), 0);

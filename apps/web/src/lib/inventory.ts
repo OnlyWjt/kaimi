@@ -6,6 +6,7 @@ import {
   previewRedeemableCdk,
   summarizePreview,
 } from "@/lib/cardplatform/redeem";
+import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
 
 export function normalizeCdkCode(code: string) {
   return code.trim().toUpperCase();
@@ -127,7 +128,7 @@ export async function lockCodeForRedeem(code: string, orderId: number) {
 export async function validateCodeForRedeem(code: string) {
   await bootDb();
   const trimmed = code.trim();
-  if (!trimmed || trimmed.length < 6) {
+  if (!trimmed || trimmed.length < REDEEM_CODE_MIN_LENGTH) {
     throw new Error("请输入完整卡密");
   }
   try {

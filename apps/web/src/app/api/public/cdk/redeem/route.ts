@@ -10,9 +10,10 @@ import { RedeemRejectedError } from "@/lib/redeem-guard-core";
 import { recordRedeemFailure, redeemBlockResponse } from "@/lib/redeem-guard";
 import { checkChatGPTSessionLocal } from "@/lib/session-check";
 import { publicErrorMessage } from "@/lib/public-error";
+import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
 
 const schema = z.object({
-  code: z.string().min(6),
+  code: z.string().min(REDEEM_CODE_MIN_LENGTH),
   email: z.string().optional().default(""),
   session: z.string().optional().default(""),
   password: z.string().optional().default(""),

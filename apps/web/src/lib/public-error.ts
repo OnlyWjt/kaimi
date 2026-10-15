@@ -1,3 +1,4 @@
+import { ZodError } from "zod";
 import { sanitizeLog } from "./log";
 
 const BUSY_MESSAGE = "系统繁忙，请稍后再试";
@@ -36,6 +37,16 @@ export function publicErrorMessage(error: unknown, fallback: string, where = "ap
   if (isDatabaseError(error)) {
     console.error(`[${where}] 数据库操作失败：${sanitizeLog(databaseErrorSummary(error))}`);
     return BUSY_MESSAGE;
+  }
+  // zod 的 message 是整段英文 JSON，req.json() 解析失败是 "Unexpected token…"，都不该原样给买家看。
+  // 同样的错误也可能来自服务端自己解析存量数据，所以照样留一行日志，免得真问题被这句话盖住。
+  if (error instanceof ZodError) {
+    console.warn(`[${where}] 参数校验未通过：${sanitizeLog(error.issues.map((i) => `${i.path.join(".") || "(root)"} ${i.code}`).join("; "))}`);
+    return `${fallback}：提交的内容不完整或格式不对`;
+  }
+  if (error instanceof SyntaxError) {
+    console.warn(`[${where}] JSON 解析失败：${sanitizeLog(error.message)}`, error.stack?.split("\n").slice(1, 4).join(" | "));
+    return `${fallback}：请求格式不对，请刷新页面后重试`;
   }
   return error instanceof Error && error.message ? error.message : fallback;
 }

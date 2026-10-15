@@ -2895,6 +2895,8 @@ a.km-sf-contact:hover {
 
   .km-sf-query {
     flex-direction: column;
+    /* 竖排时内容要撑满，不然卡密查询这种短文案的卡片里输入框只有半截宽 */
+    align-items: stretch;
   }
 
   .km-sf-query-row {
@@ -2923,143 +2925,6 @@ a.km-sf-contact:hover {
   .km-sf-grid2 {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
-}
-
-/* —— 兑换站：跟商城同一套米色底 / 黑按钮 / 白卡片 —— */
-.km-rx {
-  background-image: none;
-}
-
-.km-rx .km-header {
-  border-bottom: 1px solid var(--km-border);
-  background: color-mix(in oklab, var(--km-bg-elevated) 92%, transparent);
-  backdrop-filter: blur(16px);
-}
-
-.km-rx .km-brand-mark {
-  border-radius: 999px;
-  background: var(--km-fg);
-  color: var(--km-bg);
-}
-
-.km-rx-body {
-  display: grid;
-  gap: 1.15rem;
-  padding-bottom: 3rem;
-}
-
-.km-rx-hero {
-  display: grid;
-  gap: 0.4rem;
-  justify-items: center;
-  text-align: center;
-  padding: 1.7rem 0 0.15rem;
-}
-
-.km-rx-hero h1 {
-  margin: 0;
-  font-family: var(--font-sora), var(--km-font-display);
-  font-size: clamp(1.7rem, 3.8vw, 2.25rem);
-  font-weight: 680;
-  letter-spacing: -0.045em;
-  line-height: 1.12;
-}
-
-.km-rx-hero p,
-.km-rx .km-lead {
-  margin: 0;
-  max-width: 28rem;
-  font-size: 0.9rem;
-  line-height: 1.6;
-  color: var(--km-fg-muted);
-}
-
-.km-rx .km-page-hero {
-  padding-block: 1.7rem 0.15rem;
-}
-
-.km-rx .km-page-title {
-  font-size: clamp(1.7rem, 3.8vw, 2.25rem);
-}
-
-.km-rx .km-panel {
-  border-radius: 1.25rem;
-  box-shadow: none;
-  backdrop-filter: none;
-  background: var(--km-bg-elevated);
-  padding: 1.3rem 1.35rem;
-}
-
-.km-rx .km-input {
-  background: var(--km-bg);
-  border-radius: 0.9rem;
-}
-
-.km-rx .km-tabs {
-  gap: 0.4rem;
-}
-
-.km-rx .km-tab {
-  border: 1px solid var(--km-border);
-  background: var(--km-bg-elevated);
-  font-weight: 600;
-}
-
-.km-rx .km-tab:hover {
-  color: var(--km-fg);
-  border-color: var(--km-fg);
-  background: var(--km-bg-elevated);
-}
-
-.km-rx .km-tab-active {
-  background: var(--km-fg);
-  color: var(--km-bg);
-  border-color: var(--km-fg);
-}
-
-.km-rx .km-btn:not(.km-btn-ghost):not(.km-btn-danger) {
-  background: var(--km-fg);
-  color: var(--km-bg);
-  box-shadow: none;
-}
-
-.km-rx .km-btn:not(.km-btn-ghost):not(.km-btn-danger):hover {
-  transform: none;
-  box-shadow: none;
-  opacity: 0.88;
-}
-
-.km-rx .km-btn:disabled {
-  opacity: 0.28;
-  transform: none;
-  box-shadow: none;
-}
-
-.km-rx .km-btn-ghost {
-  background: var(--km-bg);
-  box-shadow: none;
-}
-
-.km-rx .km-btn-ghost:hover {
-  background: var(--km-bg-muted);
-}
-
-.km-rx .km-sf-query {
-  background: var(--km-bg-elevated);
-}
-
-.km-rx-codes {
-  min-height: 8.5rem;
-  margin-top: 0.65rem;
-  resize: vertical;
-  font-size: 0.88rem;
-  line-height: 1.55;
-}
-
-.km-rx-codes-go {
-  width: 100%;
-  margin-top: 0.65rem;
-  min-width: 0;
 }
 
 /* —— 后台提卡账本：成品号保留数设置条 —— */

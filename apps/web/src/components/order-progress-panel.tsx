@@ -111,11 +111,14 @@ export function OrderProgressPanel({
   const timeline = normalizeTimeline(row.timeline);
   // 卡台给了明细就用卡台的进度条；没给就退回本站那五步，售码单本来也走不到卡台。
   const hasUpstream = timeline.length > 0 || Boolean(upstreamStatus);
-  const coarseIdx = coarseStageIndex({
-    status: upstreamStatus,
-    stage: upstreamStage,
-    steps: timeline.map((item) => item.step),
-  });
+  // 本站已经判成功（卡台终态写法不止 completed 一种），四段就该全亮，别停在「受理」。
+  const coarseIdx = success
+    ? COARSE_STAGE_KEYS.length - 1
+    : coarseStageIndex({
+        status: upstreamStatus,
+        stage: upstreamStage,
+        steps: timeline.map((item) => item.step),
+      });
 
   return (
     <div className="space-y-4 rounded-[var(--km-radius)] border border-[var(--km-border)] bg-[var(--km-bg-muted)]/60 p-4">
@@ -150,7 +153,7 @@ export function OrderProgressPanel({
               {cardLastFour ? (
                 `•••• ${cardLastFour}`
               ) : (
-                <span className="text-[var(--km-fg-muted)]">开卡后显示尾号</span>
+                <span className="text-[var(--km-fg-muted)]">{terminal ? "—" : "开卡后显示尾号"}</span>
               )}
             </span>
           </div>

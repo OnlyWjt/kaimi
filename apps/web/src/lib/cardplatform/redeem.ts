@@ -21,6 +21,7 @@ import {
   parseCardplatformRequestId,
   requestIdForRedeem,
 } from "./status";
+import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
 
 export {
   mapCardplatformStatus,
@@ -97,7 +98,7 @@ export async function previewRedeemableCdk(
   redemptionToken: string;
 }> {
   const trimmed = code.trim();
-  if (!trimmed || trimmed.length < 6) {
+  if (!trimmed || trimmed.length < REDEEM_CODE_MIN_LENGTH) {
     throw new Error("请输入完整卡密");
   }
   const issued = await findIssuedCdkByCode(trimmed);

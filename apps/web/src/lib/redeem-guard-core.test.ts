@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   decideBlock,
   failureWeight,
+  isGuessOutcome,
+  createBatchGuessGuard,
   normalizeGuardEmail,
   retryAfterSeconds,
   sumFailureWeight,
@@ -21,8 +23,40 @@ describe("failureWeight", () => {
   it("预检失败算半次，猜码算一次，成功不算", () => {
     expect(failureWeight("preflight_failed")).toBe(0.5);
     expect(failureWeight("unknown_code")).toBe(1);
+    expect(failureWeight("disabled_code")).toBe(1);
     expect(failureWeight("ok")).toBe(0);
     expect(sumFailureWeight(["preflight_failed", "preflight_failed", "unknown_code"])).toBe(2);
+  });
+});
+
+describe("已使用的卡不算失败", () => {
+  it("不计入封禁权重，也不算批量里的猜码", () => {
+    expect(failureWeight("used_code")).toBe(0);
+    expect(sumFailureWeight(Array(30).fill("used_code"))).toBe(0);
+    expect(isGuessOutcome("used_code")).toBe(false);
+    expect(isGuessOutcome("unknown_code")).toBe(true);
+    expect(isGuessOutcome("disabled_code")).toBe(true);
+    expect(isGuessOutcome("preflight_failed")).toBe(false);
+  });
+});
+
+describe("createBatchGuessGuard 批量停批", () => {
+  it("已使用的卡再多也不停，猜码到 3 张就停", () => {
+    const guard = createBatchGuessGuard();
+    for (let i = 0; i < 10; i += 1) guard.reject("used_code");
+    expect(guard.stopped).toBe(false);
+    guard.reject("unknown_code");
+    guard.reject("used_code");
+    guard.reject("disabled_code");
+    expect(guard.stopped).toBe(false);
+    guard.reject("unknown_code");
+    expect(guard.stopped).toBe(true);
+  });
+
+  it("预检失败不算猜码", () => {
+    const guard = createBatchGuessGuard(1);
+    guard.reject("preflight_failed");
+    expect(guard.stopped).toBe(false);
   });
 });
 
