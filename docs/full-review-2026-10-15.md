@@ -44,15 +44,15 @@
 
 ### P2 架构
 
-10. **超大文件**：`lib/agent-draw.ts`（2237 行）、`components/agent-storefront.tsx`（2064 行）、`db/migrate-lib.ts`（1946 行）、`components/admin-agents.tsx`（1604 行）、`app/admin/page.tsx`（1400 行）、`app/globals.css`（3121 行）。`app/api/admin/route.ts` 还在用 `section=` 一个入口分发十几种功能。按上一份文档 P2-2 的思路逐个拆。 **部分处理（第二轮）：** `app/admin/page.tsx` 拆成外壳（311 行）+ 总览/订单/卡密/接入与通知/外观 5 个组件；`lib/agent-draw.ts` 拆出账单查询和导出（`agent-draw-bills.ts`）及公共小件（`agent-draw-shared.ts`）。其余几个大文件见下面「第二轮没做的」。
+10. ~~**超大文件**：`lib/agent-draw.ts`（2237 行）、`components/agent-storefront.tsx`（2064 行）、`db/migrate-lib.ts`（1946 行）、`components/admin-agents.tsx`（1604 行）、`app/admin/page.tsx`（1400 行）、`app/globals.css`（3121 行）。`app/api/admin/route.ts` 还在用 `section=` 一个入口分发十几种功能。按上一份文档 P2-2 的思路逐个拆。 **部分处理（第二轮）：** `app/admin/page.tsx` 拆成外壳（311 行）+ 总览/订单/卡密/接入与通知/外观 5 个组件；`lib/agent-draw.ts` 拆出账单查询和导出（`agent-draw-bills.ts`）及公共小件（`agent-draw-shared.ts`）。其余几个大文件见下面「第二轮没做的」。~~ **已处理（第四轮）：** 这一轮把 `lib/referrals.ts`（1480 → 约 900）和 `app/globals.css`（3121 → 967，另拆出订单页、店铺、后台零散三个样式文件）也拆了。现在超过 1400 行的只剩 `db/migrate-lib.ts`，按约定只放 DDL。
 11. ~~**迁移仍是每次启动全量跑**，靠吞 `duplicate column` 保幂等，一次性回填靠 `settings` 标记。建议加 `schema_migrations(version)`，新迁移按版本只跑一次。~~ **已处理（第二轮）：** 新增 `db/versioned-migrations.ts` + `schema_migrations` 表，一次性数据迁移按版本只跑一次、和版本记录同事务；`ensureSchema` 只留幂等 DDL（实测整份 20ms 左右，不值得拆）。
 12. ~~**进程内状态决定了只能单实例部署**：限流、登录锁定、开放 API 限流、`lastUsedWriteAt` 都在内存里，SQLite 也是本地文件。目前规模够用，但 README 的部署章节应该写明「只能跑一个副本」。~~ **已处理（第二轮）：** README 部署章节加「只能跑一个实例」。
-13. **预览设计稿（`/preview/*`、`admin-desk-rest-preview.tsx`、`admin-agent-desk-preview.tsx`、`agent-console-preview.tsx`，合计约 3500 行）**生产环境已 404，但仍跟着打包和类型检查。定稿后删掉或移出 `src`。
+13. ~~**预览设计稿（`/preview/*`、`admin-desk-rest-preview.tsx`、`admin-agent-desk-preview.tsx`、`agent-console-preview.tsx`，合计约 3500 行）**生产环境已 404，但仍跟着打包和类型检查。定稿后删掉或移出 `src`。~~ **已处理（第四轮）：** 过期的后台/代理台设计稿（/preview/admin、/preview/agent、/preview/plans 和 5 个组件，约 3700 行）删除；/preview/storefront 留着，它渲染的是真实店铺组件。
 
 ### P2 仓库卫生
 
 14. 根目录 `ref-*.png`、`shot*.png`、`.tmp-*`、`apps/web/kaimi.db`、`apps/web/kaimi-db-backup-*` 都已被 `.gitignore` 和 `.dockerignore` 排除，不会进提交和镜像，只是本地目录很乱，可以清理。
-15. 仓库里混有 CRLF 文件（提交时 git 提示转换），`.gitattributes` 已有，可以跑一次 `git add --renormalize .` 统一。
+15. ~~仓库里混有 CRLF 文件（提交时 git 提示转换），`.gitattributes` 已有，可以跑一次 `git add --renormalize .` 统一。~~ **已处理（第四轮）：** 核对过：仓库索引里的文本文件已经全是 LF，`.gitattributes` 也对。工作区的 CRLF 是本机 `core.autocrlf=true` 检出时转的，不进提交，不用处理。
 
 ---
 
@@ -80,4 +80,9 @@
 - 之前偶发的 vitest worker 退出：连跑 30 次全量测试没再复现，归为环境偶发。
 - 本地开发时 Turbopack 在 Windows 上偶尔起不来子进程（`0xc0000142`），表现为某个接口 500、重启 dev 服务就好；只影响本机开发，不是代码问题。
 
-仍然没做：`lib/referrals.ts`（1480）、`app/globals.css`（3121）、`db/migrate-lib.ts`（按约定只放 DDL）；第 13–15 条。
+
+## 六、第四轮
+
+- 第 10、13、15 条见上面划掉的说明。
+- 拆 CSS 前后各截了 32 张图（前台、后台 12 个分区、代理后台 6 页、手机宽 7 页）逐像素对比：31 张完全一致，代理「账本」页差 0.006%，同一份 CSS 连截两次也有这个差，是页面自身的抖动。
+- 第 14 条（根目录的参考截图、`.tmp-*` 脚本、`apps/web/kaimi.db` 等）都是本机未跟踪的文件，没替你删；确认没用后可以手动清掉。
