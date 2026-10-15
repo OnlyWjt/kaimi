@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { StatusBadge, progressLabel } from "@/components/admin-ui";
+import { toast } from "@/components/toast";
+import { copyText } from "@/lib/copy-text";
+import { formatDateTime } from "@/lib/datetime";
 import { adminStatusLabel } from "@/lib/status-labels";
 
 type Item = { id: number; preview: string };
@@ -20,6 +24,13 @@ type Detail = {
   message: string;
   items: Item[];
   redemptions: Redemption[];
+};
+
+const CHANNEL_LABEL: Record<string, string> = {
+  alipay: "支付宝",
+  wxpay: "微信支付",
+  wechat: "微信支付",
+  usdt: "USDT",
 };
 
 export function StoreOrderDetail({ orderNo }: { orderNo: string }) {
@@ -55,47 +66,91 @@ export function StoreOrderDetail({ orderNo }: { orderNo: string }) {
     });
     const data = await response.json();
     if (!response.ok) {
-      setError(data.error || "查看失败");
+      toast(data.error || "查看失败", "err");
       return;
     }
     setShown((current) => ({ ...current, [id]: String(data.code || "") }));
   }
 
-  if (error) return <p className="text-xs text-[var(--km-danger)]">{error}</p>;
-  if (!detail) return <p className="text-xs text-[var(--km-fg-muted)]">读取订单…</p>;
+  async function copy(value: string) {
+    try {
+      await copyText(value);
+      toast("已复制");
+    } catch {
+      toast("复制失败，请手动选择", "err");
+    }
+  }
+
+  if (error) return <div className="km-od km-od-note text-[var(--km-danger)]">{error}</div>;
+  if (!detail) return <div className="km-od km-od-note">读取订单…</div>;
   const finished = detail.productKind === "finished";
+  const facts: Array<[string, string]> = [
+    ["代理", detail.agent || "—"],
+    ["买家邮箱", detail.email || "—"],
+    ["商品", `${detail.plan} × ${detail.quantity}`],
+    ["金额", `¥${(detail.grossCents / 100).toFixed(2)}`],
+    ["支付", `${CHANNEL_LABEL[detail.channel] || detail.channel || "—"} · ${adminStatusLabel(detail.payStatus, "pay")}`],
+    ["发卡", progressLabel(finished ? "finished" : "store", detail.fulfillStatus)],
+    ["下单时间", formatDateTime(detail.createdAt)],
+  ];
+
   return (
-    <div className="space-y-3 bg-[var(--km-bg-muted)] px-3 py-3 text-xs">
-      <p>
-        {detail.agent || "—"} · {detail.email || "—"} · {detail.plan} × {detail.quantity} · ¥
-        {(detail.grossCents / 100).toFixed(2)} · {detail.channel || "—"} · {adminStatusLabel(detail.payStatus)}
-      </p>
-      {detail.message ? <p className="text-[var(--km-fg-muted)]">{detail.message}</p> : null}
-      <div>
-        <p className="mb-1 font-medium">{finished ? "交付内容" : "发出的卡密"}</p>
-        {detail.items.length === 0 ? <p className="text-[var(--km-fg-muted)]">还没有交付内容。</p> : null}
-        {detail.items.map((item) => (
-          <p key={item.id} className="font-mono">
-            {shown[item.id] || item.preview || "—"}
-            {shown[item.id] ? null : (
-              <button type="button" className="ml-2 text-[var(--km-fg-muted)] underline" onClick={() => void reveal(item.id)}>
-                查看
-              </button>
-            )}
-          </p>
+    <div className="km-od">
+      <dl className="km-od-facts">
+        {facts.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd title={value}>{value}</dd>
+          </div>
         ))}
+      </dl>
+      {detail.message ? <p className="km-od-message">{detail.message}</p> : null}
+      <div className={`km-od-grid${finished ? " is-single" : ""}`}>
+        <section className="km-od-block">
+          <h4>
+            {finished ? "交付内容" : "发出的卡密"}
+            <span>{detail.items.length}</span>
+          </h4>
+          {detail.items.length === 0 ? <p className="km-od-empty">还没有交付内容。</p> : null}
+          {detail.items.map((item) => {
+            const plain = shown[item.id];
+            return (
+              <div key={item.id} className="km-od-line">
+                <code>{plain || item.preview || "—"}</code>
+                {plain ? (
+                  <button type="button" className="km-od-act" onClick={() => void copy(plain)}>
+                    复制
+                  </button>
+                ) : (
+                  <button type="button" className="km-od-act" onClick={() => void reveal(item.id)}>
+                    查看
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </section>
+        {finished ? null : (
+          <section className="km-od-block">
+            <h4>
+              兑换记录
+              <span>{detail.redemptions.length}</span>
+            </h4>
+            {detail.redemptions.length === 0 ? <p className="km-od-empty">还没有人拿这张卡去兑换。</p> : null}
+            {detail.redemptions.map((row) => (
+              <div key={row.orderNo} className="km-od-line">
+                <div className="min-w-0">
+                  <code>{row.orderNo}</code>
+                  <p className="km-od-sub">
+                    {row.email || "—"} · {formatDateTime(row.createdAt)}
+                  </p>
+                </div>
+                <StatusBadge status={row.fulfillStatus} />
+              </div>
+            ))}
+          </section>
+        )}
       </div>
-      {finished ? null : (
-        <div>
-          <p className="mb-1 font-medium">兑换记录</p>
-          {detail.redemptions.length === 0 ? <p className="text-[var(--km-fg-muted)]">还没有人拿这张卡去兑换。</p> : null}
-          {detail.redemptions.map((row) => (
-            <p key={row.orderNo}>
-              {row.orderNo} · {row.email || "—"} · {adminStatusLabel(row.fulfillStatus)}
-            </p>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

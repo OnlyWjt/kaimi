@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { AdminDrawLookup } from "@/components/admin-draw-lookup";
 import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
 import { yuanTextFromCents, centsFromYuanText } from "@/lib/money";
@@ -386,6 +387,14 @@ export function AdminAgentDraw() {
         </div>
       </section>
 
+      <AdminDrawLookup
+        onOpenAgent={(id) => {
+          setView("ledger");
+          void openAgent(id);
+          document.getElementById("km-draw-views")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }}
+      />
+
       {/* 保留数是设置，不塞进统计卡：单独一行，输入框和按钮都有地方放 */}
       <section className="km-draw-reserve">
         <div>
@@ -400,7 +409,7 @@ export function AdminAgentDraw() {
             inputMode="numeric"
             aria-label="给商城保留的成品号数量"
             value={reserveDraft}
-            onChange={(event) => setReserveDraft(event.target.value.replace(/D/g, ""))}
+            onChange={(event) => setReserveDraft(event.target.value.replace(/\D/g, ""))}
           />
           <span className="text-sm text-[var(--km-fg-muted)]">个</span>
           <button
@@ -416,7 +425,7 @@ export function AdminAgentDraw() {
         </div>
       </section>
 
-      <div className="km-tabs">
+      <div id="km-draw-views" className="km-tabs scroll-mt-4">
         <button type="button" className={`km-tab ${view === "ledger" ? "km-tab-active" : ""}`} onClick={() => setView("ledger")}>
           未结算账本
         </button>

@@ -195,3 +195,135 @@
   font-size: 0.75rem;
   color: var(--km-fg-muted);
 }
+
+/* —— 提卡账本：按单号 / 卡密查提卡单 —— */
+.km-dlk {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.km-dlk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+}
+
+.km-dlk-input {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 1 26rem;
+}
+
+.km-dlk-input .km-input {
+  min-width: 0;
+  flex: 1;
+}
+
+.km-dlk-empty {
+  margin: 0;
+  color: var(--km-fg-muted);
+  font-size: 0.8rem;
+}
+
+.km-dlk-order {
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--km-border);
+  border-radius: 1rem;
+  background: color-mix(in oklab, var(--km-bg-muted) 55%, var(--km-bg-elevated));
+}
+
+.km-dlk-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.km-dlk-no {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.km-dlk-items {
+  margin-top: 0.85rem;
+  padding: 0.2rem 0.9rem;
+  border-radius: 0.75rem;
+  background: var(--km-bg-elevated);
+}
+
+.km-dlk-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5.5rem 6.5rem auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0;
+  border-top: 1px solid var(--km-border);
+  font-size: 0.8rem;
+}
+
+.km-dlk-item:first-child {
+  border-top: 0;
+}
+
+.km-dlk-item code {
+  overflow: hidden;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.km-dlk-item.is-hit code {
+  font-weight: 700;
+}
+
+.km-dlk-item.is-hit code::after {
+  content: "命中";
+  margin-left: 0.4rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--km-accent) 14%, transparent);
+  font-family: inherit;
+  font-size: 0.65rem;
+  font-weight: 600;
+}
+
+.km-dlk-cell {
+  color: var(--km-fg-muted);
+  white-space: nowrap;
+}
+
+.km-dlk-item .km-badge {
+  justify-self: end;
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .km-dlk-input {
+    flex-basis: 100%;
+  }
+
+  .km-dlk-order {
+    padding: 0.85rem;
+  }
+
+  .km-dlk-item {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.3rem;
+  }
+
+  .km-dlk-item .km-badge {
+    justify-self: start;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .km-dlk-cell {
+    display: none;
+  }
+}

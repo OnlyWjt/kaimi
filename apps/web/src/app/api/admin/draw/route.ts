@@ -24,6 +24,7 @@ import {
   updateFinishedReserve,
   voidDrawItem,
 } from "@/lib/agent-draw";
+import { lookupDrawOrders } from "@/lib/agent-draw-lookup";
 import { bootDb } from "@/lib/config";
 import { normalizePage, normalizePageSize } from "@/lib/pagination-core";
 
@@ -41,6 +42,11 @@ export async function GET(req: Request) {
   if (session instanceof Response) return session;
   await bootDb();
   const params = new URL(req.url).searchParams;
+  // 按提卡单号 / 卡密直接找单，不用先选代理、也不管结没结算
+  const lookup = params.get("lookup");
+  if (lookup !== null) {
+    return NextResponse.json({ orders: await lookupDrawOrders(lookup) });
+  }
   const agentId = Number(params.get("agentId") || 0);
   const billId = Number(params.get("billId") || 0);
   const itemPage = normalizePage(params.get("itemPage"));

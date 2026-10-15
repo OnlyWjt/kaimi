@@ -304,3 +304,80 @@ describe("提成品号", () => {
     expect(items).toHaveLength(1);
   });
 });
+
+describe("超管按单号 / 卡密查提卡单", () => {
+  it("单号整串、只粘一段、成品号邮箱都能查到；结算去向分得清", async () => {
+    await clearStock();
+    const [a, b] = await seedAccounts(2);
+    const agentId = await seedAgent({ allowFinished: true });
+    const result = await m.draw.createDrawOrder(agentId, {
+      requestId: "req-lookup-1",
+      planKey: "finished_gpt",
+      quantity: 2,
+    });
+    const { lookupDrawOrders } = await import("./agent-draw-lookup");
+
+    const [byNo] = await lookupDrawOrders(result.drawNo);
+    expect(byNo).toMatchObject({ drawNo: result.drawNo, agentId, quantity: 2, issuedCount: 2, status: "delivered" });
+    expect(byNo.items).toHaveLength(2);
+    expect(byNo.items.every((item) => item.status === "unsettled" && !item.settleRef && !item.matched)).toBe(true);
+
+    const partial = await lookupDrawOrders(result.drawNo.slice(-8).toLowerCase());
+    expect(partial.map((order) => order.drawNo)).toContain(result.drawNo);
+
+    const [byEmail] = await lookupDrawOrders(a.email.toUpperCase());
+    expect(byEmail.drawNo).toBe(result.drawNo);
+    expect(byEmail.items.filter((item) => item.matched)).toHaveLength(1);
+
+    // 一张走旧结算单，一张在没结清的对账批次里
+    const { db, schema, orm } = m;
+    const items = await db.query.agentDrawItems.findMany({
+      where: orm.eq(schema.agentDrawItems.agentId, agentId),
+      orderBy: schema.agentDrawItems.id,
+    });
+    const now = new Date().toISOString();
+    const [bill] = await db
+      .insert(schema.agentDrawBills)
+      .values({ billNo: "DB-LOOKUP-1", agentId, itemCount: 1, amountCents: 3500, firstItemAt: now, lastItemAt: now, createdBy: 1 })
+      .returning();
+    await db
+      .update(schema.agentDrawItems)
+      .set({ status: "settled", billId: bill.id, settledAt: now })
+      .where(orm.eq(schema.agentDrawItems.id, items[0].id));
+    const [batch] = await db
+      .insert(schema.agentReconciliationBatches)
+      .values({
+        batchNo: "RB-LOOKUP-1",
+        agentId,
+        cutoffAt: now,
+        storeEarningCents: 0,
+        adjustmentCents: 0,
+        drawDebtCents: 3500,
+        netCents: -3500,
+        direction: "agent_pays",
+        status: "pending_payment",
+        snapshotHash: "x",
+        createdBy: 1,
+      })
+      .returning();
+    await db.insert(schema.agentReconciliationClaims).values({
+      sourceType: "draw_item",
+      sourceId: items[1].id,
+      batchId: batch.id,
+      claimState: "active",
+    });
+
+    const [after] = await lookupDrawOrders(result.drawNo);
+    expect(after.items.map((item) => [item.status, item.settleRef, item.settlePending])).toEqual([
+      ["settled", "DB-LOOKUP-1", false],
+      ["unsettled", "RB-LOOKUP-1", true],
+    ]);
+    void b;
+  });
+
+  it("太短或查不到返回空", async () => {
+    const { lookupDrawOrders } = await import("./agent-draw-lookup");
+    expect(await lookupDrawOrders("DR")).toEqual([]);
+    expect(await lookupDrawOrders("ZC-NOPE-NOPE-0000")).toEqual([]);
+  });
+});
