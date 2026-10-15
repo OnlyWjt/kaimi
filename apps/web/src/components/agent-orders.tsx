@@ -114,7 +114,8 @@ export function AgentOrders() {
         </div>
       </header>
       {error ? <p className="text-sm text-[var(--km-danger)]">{error}</p> : null}
-      <section className="km-panel space-y-4">
+      <section className="km-panel space-y-3">
+        <div className="km-acp-order-bar">
         <div className="km-acp-chips">
           {VIEWS.map((item) => (
             <button
@@ -131,9 +132,9 @@ export function AgentOrders() {
             </button>
           ))}
         </div>
-        <form className="flex flex-wrap items-center gap-2" onSubmit={search}>
+        <form className="km-acp-order-search" onSubmit={search}>
           <input
-            className="km-input max-w-xs"
+            className="km-input"
             value={q}
             onChange={(event) => setQ(event.target.value)}
             placeholder="订单号或买家邮箱"
@@ -155,17 +156,17 @@ export function AgentOrders() {
             </button>
           ) : null}
         </form>
-        <div className="overflow-x-auto">
-          <table className="km-acp-orders">
+        </div>
+        <div className="km-acp-order-wrap">
+          <table className="km-acp-orders km-acp-order-table">
             <thead>
               <tr>
-                <th>订单</th>
-                <th>商品</th>
-                <th>买家邮箱</th>
+                <th>商品 / 买家</th>
+                <th>订单号</th>
                 <th className="num">实付</th>
                 <th className="num">收益</th>
                 <th>状态</th>
-                <th className="act" aria-label="操作" />
+                <th className="act">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -175,22 +176,26 @@ export function AgentOrders() {
                 const earned = EARNING_PAY_STATUSES.has(order.payStatus);
                 return (
                   <tr key={order.orderNo} className={settled ? "is-muted" : undefined}>
-                    <td>
+                    <td className="c-prod">
+                      <span className="product">
+                        {order.productName}
+                        {order.quantity > 1 ? <span className="qty">×{order.quantity}</span> : null}
+                      </span>
+                      <span className="email" title={order.customerEmail}>
+                        {order.customerEmail || "—"}
+                      </span>
+                    </td>
+                    <td className="c-order">
                       <span className="no">{order.orderNo}</span>
                       <span className="sub">{formatDateTime(order.createdAt)}</span>
                     </td>
-                    <td className="product">
-                      {order.productName}
-                      {order.quantity > 1 ? <span className="qty">×{order.quantity}</span> : null}
+                    <td className="num c-pay" data-label="实付">
+                      ¥{yuanTextFromCents(order.amountCents)}
                     </td>
-                    <td className="email" title={order.customerEmail}>
-                      {order.customerEmail || "—"}
-                    </td>
-                    <td className="num">¥{yuanTextFromCents(order.amountCents)}</td>
-                    <td className={`num${earned && order.earningCents > 0 ? " earn" : ""}`}>
+                    <td className={`num c-earn${earned && order.earningCents > 0 ? " earn" : ""}`} data-label="收益">
                       {earned && order.earningCents ? `¥${yuanTextFromCents(order.earningCents)}` : "—"}
                     </td>
-                    <td>
+                    <td className="c-status">
                       <span className={`km-acp-status${TONE_CLASS[order.statusTone]}`} title={order.statusHint}>
                         {order.statusLabel}
                       </span>
@@ -198,18 +203,19 @@ export function AgentOrders() {
                         <span className="hint">{order.statusHint}</span>
                       ) : null}
                     </td>
-                    <td className="act">
+                    <td className="act c-act">
                       {order.queryUrl ? (
                         <button
                           type="button"
                           className="km-acp-link"
+                          title="复制查单链接，发给买家"
                           onClick={() =>
                             void navigator.clipboard
                               .writeText(order.queryUrl)
                               .then(() => toast("查单链接已复制，发给买家即可"))
                           }
                         >
-                          复制查单链接
+                          复制链接
                         </button>
                       ) : null}
                       {order.canResendMail ? (

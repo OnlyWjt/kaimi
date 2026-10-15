@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
 import { DrawCodePeek } from "@/components/draw-code-peek";
 import { KmSelect } from "@/components/km-select";
@@ -133,6 +134,7 @@ function stamp(iso: string) {
 }
 
 export function AgentDraw() {
+  const { ask, dialog } = useAskDialog();
   const [state, setState] = useState<DrawState | null>(null);
   const [contact, setContact] = useState("");
   const [note, setNote] = useState("");
@@ -212,15 +214,14 @@ export function AgentDraw() {
     const plan = state?.plans?.find((item) => item.planKey === planKey);
     if (!plan) return;
     const finished = plan.fulfillmentKind === LOCAL_ACCOUNT;
-    if (
-      !window.confirm(
-        `确认提 ${plan.name} × ${quantity}，合计 ¥${yuanTextFromCents(plan.unitPriceCents * quantity)}？提了就计入未结算。${
-          finished ? "账号交出后不能退回库存。" : ""
-        }`,
-      )
-    ) {
-      return;
-    }
+    const total = yuanTextFromCents(plan.unitPriceCents * quantity);
+    const answer = await ask({
+      title: "确认提卡",
+      message: `${plan.name} × ${quantity}，合计 ¥${total}。
+提了就计入未结算${finished ? "，账号交出后不能退回库存" : ""}。`,
+      confirmLabel: `提 ${quantity} ${finished ? "个" : "张"}`,
+    });
+    if (!answer) return;
     setBusy(true);
     try {
       if (!requestId.current) requestId.current = crypto.randomUUID();
@@ -369,6 +370,7 @@ export function AgentDraw() {
 
   return (
     <div className="space-y-4">
+      {dialog}
       <section className="km-panel space-y-3">
         <h1 className="text-xl font-semibold">自助提卡</h1>
         {state.status === "suspended" ? (
