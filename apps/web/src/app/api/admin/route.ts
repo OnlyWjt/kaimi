@@ -289,8 +289,7 @@ export async function GET(req: Request) {
     const list = await db.query.storefronts.findMany();
     const siteTheme = await getSetting("site_theme", "snow");
     const siteName = await getSetting("site_name", "Kaimi");
-    const shopEnabled = (await getSetting("shop_enabled", "0")) === "1";
-    return NextResponse.json({ list, siteTheme, siteName, shopEnabled });
+    return NextResponse.json({ list, siteTheme, siteName });
   }
 
   if (section === "agent_portal") {
@@ -596,9 +595,6 @@ export async function POST(req: Request) {
       }
       if (body.siteName !== undefined && body.siteName !== null) {
         await setSetting("site_name", String(body.siteName));
-      }
-      if (body.shopEnabled !== undefined) {
-        await setSetting("shop_enabled", body.shopEnabled ? "1" : "0");
       }
     }
 

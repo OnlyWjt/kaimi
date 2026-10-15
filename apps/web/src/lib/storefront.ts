@@ -3,13 +3,11 @@ import { eq } from "drizzle-orm";
 import { isThemeId, type ThemeId } from "@kaimi/themes";
 import { db } from "@/db";
 import { storefronts } from "@/db/schema";
-import { getSetting, getSettings } from "@/lib/config";
+import { getSettings } from "@/lib/config";
 
 export type SiteAppearance = {
   siteName: string;
   themeId: ThemeId;
-  /** Internal /shop 发卡网开关，默认关闭。 */
-  shopEnabled: boolean;
 };
 
 export function resolveThemeId(value?: string | null): ThemeId {
@@ -19,17 +17,12 @@ export function resolveThemeId(value?: string | null): ThemeId {
 /** Site-wide brand + theme from admin 外观 (controls public pages). */
 export const getSiteAppearance = cache(async (): Promise<SiteAppearance> => {
   // 布局和 generateMetadata 各会走一次，同一次请求只读库一遍。
-  const values = await getSettings(["site_name", "site_theme", "shop_enabled"]);
+  const values = await getSettings(["site_name", "site_theme"]);
   return {
     siteName: (values.get("site_name") || "Kaimi").trim() || "Kaimi",
     themeId: resolveThemeId(values.get("site_theme")),
-    shopEnabled: values.get("shop_enabled") === "1",
   };
 });
-
-export async function isShopEnabled() {
-  return (await getSetting("shop_enabled", "0")) === "1";
-}
 
 export async function getStorefront(kind: "shop" | "recharge") {
   // getSiteAppearance 内部已经 bootDb 过了。

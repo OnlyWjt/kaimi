@@ -1,14 +1,6 @@
-import { SiteFooter, SiteHeader } from "@/components/site-header";
-import { ShopQueryForm } from "@/components/shop-query-form";
-import { getSiteAppearance } from "@/lib/storefront";
+import { redirect } from "next/navigation";
 
-export default async function ShopQueryPage() {
-  const { siteName, themeId } = await getSiteAppearance();
-  return (
-    <main data-theme={themeId} className="min-h-screen">
-      <SiteHeader siteName={siteName} />
-      <ShopQueryForm />
-      <SiteFooter />
-    </main>
-  );
+// 旧的售码订单查询页，和「订单进度」重复，统一走 /lookup。
+export default function ShopQueryPage() {
+  redirect("/lookup");
 }

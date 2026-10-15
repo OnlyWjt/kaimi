@@ -23,7 +23,7 @@ async function siteAppearanceOrFallback() {
     return await getSiteAppearance();
   } catch (error) {
     console.warn("[layout] 读站点外观失败，先用默认主题", error);
-    return { siteName: "Kaimi", themeId: "snow" as const, shopEnabled: false };
+    return { siteName: "Kaimi", themeId: "snow" as const };
   }
 }
 

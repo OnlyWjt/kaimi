@@ -1,9 +1,10 @@
 import { and, desc, eq, inArray, isNull, like, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { agents, cdkPool, issuedCdks, orders, storeOrders, users } from "@/db/schema";
+import { agents, issuedCdks, orders, storeOrders, users } from "@/db/schema";
 import { agentIdentityLabel } from "@/lib/agent-identity-core";
 import { decryptSecret, hashLookupValue, maskCode } from "@/lib/crypto";
 import { FINISHED_GPT_PLAN_KEY } from "@/lib/finished-account-core";
+import { poolCodesByOrderIds } from "@/lib/inventory";
 
 export type AdminOrderListRow = {
   id: number;
@@ -255,12 +256,7 @@ async function decorateAdminOrders(list: Array<typeof orders.$inferSelect>) {
         .leftJoin(users, eq(users.agentId, agents.id))
         .where(inArray(agents.id, agentIds))
     : [];
-  const poolRows = list.length
-    ? await db
-        .select({ orderId: cdkPool.orderId, code: cdkPool.code })
-        .from(cdkPool)
-        .where(inArray(cdkPool.orderId, list.map((row) => row.id)))
-    : [];
+  const poolRows = await poolCodesByOrderIds(list.map((row) => row.id));
   const codeByIssued = new Map<number, string>();
   for (const row of issuedRows) {
     try {

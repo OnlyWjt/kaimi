@@ -198,7 +198,6 @@ export default function AdminPage() {
   const [storefronts, setStorefronts] = useState<Array<Record<string, unknown>>>([]);
   const [siteTheme, setSiteTheme] = useState("snow");
   const [siteName, setSiteName] = useState("Kaimi");
-  const [shopEnabled, setShopEnabled] = useState(false);
   const [revealed, setRevealed] = useState<Record<number, string>>({});
   const [msg, setMsg] = useState("");
   const [loginForm, setLoginForm] = useState({ username: "admin", password: "" });
@@ -322,7 +321,6 @@ export default function AdminPage() {
         setStorefronts(data?.list || []);
         setSiteTheme(data?.siteTheme || "snow");
         setSiteName(data?.siteName || "Kaimi");
-        setShopEnabled(Boolean(data?.shopEnabled));
       }
     })();
     // order/cdk filters are applied via explicit 筛选 buttons
@@ -475,13 +473,11 @@ export default function AdminPage() {
       action: "save_appearance",
       siteTheme,
       siteName,
-      shopEnabled,
     });
     const data = await loadSection("appearance");
     setStorefronts(data?.list || []);
     setSiteTheme(data?.siteTheme || siteTheme);
     setSiteName(data?.siteName || siteName);
-    setShopEnabled(Boolean(data?.shopEnabled));
     toast("整站外观已保存");
   }
 
@@ -1302,11 +1298,7 @@ export default function AdminPage() {
                   />
                 </label>
               </div>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={shopEnabled} onChange={(e) => setShopEnabled(e.target.checked)} />
-                  <span>开启内部发卡页（仅调试）</span>
-                </label>
+              <div className="flex flex-wrap items-center justify-end gap-3">
                 <button className="km-btn" onClick={() => void saveAppearance()}>
                   保存整站设置
                 </button>
