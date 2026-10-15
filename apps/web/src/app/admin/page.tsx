@@ -1,32 +1,27 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AdminAgents } from "@/components/admin-agents";
 import { AdminApiKeys } from "@/components/admin-api-keys";
+import { ADMIN_UNAUTHORIZED_EVENT } from "@/components/admin-api";
 import { AdminRedeemGuard } from "@/components/admin-redeem-guard";
 import { AdminAnnouncements } from "@/components/admin-announcements";
-import { useAskDialog } from "@/components/ask-dialog";
+import { AdminCdks } from "@/components/admin-cdks";
 import { AdminGuide } from "@/components/admin-guide";
-import { AdminOrderTimeline } from "@/components/admin-order-timeline";
-import { StoreOrderDetail } from "@/components/store-order-detail";
-import { CardIntegration } from "@/components/card-integration";
+import { AdminOrders, type AdminOrderKind } from "@/components/admin-orders";
+import { AdminOverview } from "@/components/admin-overview";
+import { AdminAppearance, AdminIntegration, AdminNotify } from "@/components/admin-site-settings";
 import { CardSelectionConfig } from "@/components/card-selection-config";
 import { AdminEarningsStats } from "@/components/admin-earnings-stats";
 import { AdminAgentDraw } from "@/components/admin-agent-draw";
 import { AdminReferral } from "@/components/admin-referral";
-import { KmSelect } from "@/components/km-select";
 import { AdminUsageStats } from "@/components/admin-usage-stats";
 import { AdminWeeklyEarnings } from "@/components/admin-weekly-earnings";
 import { AdminReconciliation } from "@/components/admin-reconciliation";
-import { AdminMailSettings, AdminTelegramBindings } from "@/components/admin-mail-settings";
-import { AdminStoreOrders } from "@/components/admin-store-orders";
 import { CommerceAdmin } from "@/components/commerce-admin";
 import { FinishedAccountsAdmin } from "@/components/finished-accounts-admin";
 import { toast } from "@/components/toast";
-import { copyText } from "@/lib/copy-text";
-import { parseDbDate } from "@/lib/datetime";
-import { THEME_CHOICES } from "@/lib/themes";
 
 type Tab =
   | "overview"
@@ -50,220 +45,89 @@ type Tab =
   | "appearance"
   | "guide";
 
-type Overview = {
-  setupCompleted: boolean;
-  paymentMode: string;
-  hasCardplatform?: boolean;
-  cardplatformSiteBase?: string;
-  unusedStock: number;
-  lockedCount?: number;
-  inflightCount?: number;
-  stock: Record<string, number>;
-  salesOpen?: boolean;
-  salesClosedReason?: string;
-  todayPaidCount?: number;
-  todayPaidCents?: number;
-  attentionCount?: number;
-  recentStoreOrders?: Array<{
-    orderNo: string;
-    productName: string;
-    grossCents: number;
-    payStatus: string;
-    fulfillStatus: string;
-    createdAt: string;
-    agentName: string;
-  }>;
-};
-
-type Integration = {
-  publicBaseUrl: string;
-  /** 卡台 Webhook 要填的地址前缀：配了支付回调地址就是它，否则同公网地址。 */
-  callbackBaseUrl?: string;
-  paymentMode: string;
-  hasCardplatform?: boolean;
-  cardplatformSiteBase?: string;
-  notifyWebhookUrl?: string;
-  telegramBotTokenHint?: string;
-  telegramBotTokenConfigured?: boolean;
-  telegramChatId?: string;
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  unused: "未使用",
-  locked: "占用中",
-  sold: "已售出",
-  used: "已核销",
-  disabled: "已禁用",
-  pending: "排队中",
-  processing: "处理中",
-  success: "成功",
-  failed: "失败",
-  unknown: "未知",
-  fulfilled: "已完成",
-  paid: "已支付",
-  unpaid: "未支付",
-  refunded: "已退款",
-  refunding: "退款中",
-  pending_pay: "待支付",
-  delivered: "已发卡",
-  partially_delivered: "部分发卡",
-  paid_undelivered: "已付未发",
-  issuing: "发卡中",
-  expired: "已过期",
-  cancelled: "已取消",
-  manual: "免支付",
-  skipped: "已跳过",
-  closed: "已关闭",
-  chargeback: "已拒付",
-};
-
-const KIND_LABEL: Record<string, string> = {
-  recharge: "兑换",
-  shop: "发卡",
-  code: "发卡",
-  purchase: "进货",
-};
-
 /** 「订单」页直接停在店铺订单那一栏。 */
 const STORE_ORDERS_HASH = "store-orders";
 
-const HASH_TABS: Tab[] = [
-  "overview",
-  "orders",
-  "cdks",
-  "integration",
-  "notify",
-  "selection",
-  "commerce",
-  "finished",
-  "agents",
-  "guard",
-  "apikeys",
-  "announcements",
-  "draw",
-  "referral",
-  "earnings",
-  "week",
-  "reconcile",
-  "usage",
-  "appearance",
-  "guide",
+const GROUPS: ReadonlyArray<{ id: string; name: string; items: ReadonlyArray<readonly [Tab, string]> }> = [
+  {
+    id: "daily",
+    name: "日常",
+    items: [
+      ["overview", "总览"],
+      ["orders", "订单"],
+      ["cdks", "卡密"],
+      ["usage", "用量"],
+    ],
+  },
+  {
+    id: "sell",
+    name: "卖卡",
+    items: [
+      ["commerce", "售卖设置"],
+      ["finished", "成品号"],
+      ["selection", "选卡配置"],
+    ],
+  },
+  {
+    id: "agent",
+    name: "代理",
+    items: [
+      ["agents", "代理管理"],
+      ["draw", "提卡账本"],
+      ["referral", "邀请返券"],
+      ["reconcile", "对账"],
+      ["week", "历史周结"],
+      ["earnings", "收益统计"],
+    ],
+  },
+  {
+    id: "system",
+    name: "系统",
+    items: [
+      ["integration", "接入卡台"],
+      ["notify", "通知"],
+      ["guard", "兑换拦截"],
+      ["apikeys", "开放 API"],
+      ["announcements", "公告"],
+      ["appearance", "外观"],
+      ["guide", "使用说明"],
+    ],
+  },
 ];
+
+const ALL_TABS = new Set<string>(GROUPS.flatMap((group) => group.items.map(([id]) => id)));
 
 function tabFromHash(hash: string): Tab | null {
   if (hash === "card-selection") return "selection";
   if (hash === STORE_ORDERS_HASH) return "orders";
-  return HASH_TABS.includes(hash as Tab) ? (hash as Tab) : null;
-}
-
-function kindLabel(kind: unknown) {
-  const key = String(kind || "");
-  if (key === "finished") return "成品号";
-  if (key === "cdk") return "卡密";
-  return KIND_LABEL[key] || key || "—";
-}
-
-function progressLabel(kind: unknown, status: string) {
-  if (kind === "finished") {
-    if (status === "issuing") return "交付中";
-    if (status === "delivered") return "已交付";
-    if (status === "partially_delivered") return "部分交付";
-    if (status === "paid_undelivered") return "待交付";
-    if (status === "pending" || status === "unpaid" || status === "pending_pay") return "待支付";
-  }
-  return STATUS_LABEL[status] || status || "—";
-}
-
-function formatWhen(value: unknown) {
-  const raw = String(value || "");
-  if (!raw) return "—";
-  const d = parseDbDate(raw);
-  if (!d) return raw;
-  return d.toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  return ALL_TABS.has(hash) ? (hash as Tab) : null;
 }
 
 export default function AdminPage() {
   const [boot, setBoot] = useState<{ admin: { username: string } | null } | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
-  const [overview, setOverview] = useState<Overview | null>(null);
-  const [orders, setOrders] = useState<Array<Record<string, unknown>>>([]);
-  const [cdks, setCdks] = useState<Array<Record<string, unknown>>>([]);
-  const [integration, setIntegration] = useState<Integration | null>(null);
-  const [storefronts, setStorefronts] = useState<Array<Record<string, unknown>>>([]);
-  const [siteTheme, setSiteTheme] = useState("snow");
-  const [siteName, setSiteName] = useState("Kaimi");
-  const [revealed, setRevealed] = useState<Record<number, string>>({});
-  const [msg, setMsg] = useState("");
+  const [orderKind, setOrderKind] = useState<AdminOrderKind>("");
   const [loginForm, setLoginForm] = useState({ username: "admin", password: "" });
-  const [orderQ, setOrderQ] = useState("");
-  const [orderStatus, setOrderStatus] = useState("");
-  const [includeHidden, setIncludeHidden] = useState(false);
-  const [orderNextCursor, setOrderNextCursor] = useState("");
-  const [orderKind, setOrderKind] = useState<"" | "store" | "redeem">("");
-  const [cdkQ, setCdkQ] = useState("");
-  const [cdkStatus, setCdkStatus] = useState("");
-  const [cdkPage, setCdkPage] = useState(1);
-  const [cdkPageSize] = useState(20);
-  const [cdkTotal, setCdkTotal] = useState(0);
-  const { ask, dialog } = useAskDialog();
-  const [copiedId, setCopiedId] = useState<number | null>(null);
-  /** 展开中的订单号，卡台明细和原始报文只在展开的那一行里加载。 */
-  const [timelineOrderNo, setTimelineOrderNo] = useState("");
-  const [integForm, setIntegForm] = useState({
-    publicBaseUrl: "",
-    notifyWebhookUrl: "",
-    telegramBotToken: "",
-    telegramChatId: "",
-  });
-  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
 
   function goTab(next: Tab) {
     setTab(next);
-    if (typeof window !== "undefined") {
-      window.history.replaceState(null, "", `#${next}`);
-    }
+    window.history.replaceState(null, "", `#${next}`);
+  }
+
+  function changeOrderKind(next: AdminOrderKind) {
+    setOrderKind(next);
+    window.history.replaceState(null, "", next === "store" ? `#${STORE_ORDERS_HASH}` : "#orders");
   }
 
   function goStoreOrders() {
-    setOrderKind("store");
     setTab("orders");
-    window.history.replaceState(null, "", `#${STORE_ORDERS_HASH}`);
-  }
-
-  function orderQuery(kind: "" | "store" | "redeem") {
-    const qs = new URLSearchParams();
-    if (orderQ) qs.set("q", orderQ);
-    if (orderStatus) qs.set("status", orderStatus);
-    if (includeHidden) qs.set("include_hidden", "1");
-    if (kind) qs.set("kind", kind);
-    return qs;
-  }
-
-  async function reloadOrders(kind = orderKind) {
-    const data = await loadSection("orders", `&${orderQuery(kind)}`);
-    setOrders(data?.list || []);
-    setOrderNextCursor(data?.page?.next_cursor || "");
+    changeOrderKind("store");
   }
 
   async function refreshBoot() {
     const res = await fetch("/api/setup");
     setBoot(await res.json());
-  }
-
-  async function loadSection(section: string, extra = "") {
-    const path = section === "orders" ? "/api/admin/orders" : `/api/admin?section=${section}`;
-    const res = await fetch(`${path}${section === "orders" ? `?${extra.replace(/^&/, "")}` : extra}`);
-    if (res.status === 401) {
-      setBoot((b) => (b ? { ...b, admin: null } : b));
-      return null;
-    }
-    return res.json();
   }
 
   useEffect(() => {
@@ -275,109 +139,22 @@ export default function AdminPage() {
       if (hash === STORE_ORDERS_HASH) setOrderKind("store");
       if (next) setTab(next);
     }
+    function onUnauthorized() {
+      setBoot((current) => (current ? { ...current, admin: null } : current));
+    }
     applyLocation();
     window.addEventListener("hashchange", applyLocation);
-    return () => window.removeEventListener("hashchange", applyLocation);
+    window.addEventListener(ADMIN_UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => {
+      window.removeEventListener("hashchange", applyLocation);
+      window.removeEventListener(ADMIN_UNAUTHORIZED_EVENT, onUnauthorized);
+    };
   }, []);
 
-  useEffect(() => {
-    if (!boot?.admin) return;
-    void (async () => {
-      setMsg("");
-      if (tab === "overview") setOverview(await loadSection("overview"));
-      if (tab === "orders" && orderKind !== "store") {
-        const qs = new URLSearchParams();
-        if (orderQ) qs.set("q", orderQ);
-        if (orderStatus) qs.set("status", orderStatus);
-        if (includeHidden) qs.set("include_hidden", "1");
-        const data = await loadSection("orders", `&${qs}`);
-        setOrders(data?.list || []);
-        setOrderNextCursor(data?.page?.next_cursor || "");
-      }
-      if (tab === "cdks") {
-        const qs = new URLSearchParams();
-        if (cdkQ) qs.set("q", cdkQ);
-        if (cdkStatus) qs.set("status", cdkStatus);
-        qs.set("page", String(cdkPage));
-        qs.set("page_size", String(cdkPageSize));
-        const data = await loadSection("stock", `&${qs}`);
-        setCdks(data?.list || []);
-        setCdkTotal(Number(data?.total) || 0);
-      }
-      if (tab === "integration" || tab === "notify") {
-        const data = (await loadSection("integration")) as Integration | null;
-        setIntegration(data);
-        if (data) {
-          setIntegForm({
-            publicBaseUrl: data.publicBaseUrl || "",
-            notifyWebhookUrl: data.notifyWebhookUrl || "",
-            telegramBotToken: "",
-            telegramChatId: data.telegramChatId || "",
-          });
-        }
-      }
-      if (tab === "appearance") {
-        const data = await loadSection("appearance");
-        setStorefronts(data?.list || []);
-        setSiteTheme(data?.siteTheme || "snow");
-        setSiteName(data?.siteName || "Kaimi");
-      }
-    })();
-    // order/cdk filters are applied via explicit 筛选 buttons
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boot?.admin, tab, cdkPage]);
-
-  const groups = useMemo(
-    () =>
-      [
-        {
-          id: "daily",
-          name: "日常",
-          items: [
-            ["overview", "总览"],
-            ["orders", "订单"],
-            ["cdks", "卡密"],
-            ["usage", "用量"],
-          ],
-        },
-        {
-          id: "sell",
-          name: "卖卡",
-          items: [
-            ["commerce", "售卖设置"],
-            ["finished", "成品号"],
-            ["selection", "选卡配置"],
-          ],
-        },
-        {
-          id: "agent",
-          name: "代理",
-          items: [
-            ["agents", "代理管理"],
-            ["draw", "提卡账本"],
-            ["referral", "邀请返券"],
-            ["reconcile", "对账"],
-            ["week", "历史周结"],
-            ["earnings", "收益统计"],
-          ],
-        },
-        {
-          id: "system",
-          name: "系统",
-          items: [
-            ["integration", "接入卡台"],
-            ["notify", "通知"],
-            ["guard", "兑换拦截"],
-            ["apikeys", "开放 API"],
-            ["announcements", "公告"],
-            ["appearance", "外观"],
-            ["guide", "使用说明"],
-          ],
-        },
-      ] as const,
-    [],
+  const activeGroup = useMemo(
+    () => GROUPS.find((group) => group.items.some(([id]) => id === tab)) || GROUPS[0],
+    [tab],
   );
-  const activeGroup = groups.find((group) => group.items.some((item) => item[0] === tab)) || groups[0];
 
   async function login() {
     setMsg("");
@@ -402,90 +179,6 @@ export default function AdminPage() {
       body: JSON.stringify({ action: "logout" }),
     });
     await refreshBoot();
-  }
-
-  async function postAction(payload: Record<string, unknown>) {
-    setBusy(true);
-    try {
-      const res = await fetch("/api/admin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!res.ok || data.ok === false) {
-        toast(data.error || data.message || "操作失败", "err");
-        return data;
-      }
-      toast(data.message || "已完成");
-      return data;
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function saveIntegration() {
-    await postAction({ action: "save_integration", ...integForm });
-    setIntegration(await loadSection("integration"));
-  }
-
-  async function testNotify() {
-    await postAction({ action: "test_notify", ...integForm });
-  }
-
-  async function refreshCdks(page = cdkPage) {
-    const qs = new URLSearchParams();
-    if (cdkQ) qs.set("q", cdkQ);
-    if (cdkStatus) qs.set("status", cdkStatus);
-    qs.set("page", String(page));
-    qs.set("page_size", String(cdkPageSize));
-    const data = await loadSection("stock", `&${qs}`);
-    setCdks(data?.list || []);
-    setCdkTotal(Number(data?.total) || 0);
-    setCdkPage(Number(data?.page) || page);
-  }
-
-  async function copyCdkCode(id: number, code: string) {
-    try {
-      await copyText(code);
-      setCopiedId(id);
-      window.setTimeout(() => setCopiedId((cur) => (cur === id ? null : cur)), 1500);
-    } catch {
-      toast("复制失败，请手动选择", "err");
-    }
-  }
-
-  async function cdkOp(action: "void_cdk" | "disable_cdk" | "enable_cdk", id: number) {
-    const label =
-      action === "void_cdk" ? "核销" : action === "disable_cdk" ? "禁用" : "启用";
-    const ok = await ask({
-      title: `确认${label}该卡密？`,
-      confirmLabel: label,
-      danger: action !== "enable_cdk",
-    });
-    if (!ok) return;
-    await postAction({ action, id });
-    await refreshCdks();
-  }
-
-  async function saveAppearance() {
-    await postAction({
-      action: "save_appearance",
-      siteTheme,
-      siteName,
-    });
-    const data = await loadSection("appearance");
-    setStorefronts(data?.list || []);
-    setSiteTheme(data?.siteTheme || siteTheme);
-    setSiteName(data?.siteName || siteName);
-    toast("整站外观已保存");
-  }
-
-  async function revealCdk(id: number) {
-    const data = await postAction({ action: "reveal_cdk", id });
-    if (data?.code) {
-      setRevealed((prev) => ({ ...prev, [id]: String(data.code) }));
-    }
   }
 
   if (!boot) {
@@ -536,7 +229,6 @@ export default function AdminPage() {
 
   return (
     <main className="km-admin min-h-screen">
-      {dialog}
       <header className="km-header">
         <div className="km-shell-wide space-y-3 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -562,7 +254,7 @@ export default function AdminPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {groups.map((group) => (
+            {GROUPS.map((group) => (
               <button
                 key={group.id}
                 type="button"
@@ -575,11 +267,7 @@ export default function AdminPage() {
           </div>
           <nav className="km-tabs" aria-label="后台分区">
             {activeGroup.items.map(([id, label]) => (
-              <button
-                key={id}
-                className={`km-tab ${tab === id ? "km-tab-active" : ""}`}
-                onClick={() => goTab(id)}
-              >
+              <button key={id} className={`km-tab ${tab === id ? "km-tab-active" : ""}`} onClick={() => goTab(id)}>
                 {label}
               </button>
             ))}
@@ -588,828 +276,36 @@ export default function AdminPage() {
       </header>
 
       <section className="km-shell-wide space-y-4 py-6 pb-16">
-        {tab === "overview" && overview ? (
-          <div className="space-y-4">
-            {overview.salesOpen === false ? (
-              <button type="button" className="km-ov-alert" onClick={() => goTab("commerce")}>
-                <strong>所有店铺已停售，买家现在下不了单</strong>
-                <span>
-                  {overview.salesClosedReason ? `${overview.salesClosedReason} · ` : ""}去「售卖设置」看原因 →
-                </span>
-              </button>
-            ) : null}
-            {(overview.lockedCount || 0) > 0 || (overview.inflightCount || 0) > 0 ? (
-              <div className="km-panel border-[var(--km-danger)]/40 text-sm">
-                {(overview.lockedCount || 0) > 0 ? (
-                  <p>
-                    有 <strong>{overview.lockedCount}</strong> 张卡密占用中（locked）。若订单已失败仍锁着，请到「订单」点「修复卡住的锁」。
-                  </p>
-                ) : null}
-                {(overview.inflightCount || 0) > 0 ? (
-                  <p className="mt-1">
-                    有 <strong>{overview.inflightCount}</strong> 笔开通未结束。服务端每分钟会轮询卡台；也可到订单页手动重拉。
-                  </p>
-                ) : null}
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    className="km-btn km-btn-ghost text-sm"
-                    disabled={busy}
-                    onClick={async () => {
-                      await postAction({ action: "reconcile_locks" });
-                      setOverview(await loadSection("overview"));
-                    }}
-                  >
-                    修复卡住的锁
-                  </button>
-                  <button
-                    className="km-btn km-btn-ghost text-sm"
-                    disabled={busy}
-                    onClick={async () => {
-                      await postAction({ action: "poll_inflight" });
-                      setOverview(await loadSection("overview"));
-                    }}
-                  >
-                    立即轮询进行中订单
-                  </button>
-                </div>
-              </div>
-            ) : null}
-            {(overview.attentionCount || 0) > 0 ? (
-              <button type="button" className="km-ov-alert" onClick={goStoreOrders}>
-                <strong>{overview.attentionCount} 笔店铺订单付了款还没发齐</strong>
-                <span>去「店铺订单」处理 →</span>
-              </button>
-            ) : null}
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <StatCard
-                label="今日成交"
-                value={`¥${((overview.todayPaidCents || 0) / 100).toFixed(2)}`}
-                hint={`${overview.todayPaidCount || 0} 笔已付款`}
-              />
-              <StatCard
-                label="待处理订单"
-                value={String(overview.attentionCount || 0)}
-                hint="已付款、还没发齐"
-              />
-              <StatCard
-                label="已售卡密未兑换"
-                value={String(overview.unusedStock)}
-                hint={`已核销 ${overview.stock?.used ?? 0} · 已禁用 ${overview.stock?.disabled ?? 0}`}
-              />
-              <StatCard
-                label="卡台接入"
-                value={overview.hasCardplatform ? "已配置" : "未配置"}
-                hint={overview.cardplatformSiteBase || "去「接入卡台」填写"}
-              />
-            </div>
-            <div className="km-panel overflow-x-auto">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="font-semibold">最近店铺订单</h3>
-                <button className="km-btn km-btn-ghost" onClick={goStoreOrders}>
-                  全部店铺订单
-                </button>
-              </div>
-              <table className="km-table text-sm">
-                <colgroup>
-                  <col style={{ width: "26%" }} />
-                  <col style={{ width: "26%" }} />
-                  <col style={{ width: "16%" }} />
-                  <col style={{ width: "12%" }} />
-                  <col style={{ width: "10%" }} />
-                  <col style={{ width: "10%" }} />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th>订单</th>
-                    <th>商品</th>
-                    <th>代理</th>
-                    <th>金额</th>
-                    <th>时间</th>
-                    <th>状态</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(overview.recentStoreOrders || []).map((o) => (
-                    <tr key={o.orderNo}>
-                      <td className="km-clip font-mono text-xs" title={o.orderNo}>
-                        {o.orderNo}
-                      </td>
-                      <td className="km-clip" title={o.productName}>
-                        {o.productName}
-                      </td>
-                      <td className="km-clip" title={o.agentName}>
-                        {o.agentName}
-                      </td>
-                      <td>¥{(o.grossCents / 100).toFixed(2)}</td>
-                      <td className="whitespace-nowrap text-xs text-[var(--km-fg-muted)]">{formatWhen(o.createdAt)}</td>
-                      <td>
-                        <StatusBadge status={o.payStatus === "paid" || o.payStatus === "manual" ? o.fulfillStatus : o.payStatus} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!(overview.recentStoreOrders || []).length ? (
-                <p className="py-4 text-sm text-[var(--km-fg-muted)]">还没有店铺订单</p>
-              ) : null}
-            </div>
-            <p className="text-sm text-[var(--km-fg-muted)]">
-              兑换记录在「订单」里看。第一次开店或客户问流程，看
-              <button type="button" className="mx-1 underline" onClick={() => goTab("guide")}>
-                使用说明
-              </button>
-              ；发给代理的短说明在 /start。
-            </p>
-          </div>
+        {tab === "overview" ? (
+          <AdminOverview
+            onGoCommerce={() => goTab("commerce")}
+            onGoStoreOrders={goStoreOrders}
+            onGoGuide={() => goTab("guide")}
+          />
         ) : null}
-
-        {tab === "orders" ? (
-          <div className="km-panel overflow-x-auto text-sm">
-            <div className="km-tabs mb-3">
-              {(
-                [
-                  ["", "全部"],
-                  ["store", "店铺订单"],
-                  ["redeem", "兑换记录"],
-                ] as const
-              ).map(([value, label]) => (
-                <button
-                  key={value || "all"}
-                  type="button"
-                  className={`km-tab ${orderKind === value ? "km-tab-active" : ""}`}
-                  onClick={() => {
-                    setOrderKind(value);
-                    window.history.replaceState(null, "", value === "store" ? `#${STORE_ORDERS_HASH}` : "#orders");
-                    if (value !== "store") void reloadOrders(value);
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            {orderKind === "store" ? (
-              <AdminStoreOrders />
-            ) : (
-            <>
-            <div className="km-toolbar">
-              <input
-                className="km-input max-w-xs"
-                placeholder="订单号 / 邮箱 / 卡密后四位"
-                value={orderQ}
-                onChange={(e) => setOrderQ(e.target.value)}
-              />
-              <KmSelect
-                className="w-40"
-                value={orderStatus}
-                placeholder="全部状态"
-                options={[
-                  { value: "", label: "全部状态" },
-                  ...([
-                    "pending",
-                    "processing",
-                    "success",
-                    "failed",
-                    "unknown",
-                    "fulfilled",
-                    "paid",
-                    "unpaid",
-                    "pending_pay",
-                    "paid_undelivered",
-                    "issuing",
-                    "delivered",
-                    "partially_delivered",
-                  ] as const).map((item) => ({ value: item, label: STATUS_LABEL[item] || item })),
-                ]}
-                onChange={setOrderStatus}
-              />
-              <label className="flex items-center gap-2 text-sm text-[var(--km-fg-muted)]">
-                <input
-                  type="checkbox"
-                  checked={includeHidden}
-                  onChange={(event) => setIncludeHidden(event.target.checked)}
-                />
-                显示已隐藏
-              </label>
-              <button
-                className="km-btn"
-                onClick={async () => {
-                  await reloadOrders();
-                }}
-              >
-                筛选
-              </button>
-              <button
-                className="km-btn km-btn-ghost"
-                disabled={busy}
-                onClick={async () => {
-                  await postAction({ action: "poll_inflight" });
-                  await reloadOrders();
-                }}
-              >
-                轮询进行中
-              </button>
-              <button
-                className="km-btn km-btn-ghost"
-                disabled={busy}
-                onClick={async () => {
-                  const data = await postAction({ action: "reconcile_locks" });
-                  if (data?.ok) {
-                    toast(`已修复锁：释放 ${data.released ?? 0}，核销 ${data.used ?? 0}`);
-                  }
-                }}
-              >
-                修复卡住的锁
-              </button>
-              <a
-                className="km-btn km-btn-ghost"
-                href={`/api/admin/orders?export=csv&${orderQuery(orderKind)}`}
-              >
-                导出 CSV
-              </a>
-            </div>
-            <table className="km-table">
-              <colgroup>
-                <col style={{ width: "22%" }} />
-                <col style={{ width: "7%" }} />
-                <col style={{ width: "20%" }} />
-                <col style={{ width: "16%" }} />
-                <col style={{ width: "9%" }} />
-                <col style={{ width: "8%" }} />
-                <col style={{ width: "9%" }} />
-                <col style={{ width: "9%" }} />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th>订单</th>
-                  <th>类型</th>
-                  <th>买家 / 卡密</th>
-                  <th>商品</th>
-                  <th>支付</th>
-                  <th>状态</th>
-                  <th>时间</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map((o) => {
-                  const orderNo = String(o.orderNo || "");
-                  const email = String(o.email || o.accountEmail || "—");
-                  const code = String(o.codeMasked || o.codeLast4 || "—");
-                  const plan = String(o.upstreamPlan || "—");
-                  const message = o.message ? String(o.message) : "";
-                  const expanded = timelineOrderNo === orderNo;
-                  const storeRow = o.rowKind === "store";
-                  return (
-                    <Fragment key={`${o.rowKind || "redeem"}-${o.id}`}>
-                    <tr>
-                      <td className="km-clip font-mono" title={orderNo}>
-                        <div>{orderNo}</div>
-                        {o.agentLabel ? (
-                          <div className="text-xs text-[var(--km-fg-muted)]">{String(o.agentLabel)}</div>
-                        ) : null}
-                      </td>
-                      <td>{kindLabel(o.kind)}</td>
-                      <td>
-                        <div className="km-clip" title={email}>
-                          {email}
-                        </div>
-                        {code !== "—" ? (
-                          <div className="km-clip font-mono text-xs text-[var(--km-fg-muted)]" title={code}>
-                            {code}
-                          </div>
-                        ) : null}
-                      </td>
-                      <td className="km-clip" title={plan}>
-                        {plan}
-                      </td>
-                      <td>
-                        {o.kind === "recharge" && o.payStatus === "manual" ? (
-                          <span className="km-badge" title="买家拿卡密直接来兑换，不是在店铺下的单">
-                            直接兑换
-                          </span>
-                        ) : (
-                          <StatusBadge status={String(o.payStatus || "")} />
-                        )}
-                      </td>
-                      <td>
-                        <span title={message || undefined}>{progressLabel(o.kind, String(o.fulfillStatus || ""))}</span>
-                      </td>
-                      <td className="km-clip text-[var(--km-fg-muted)]" title={String(o.createdAt || "")}>
-                        {formatWhen(o.createdAt)}
-                      </td>
-                      <td>
-                        <div className="km-row-actions">
-                          {!storeRow && o.kind === "recharge" && o.upstreamRequestId ? (
-                            <button
-                              className="km-btn km-btn-ghost"
-                              disabled={busy}
-                              onClick={async () => {
-                                await postAction({
-                                  action: "poll_order",
-                                  orderNo: o.orderNo,
-                                  requestId: o.upstreamRequestId,
-                                });
-                                await reloadOrders();
-                              }}
-                            >
-                              重拉
-                            </button>
-                          ) : null}
-                          <button
-                            className="km-btn km-btn-ghost"
-                            onClick={() => setTimelineOrderNo(expanded ? "" : orderNo)}
-                          >
-                            {expanded ? "收起" : "明细"}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                    {expanded ? (
-                      <tr>
-                        <td colSpan={8}>
-                          {storeRow ? <StoreOrderDetail orderNo={orderNo} /> : <AdminOrderTimeline orderNo={orderNo} />}
-                        </td>
-                      </tr>
-                    ) : null}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-            {!orders.length ? <p className="py-4 text-[var(--km-fg-muted)]">无匹配订单</p> : null}
-            {orderNextCursor ? (
-              <button
-                className="km-btn km-btn-ghost mt-3"
-                onClick={async () => {
-                  const qs = orderQuery(orderKind);
-                  qs.set("cursor", orderNextCursor);
-                  const data = await loadSection("orders", `&${qs}`);
-                  setOrders((current) => [...current, ...(data?.list || [])]);
-                  setOrderNextCursor(data?.page?.next_cursor || "");
-                }}
-              >
-                加载更多
-              </button>
-            ) : null}
-            </>
-            )}
-          </div>
-        ) : null}
-
-        {tab === "cdks" ? (
-          <div className="km-panel overflow-x-auto text-sm">
-            <div className="km-toolbar">
-              <input
-                className="km-input max-w-xs font-mono"
-                placeholder="订单号 / 完整卡密 / 套餐键"
-                value={cdkQ}
-                onChange={(e) => setCdkQ(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    setCdkPage(1);
-                    void refreshCdks(1);
-                  }
-                }}
-              />
-              <KmSelect
-                className="w-40"
-                value={cdkStatus}
-                placeholder="全部状态"
-                options={[
-                  { value: "", label: "全部状态" },
-                  { value: "unused", label: "未使用" },
-                  { value: "used", label: "已核销" },
-                  { value: "disabled", label: "已禁用" },
-                ]}
-                onChange={(next) => {
-                  setCdkStatus(next);
-                  setCdkPage(1);
-                  void (async () => {
-                    const qs = new URLSearchParams();
-                    if (cdkQ) qs.set("q", cdkQ);
-                    if (next) qs.set("status", next);
-                    qs.set("page", "1");
-                    qs.set("page_size", String(cdkPageSize));
-                    const data = await loadSection("stock", `&${qs}`);
-                    setCdks(data?.list || []);
-                    setCdkTotal(Number(data?.total) || 0);
-                  })();
-                }}
-              />
-              <button
-                className="km-btn"
-                onClick={() => {
-                  setCdkPage(1);
-                  void refreshCdks(1);
-                }}
-              >
-                筛选
-              </button>
-              <span className="ml-auto text-xs text-[var(--km-fg-muted)]">
-                共 {cdkTotal} 条店铺已售卡密 · 默认脱敏，点「显示」后再复制
-              </span>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="km-table km-cdk-table">
-                <colgroup>
-                  <col style={{ width: "24%" }} />
-                  <col style={{ width: "18%" }} />
-                  <col style={{ width: "22%" }} />
-                  <col style={{ width: "11%" }} />
-                  <col style={{ width: "8%" }} />
-                  <col style={{ width: "8%" }} />
-                  <col style={{ width: "9%" }} />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th>卡密</th>
-                    <th>商品</th>
-                    <th>订单 / 买家</th>
-                    <th>代理</th>
-                    <th>状态</th>
-                    <th>更新</th>
-                    <th className="text-right">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cdks.map((c) => {
-                    const status = String(c.status);
-                    const id = Number(c.id);
-                    const code = revealed[id] || "";
-                    const display = code || String(c.codeMasked || "");
-                    const planKey = String(c.planKey || "");
-                    const productName = String(c.productName || "") || planKey || "—";
-                    const canVoid = status !== "used" && status !== "disabled" && status !== "locked";
-                    const canDisable = status === "unused" || status === "sold";
-                    return (
-                      <tr key={String(c.id)}>
-                        <td>
-                          <div className="km-cdk-code">
-                            <code className="km-clip" title={display}>
-                              {display}
-                            </code>
-                            <button
-                              type="button"
-                              className="km-cdk-link"
-                              onClick={() => void (code ? copyCdkCode(id, code) : revealCdk(id))}
-                            >
-                              {code ? (copiedId === id ? "已复制" : "复制") : "显示"}
-                            </button>
-                          </div>
-                        </td>
-                        <td>
-                          <p className="km-clip font-medium" title={productName}>
-                            {productName}
-                          </p>
-                          {planKey && planKey !== productName ? (
-                            <p className="km-clip font-mono text-xs text-[var(--km-fg-muted)]" title={planKey}>
-                              {planKey}
-                            </p>
-                          ) : null}
-                        </td>
-                        <td>
-                          <p className="km-clip font-mono text-xs" title={String(c.orderNo || "")}>
-                            {String(c.orderNo || "—")}
-                          </p>
-                          {c.customerEmail ? (
-                            <p className="km-clip text-xs text-[var(--km-fg-muted)]" title={String(c.customerEmail)}>
-                              {String(c.customerEmail)}
-                            </p>
-                          ) : null}
-                        </td>
-                        <td className="km-clip" title={String(c.agentName || "")}>
-                          {String(c.agentName || "—")}
-                        </td>
-                        <td>
-                          <StatusBadge status={status} />
-                        </td>
-                        <td className="whitespace-nowrap text-xs text-[var(--km-fg-muted)]" title={String(c.updatedAt || "")}>
-                          {formatWhen(c.updatedAt)}
-                        </td>
-                        <td>
-                          <div className="km-cdk-actions">
-                            {canVoid ? (
-                              <button className="km-btn km-btn-ghost km-btn-sm" onClick={() => void cdkOp("void_cdk", id)}>
-                                核销
-                              </button>
-                            ) : null}
-                            {canDisable ? (
-                              <button
-                                className="km-btn km-btn-ghost km-btn-sm text-[var(--km-danger)]"
-                                onClick={() => void cdkOp("disable_cdk", id)}
-                              >
-                                禁用
-                              </button>
-                            ) : null}
-                            {status === "disabled" ? (
-                              <button
-                                className="km-btn km-btn-ghost km-btn-sm text-[var(--km-success)]"
-                                onClick={() => void cdkOp("enable_cdk", id)}
-                              >
-                                启用
-                              </button>
-                            ) : null}
-                            {!canVoid && !canDisable && status !== "disabled" ? (
-                              <span className="text-xs text-[var(--km-fg-muted)]">—</span>
-                            ) : null}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            {!cdks.length ? (
-              <p className="py-8 text-center text-[var(--km-fg-muted)]">还没有店铺售出的卡密</p>
-            ) : null}
-
-            {cdkTotal > 0 ? (
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--km-border)] pt-3">
-                <span className="text-[var(--km-fg-muted)]">
-                  第 {cdkPage} / {Math.max(1, Math.ceil(cdkTotal / cdkPageSize))} 页
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    className="km-btn km-btn-ghost"
-                    disabled={cdkPage <= 1}
-                    onClick={() => setCdkPage((p) => Math.max(1, p - 1))}
-                  >
-                    上一页
-                  </button>
-                  <button
-                    className="km-btn km-btn-ghost"
-                    disabled={cdkPage * cdkPageSize >= cdkTotal}
-                    onClick={() => setCdkPage((p) => p + 1)}
-                  >
-                    下一页
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-
-        {tab === "integration" && integration ? (
-          <div className="space-y-4">
-            <CardIntegration publicBaseUrl={integration.callbackBaseUrl || integForm.publicBaseUrl} />
-            <div className="km-panel space-y-3">
-              <label className="block space-y-1 text-sm">
-                <span>本站公网地址</span>
-                <input
-                  className="km-input"
-                  placeholder="https://kaimi.example.com"
-                  value={integForm.publicBaseUrl}
-                  onChange={(e) => setIntegForm((s) => ({ ...s, publicBaseUrl: e.target.value }))}
-                />
-                <span className="text-xs text-[var(--km-fg-muted)]">
-                  买家看到的订单页、兑换链接、查单邮件都用这个地址，填代理店铺的正式域名。不能填 localhost。通知页改的是同一项。易支付和卡台回调可以在「卖卡 › 售卖设置」里另配一个回调地址。
-                </span>
-              </label>
-              <button className="km-btn" disabled={busy} onClick={() => void saveIntegration()}>
-                保存公网地址
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        {tab === "notify" && integration ? (
-          <div className="space-y-4">
-            <div className="km-panel space-y-4">
-              <div>
-                <h2 className="text-xl font-semibold" style={{ fontFamily: "var(--font-sora)" }}>
-                  站点通知
-                </h2>
-                <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-                  管理员收每一笔付款和每一次兑换成功。代理只收自己店铺的付款，文案不含成本和毛利。Webhook 只发给这里。
-                </p>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block space-y-1 text-sm">
-                  <span>本站公网地址</span>
-                  <input
-                    className="km-input"
-                    placeholder="https://kaimi.example.com"
-                    value={integForm.publicBaseUrl}
-                    onChange={(e) => setIntegForm((s) => ({ ...s, publicBaseUrl: e.target.value }))}
-                  />
-                  <span className="text-xs text-[var(--km-fg-muted)]">
-                    买家看到的订单页、兑换链接、查单邮件都用这个地址，不能填 localhost。卡台页改的是同一项。易支付和卡台回调可以在「卖卡 › 售卖设置」里另配一个回调地址。
-                  </span>
-                </label>
-                <label className="block space-y-1 text-sm">
-                  <span>终态通知地址（可选）</span>
-                  <input
-                    className="km-input"
-                    placeholder="https://example.com/notify"
-                    value={integForm.notifyWebhookUrl}
-                    onChange={(e) => setIntegForm((s) => ({ ...s, notifyWebhookUrl: e.target.value }))}
-                  />
-                </label>
-                <label className="block space-y-1 text-sm">
-                  <span>Telegram Token（可选）</span>
-                  <input
-                    className="km-input font-mono"
-                    type="password"
-                    placeholder={integration.telegramBotTokenConfigured ? "留空则不修改" : "123456:ABC…"}
-                    value={integForm.telegramBotToken}
-                    onChange={(e) => setIntegForm((s) => ({ ...s, telegramBotToken: e.target.value }))}
-                  />
-                </label>
-                <label className="block space-y-1 text-sm">
-                  <span>Telegram Chat ID</span>
-                  <input
-                    className="km-input"
-                    placeholder="chat.id，私聊是一串正数"
-                    value={integForm.telegramChatId}
-                    onChange={(e) => setIntegForm((s) => ({ ...s, telegramChatId: e.target.value }))}
-                  />
-                  <span className="text-xs text-[var(--km-fg-muted)]">
-                    填 chat.id，不要填 update_id。本站会轮询这个机器人接收 /bind，不要再给它设置 Webhook。
-                  </span>
-                </label>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button className="km-btn" disabled={busy} onClick={() => void saveIntegration()}>
-                  保存通知设置
-                </button>
-                <button
-                  className="km-btn km-btn-ghost"
-                  disabled={busy}
-                  onClick={() => void testNotify()}
-                >
-                  发送测试通知
-                </button>
-              </div>
-              <p className="text-xs text-[var(--km-fg-muted)]">
-                测试会按上面填的地址发一条示例（测试代理店 / demo@example.com / Plus / ¥150）。Telegram Token 留空则用已保存的。代理在自己的后台生成绑定码，对机器人发送 /bind。
-              </p>
-            </div>
-            <AdminMailSettings />
-            <AdminTelegramBindings />
-          </div>
-        ) : null}
-
-        {tab === "selection" ? <CardSelectionConfig /> : null}
-
-        {tab === "commerce" ? <CommerceAdmin embedded /> : null}
-
-        {tab === "finished" ? <FinishedAccountsAdmin /> : null}
-
-        {tab === "agents" ? <AdminAgents /> : null}
-        {tab === "guard" ? <AdminRedeemGuard /> : null}
-        {tab === "apikeys" ? <AdminApiKeys /> : null}
-
-        {tab === "announcements" ? <AdminAnnouncements /> : null}
-
-        {tab === "draw" ? <AdminAgentDraw /> : null}
-        {tab === "referral" ? <AdminReferral /> : null}
-
-        {tab === "earnings" ? <AdminEarningsStats /> : null}
-        {tab === "reconcile" ? <AdminReconciliation /> : null}
-        {tab === "week" ? <AdminWeeklyEarnings /> : null}
-
+        {tab === "orders" ? <AdminOrders kind={orderKind} onKindChange={changeOrderKind} /> : null}
+        {tab === "cdks" ? <AdminCdks /> : null}
         {tab === "usage" ? <AdminUsageStats /> : null}
 
-        {tab === "appearance" ? (
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="km-panel space-y-3 lg:col-span-2">
-              <div>
-                <h3 className="font-semibold">整站外观</h3>
-                <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-                  站点名和主题会应用到全部前台页面。代理店铺可以各自选主题，不受这里影响。
-                </p>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block space-y-1 text-sm">
-                  <span>站点名</span>
-                  <input className="km-input" value={siteName} onChange={(e) => setSiteName(e.target.value)} placeholder="如 Kaimi" />
-                </label>
-                <label className="block space-y-1 text-sm">
-                  <span>主题</span>
-                  <KmSelect
-                    value={siteTheme}
-                    options={THEME_CHOICES.map((theme) => ({
-                      value: theme.id,
-                      label: `${theme.label} / ${theme.hint}`,
-                    }))}
-                    onChange={setSiteTheme}
-                  />
-                </label>
-              </div>
-              <div className="flex flex-wrap items-center justify-end gap-3">
-                <button className="km-btn" onClick={() => void saveAppearance()}>
-                  保存整站设置
-                </button>
-              </div>
-            </div>
-            {storefronts.map((sf) => (
-              <StorefrontCard
-                key={String(sf.id)}
-                sf={sf}
-                onSave={async (next) => {
-                  await postAction({
-                    action: "save_storefront",
-                    id: next.id,
-                    storefrontName: next.siteName,
-                    themeId: next.themeId,
-                    announcement: next.announcement,
-                    afterSales: next.afterSales,
-                    enabled: next.enabled,
-                  });
-                  const data = await loadSection("appearance");
-                  setStorefronts(data?.list || []);
-                  toast("页面文案已保存");
-                }}
-              />
-            ))}
-          </div>
-        ) : null}
+        {tab === "commerce" ? <CommerceAdmin embedded /> : null}
+        {tab === "finished" ? <FinishedAccountsAdmin /> : null}
+        {tab === "selection" ? <CardSelectionConfig /> : null}
 
+        {tab === "agents" ? <AdminAgents /> : null}
+        {tab === "draw" ? <AdminAgentDraw /> : null}
+        {tab === "referral" ? <AdminReferral /> : null}
+        {tab === "reconcile" ? <AdminReconciliation /> : null}
+        {tab === "week" ? <AdminWeeklyEarnings /> : null}
+        {tab === "earnings" ? <AdminEarningsStats /> : null}
+
+        {tab === "integration" ? <AdminIntegration /> : null}
+        {tab === "notify" ? <AdminNotify /> : null}
+        {tab === "guard" ? <AdminRedeemGuard /> : null}
+        {tab === "apikeys" ? <AdminApiKeys /> : null}
+        {tab === "announcements" ? <AdminAnnouncements /> : null}
+        {tab === "appearance" ? <AdminAppearance /> : null}
         {tab === "guide" ? <AdminGuide onGo={goTab} /> : null}
       </section>
     </main>
-  );
-}
-
-function statusTone(status: string) {
-  const s = status.toLowerCase();
-  if (["success", "fulfilled", "unused", "used", "paid", "ok", "delivered"].includes(s)) return "ok";
-  if (["failed", "unknown", "disabled", "error", "paid_undelivered", "chargeback"].includes(s)) return "bad";
-  if (["pending", "processing", "locked", "sold", "unpaid", "issuing", "partially_delivered", "refunding", "pending_pay"].includes(s)) return "wait";
-  return "";
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const tone = statusTone(status);
-  return <span className={`km-badge ${tone ? `km-badge-${tone}` : ""}`}>{STATUS_LABEL[status] || status || "—"}</span>;
-}
-
-function StatCard(props: { label: string; value: string; hint?: string }) {
-  return (
-    <div className="km-stat">
-      <p className="text-xs text-[var(--km-fg-muted)]">{props.label}</p>
-      <p className="km-stat-value">{props.value}</p>
-      {props.hint ? <p className="mt-1 truncate text-xs text-[var(--km-fg-muted)]">{props.hint}</p> : null}
-    </div>
-  );
-}
-
-function StorefrontCard({
-  sf,
-  onSave,
-}: {
-  sf: Record<string, unknown>;
-  onSave: (next: Record<string, unknown>) => Promise<void>;
-}) {
-  const [form, setForm] = useState({
-    id: Number(sf.id),
-    siteName: String(sf.siteName || ""),
-    themeId: String(sf.themeId || "snow"),
-    announcement: String(sf.announcement || ""),
-    afterSales: String(sf.afterSales || ""),
-    enabled: Boolean(sf.enabled ?? true),
-  });
-
-  const title = String(sf.kind) === "shop" ? "发卡页文案" : String(sf.kind) === "recharge" ? "兑换页文案" : "页面文案";
-
-  return (
-    <div className="km-panel space-y-3">
-      <div>
-        <p className="font-medium">{title}</p>
-        <p className="mt-1 text-xs text-[var(--km-fg-muted)]">只改这一页的标题和说明，整站主题用上面保存。</p>
-      </div>
-      <label className="block space-y-1 text-sm">
-        <span>页面标题</span>
-        <input
-          className="km-input"
-          value={form.siteName}
-          onChange={(e) => setForm((s) => ({ ...s, siteName: e.target.value }))}
-          placeholder="页面标题"
-        />
-      </label>
-      <label className="block space-y-1 text-sm">
-        <span>公告</span>
-        <textarea
-          className="km-input min-h-20"
-          value={form.announcement}
-          onChange={(e) => setForm((s) => ({ ...s, announcement: e.target.value }))}
-          placeholder="显示在页面标题下方"
-        />
-      </label>
-      <label className="block space-y-1 text-sm">
-        <span>页脚说明</span>
-        <textarea
-          className="km-input min-h-16"
-          value={form.afterSales}
-          onChange={(e) => setForm((s) => ({ ...s, afterSales: e.target.value }))}
-          placeholder="售后或注意事项"
-        />
-      </label>
-      <button className="km-btn" onClick={() => void onSave(form)}>
-        保存文案
-      </button>
-    </div>
   );
 }
