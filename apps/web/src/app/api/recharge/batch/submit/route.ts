@@ -10,7 +10,11 @@ import {
 } from "@/lib/orders";
 import { driveRechargeBatch } from "@/lib/recharge-batch";
 import { clampRedeemCodes } from "@/lib/recharge-batch-core";
-import { ANON_BATCH_CODES_PER_REQUEST, UNKNOWN_CODE_STOP_AFTER, isGuessOutcome } from "@/lib/redeem-guard-core";
+import {
+  ANON_BATCH_CODES_PER_REQUEST,
+  BATCH_STOPPED_MESSAGE,
+  createBatchGuessGuard,
+} from "@/lib/redeem-guard-core";
 import { assertBatchCodeBudget, recordRedeemFailure } from "@/lib/redeem-guard";
 import { RedeemRejectedError } from "@/lib/redeem-guard-core";
 import { getSession } from "@/lib/auth";
@@ -102,7 +106,7 @@ export async function POST(req: Request) {
     }
 
     // 建单是纯本地写库，逐张串行做完就把单号还给前端；上游那串慢调用交给 after()。
-    let unknownStreak = 0;
+    const guesses = createBatchGuessGuard();
     const pending: Array<{ opened: OpenedRechargeOrder; code: string }> = [];
     const list: Array<{
       code: string;
@@ -112,8 +116,8 @@ export async function POST(req: Request) {
     }> = [];
     for (const code of codes) {
       try {
-        if (unknownStreak >= UNKNOWN_CODE_STOP_AFTER) {
-          list.push({ code, ok: false, orderNo: "", error: "连续多张卡密无效，已停止本批" });
+        if (guesses.stopped) {
+          list.push({ code, ok: false, orderNo: "", error: BATCH_STOPPED_MESSAGE });
           continue;
         }
         const opened = await openRechargeOrder({
@@ -126,7 +130,7 @@ export async function POST(req: Request) {
         list.push({ code, ok: true, orderNo: opened.order.orderNo, error: "" });
       } catch (error) {
         if (error instanceof RedeemRejectedError) {
-          if (isGuessOutcome(error.outcome)) unknownStreak += 1;
+          guesses.reject(error.outcome);
           await recordRedeemFailure({
             ip,
             email: contactEmail,

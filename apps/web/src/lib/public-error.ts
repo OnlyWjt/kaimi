@@ -39,7 +39,14 @@ export function publicErrorMessage(error: unknown, fallback: string, where = "ap
     return BUSY_MESSAGE;
   }
   // zod 的 message 是整段英文 JSON，req.json() 解析失败是 "Unexpected token…"，都不该原样给买家看。
-  if (error instanceof ZodError) return `${fallback}：提交的内容不完整或格式不对`;
-  if (error instanceof SyntaxError) return `${fallback}：请求格式不对，请刷新页面后重试`;
+  // 同样的错误也可能来自服务端自己解析存量数据，所以照样留一行日志，免得真问题被这句话盖住。
+  if (error instanceof ZodError) {
+    console.warn(`[${where}] 参数校验未通过：${sanitizeLog(error.issues.map((i) => `${i.path.join(".") || "(root)"} ${i.code}`).join("; "))}`);
+    return `${fallback}：提交的内容不完整或格式不对`;
+  }
+  if (error instanceof SyntaxError) {
+    console.warn(`[${where}] JSON 解析失败：${sanitizeLog(error.message)}`, error.stack?.split("\n").slice(1, 4).join(" | "));
+    return `${fallback}：请求格式不对，请刷新页面后重试`;
+  }
   return error instanceof Error && error.message ? error.message : fallback;
 }

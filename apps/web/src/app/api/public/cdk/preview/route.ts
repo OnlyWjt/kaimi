@@ -5,9 +5,10 @@ import { clientIp, enforceRateLimit } from "@/lib/rate-limit";
 import { assertRedeemCodeKnown, recordRedeemFailure, redeemBlockResponse } from "@/lib/redeem-guard";
 import { RedeemRejectedError } from "@/lib/redeem-guard-core";
 import { publicErrorMessage } from "@/lib/public-error";
+import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
 
 const schema = z.object({
-  code: z.string().min(6),
+  code: z.string().min(REDEEM_CODE_MIN_LENGTH),
 });
 
 export async function POST(req: Request) {

@@ -3,7 +3,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useAskDialog } from "@/components/ask-dialog";
-import { CredentialSwitch, SessionGuide, redeemApiError } from "@/components/redeem-ui";
+import {
+  CredentialSwitch,
+  MailboxFields,
+  SessionCheckResult,
+  SessionField,
+  readRedeemJson,
+  redeemApiError,
+  type SessionPreview,
+} from "@/components/redeem-ui";
 import { useShopToolPaths } from "@/components/use-shop-tool-paths";
 import { toast } from "@/components/toast";
 import { copyText } from "@/lib/copy-text";
@@ -49,16 +57,6 @@ type StatusRow = {
   fulfillStatus: string;
   message: string;
   accountEmail: string;
-};
-
-type SessionPreview = {
-  ok: boolean;
-  email?: string;
-  name?: string;
-  errors?: string[];
-  warnings?: string[];
-  source?: string;
-  error?: string;
 };
 
 /** 还要继续刷进度的行状态。只查不重提，unknown 依然没有重试入口。 */
@@ -127,7 +125,7 @@ export function BatchRedeemForm({
           `/api/public/store-orders/${encodeURIComponent(orderRef.orderNo)}?qt=${encodeURIComponent(orderRef.queryToken)}`,
           { cache: "no-store" },
         );
-        const data = await res.json();
+        const data = await readRedeemJson(res);
         if (stopped) return;
         const codes = (Array.isArray(data.codes) ? data.codes : []) as string[];
         if (!codes.length) {
@@ -154,7 +152,7 @@ export function BatchRedeemForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orderNos }),
       });
-      const data = await res.json();
+      const data = await readRedeemJson(res);
       if (!res.ok) return;
       const byOrder = new Map(
         ((data.list || []) as StatusRow[]).map((item) => [item.orderNo, item]),
@@ -229,7 +227,7 @@ export function BatchRedeemForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ codes: parsed.codes }),
       });
-      const data = await res.json();
+      const data = await readRedeemJson(res);
       if (!res.ok) throw new Error(redeemApiError(data, "校验失败"));
       const list = (data.list || []) as ValidateRow[];
       setRows((current) => {
@@ -269,7 +267,7 @@ export function BatchRedeemForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session: session.trim(), code: firstCode }),
       });
-      const data = (await res.json()) as SessionPreview;
+      const data = (await readRedeemJson(res)) as SessionPreview;
       setPreview(data);
       if (data.ok && data.email) setEmail(data.email);
       if (!data.ok && !data.errors?.length) {
@@ -310,7 +308,7 @@ export function BatchRedeemForm({
         body: JSON.stringify({ codes, ...credentialBody() }),
       });
       status = res.status;
-      const data = await res.json();
+      const data = await readRedeemJson(res);
       const list = (data.list || []) as SubmitRow[];
       if (!res.ok || !list.length) {
         throw new Error(redeemApiError(data, "提交失败"));
@@ -394,7 +392,7 @@ export function BatchRedeemForm({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ codes: [row.code] }),
         });
-        const data = await res.json();
+        const data = await readRedeemJson(res);
         if (!res.ok) throw new Error(redeemApiError(data, "校验失败"));
         const item = ((data.list || []) as ValidateRow[])[0];
         if (!item) throw new Error("校验失败");
@@ -515,71 +513,23 @@ export function BatchRedeemForm({
           </div>
 
           {credMode === "session" ? (
-            <>
-              <label className="km-rx-field">
-                <span className="km-rx-field-label">ChatGPT Session</span>
-                <textarea
-                  className="km-input km-rx-session"
-                  placeholder='整页 JSON，形如 { "user": {…}, "accessToken": "…" }'
-                  value={session}
-                  spellCheck={false}
-                  onChange={(event) => {
-                    setSession(event.target.value);
-                    setPreview(null);
-                  }}
-                />
-              </label>
-              <SessionGuide />
-              {preview ? (
-                <div className={`km-rx-check km-submit-reveal ${preview.ok ? "km-rx-check-pass" : "km-rx-check-fail"}`}>
-                  <p className="km-rx-check-title">{preview.ok ? "Session 预检通过" : "Session 预检未通过"}</p>
-                  {preview.ok && preview.email ? (
-                    <dl className="km-rx-meta">
-                      <div>
-                        <dt>账号</dt>
-                        <dd>{preview.email}</dd>
-                      </div>
-                    </dl>
-                  ) : null}
-                  {preview.errors?.map((msg) => (
-                    <p key={msg} className="km-rx-check-error">
-                      {msg}
-                    </p>
-                  ))}
-                  {preview.warnings?.map((msg) => (
-                    <p key={msg} className="km-rx-check-warn">
-                      {msg}
-                    </p>
-                  ))}
-                </div>
-              ) : null}
-            </>
+            <SessionField
+              value={session}
+              onChange={(value) => {
+                setSession(value);
+                setPreview(null);
+              }}
+            />
           ) : (
-            <div className="km-rx-fields">
-              <label className="km-rx-field">
-                <span className="km-rx-field-label">账号邮箱</span>
-                <input
-                  className="km-input"
-                  type="email"
-                  autoComplete="off"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                />
-              </label>
-              <label className="km-rx-field">
-                <span className="km-rx-field-label">登录密码</span>
-                <input
-                  className="km-input"
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder="这个邮箱登录 ChatGPT 的密码"
-                  value={mailboxPassword}
-                  onChange={(event) => setMailboxPassword(event.target.value)}
-                />
-              </label>
-            </div>
+            <MailboxFields
+              email={email}
+              password={mailboxPassword}
+              onEmail={setEmail}
+              onPassword={setMailboxPassword}
+            />
           )}
+
+          {preview && credMode === "session" ? <SessionCheckResult preview={preview} /> : null}
 
           {error ? (
             <p className="km-rx-error" role="alert">

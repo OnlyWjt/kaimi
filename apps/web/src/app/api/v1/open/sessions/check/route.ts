@@ -5,10 +5,11 @@ import { openFail, openOk } from "@/lib/open-api/respond";
 import { sessionCheckPayload } from "@/lib/open-api/session-check-core";
 import { recordRedeemFailure, redeemBlockResponse } from "@/lib/redeem-guard";
 import { verifySessionForRedeem } from "@/lib/session-check";
+import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
 
 const schema = z.object({
   session: z.string().min(1).max(50_000),
-  code: z.string().trim().min(6).max(64),
+  code: z.string().trim().min(REDEEM_CODE_MIN_LENGTH).max(64),
 });
 
 /**

@@ -3,6 +3,7 @@ import {
   decideBlock,
   failureWeight,
   isGuessOutcome,
+  createBatchGuessGuard,
   normalizeGuardEmail,
   retryAfterSeconds,
   sumFailureWeight,
@@ -36,6 +37,26 @@ describe("已使用的卡不算失败", () => {
     expect(isGuessOutcome("unknown_code")).toBe(true);
     expect(isGuessOutcome("disabled_code")).toBe(true);
     expect(isGuessOutcome("preflight_failed")).toBe(false);
+  });
+});
+
+describe("createBatchGuessGuard 批量停批", () => {
+  it("已使用的卡再多也不停，猜码到 3 张就停", () => {
+    const guard = createBatchGuessGuard();
+    for (let i = 0; i < 10; i += 1) guard.reject("used_code");
+    expect(guard.stopped).toBe(false);
+    guard.reject("unknown_code");
+    guard.reject("used_code");
+    guard.reject("disabled_code");
+    expect(guard.stopped).toBe(false);
+    guard.reject("unknown_code");
+    expect(guard.stopped).toBe(true);
+  });
+
+  it("预检失败不算猜码", () => {
+    const guard = createBatchGuessGuard(1);
+    guard.reject("preflight_failed");
+    expect(guard.stopped).toBe(false);
   });
 });
 

@@ -11,6 +11,7 @@ import { isTerminalStatus } from "@/lib/recharge-types";
 import { publicStatusLabel } from "@/lib/status-labels";
 import { findIssuedCdkByCode } from "@/lib/cardplatform/issued-redemption";
 import { planNameWithRegion } from "@/lib/cardplatform/regions";
+import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
 
 /** 客户认的是「Plus」这种套餐名，不是 pro_5x 这种内部套餐码。 */
 async function planDisplay(planKey: string) {
@@ -31,7 +32,7 @@ export async function GET(req: Request) {
   if (limited) return limited;
   await bootDb();
   const code = new URL(req.url).searchParams.get("code")?.trim() || "";
-  if (!code || code.length < 6) {
+  if (!code || code.length < REDEEM_CODE_MIN_LENGTH) {
     return NextResponse.json({ error: "请输入完整卡密" }, { status: 400 });
   }
 

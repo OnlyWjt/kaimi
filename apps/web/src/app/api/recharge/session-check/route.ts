@@ -3,10 +3,11 @@ import { z } from "zod";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { verifySessionForRedeem } from "@/lib/session-check";
 import { publicErrorMessage } from "@/lib/public-error";
+import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
 
 const schema = z.object({
   session: z.string().min(1),
-  code: z.string().min(6).optional(),
+  code: z.string().min(REDEEM_CODE_MIN_LENGTH).optional(),
   planKey: z.string().optional(),
 });
 

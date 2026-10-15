@@ -1,22 +1,27 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
   OrderProgressPanel,
   type OrderProgressRow,
   type ProgressEvent,
 } from "@/components/order-progress-panel";
-import { isOrderTerminalStatus, normalizeOrderStatus } from "@/lib/order-status";
-import Link from "next/link";
 import { RegionBadge } from "@/components/region-badge";
 import {
   CredentialSwitch,
-  MIN_CODE_LENGTH,
+  MailboxFields,
   RedeemSteps,
-  SessionGuide,
+  SessionCheckResult,
+  SessionField,
+  readRedeemJson,
   redeemApiError,
+  type SessionPreview,
 } from "@/components/redeem-ui";
 import { useShopToolPaths } from "@/components/use-shop-tool-paths";
+import { isOrderTerminalStatus, normalizeOrderStatus } from "@/lib/order-status";
+import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
+import { publicStatusLabel } from "@/lib/status-labels";
 
 type Validated = {
   codeMasked: string;
@@ -27,28 +32,6 @@ type Validated = {
   productId: number | null;
   price?: string;
   status: string;
-};
-
-type SessionSummary = {
-  email?: string;
-  plan_type?: string;
-  has_active_subscription?: boolean;
-  expires_at?: string;
-  account_id?: string;
-};
-
-type SessionPreview = {
-  ok: boolean;
-  email?: string;
-  name?: string;
-  hasAccessToken?: boolean;
-  planHint?: string;
-  summary?: SessionSummary;
-  errors?: string[];
-  warnings?: string[];
-  source?: string;
-  error?: string;
-  error_code?: string;
 };
 
 function appendProgressEvent(
@@ -91,7 +74,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
     if (!orderNo.trim()) return;
     try {
       const res = await fetch(`/api/shop/query?orderNo=${encodeURIComponent(orderNo.trim())}`);
-      const data = await res.json();
+      const data = await readRedeemJson(res);
       const row = ((data.list || []) as OrderProgressRow[])[0];
       if (row) {
         setProgress(row);
@@ -141,7 +124,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
       setError("请填写卡密");
       return;
     }
-    if (trimmed.length < MIN_CODE_LENGTH) {
+    if (trimmed.length < REDEEM_CODE_MIN_LENGTH) {
       setError("卡密不完整，请粘贴完整的一串");
       return;
     }
@@ -153,7 +136,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: trimmed }),
       });
-      const data = await res.json();
+      const data = await readRedeemJson(res);
       if (!res.ok || !data.ok) throw new Error(redeemApiError(data, "校验失败"));
       setValidated({
         codeMasked: data.codeMasked,
@@ -193,7 +176,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
           planKey: validated?.planKey,
         }),
       });
-      const data = (await res.json()) as SessionPreview;
+      const data = (await readRedeemJson(res)) as SessionPreview;
       setPreview(data);
       if (data.ok && data.email) {
         setEmail(data.email);
@@ -250,7 +233,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
           planKey: validated.planKey || undefined,
         }),
       });
-      const data = await res.json();
+      const data = await readRedeemJson(res);
       if (!res.ok) throw new Error(redeemApiError(data, "提交失败"));
 
       const orderNo = String(data.orderNo || "");
@@ -289,25 +272,28 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
     setPreview(null);
   }
 
+  /** 成功后接着兑下一张：Session 多半还是同一个账号，留着，但预检绑的是上一张卡，要重做。 */
+  function redeemAnother() {
+    const keptSession = session;
+    resetCode();
+    setCode("");
+    setSession(keptSession);
+  }
+
   const stepIndex = progress ? 2 : step === "session" ? 1 : 0;
   const progressStatus = normalizeOrderStatus(String(progress?.fulfillStatus || ""));
   const finished = progressStatus === "success";
+  const failed = progressStatus === "failed";
   const showRegion = Boolean(validated && (validated.regionLabel || validated.planName.includes("·")));
   // 校验时拿到的是「未使用」，提交以后要跟着进度变，不然开通成功了这里还写着未使用。
-  const statusLabel = progress
-    ? finished
-      ? "已兑换"
-      : progressStatus === "failed"
-        ? "未兑换"
-        : "兑换中"
-    : validated?.status === "unused" || validated?.status === "未使用"
-      ? "未使用"
-      : validated?.status || "";
-  const statusTone = !progress || finished ? "km-badge-ok" : progressStatus === "failed" ? "km-badge-bad" : "km-badge-wait";
+  // 失败时卡会退回，所以是「未使用」。
+  const cardStatus = progress ? (finished ? "used" : failed ? "unused" : "redeeming") : "unused";
+  // 失败时卡已退回，「未使用」是好消息，别标红。
+  const statusTone = finished || !progress ? "km-badge-ok" : failed ? "km-badge-muted" : "km-badge-wait";
 
   return (
     <div className="km-rx-flow">
-      <RedeemSteps current={stepIndex} done={finished} />
+      <RedeemSteps current={stepIndex} outcome={finished ? "success" : failed ? "failed" : undefined} />
       {step === "code" ? (
         <section className="km-rx-card">
           <div className="km-rx-card-head">
@@ -369,7 +355,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
               ) : null}
             </div>
             <div className="km-rx-plan-side">
-              {statusLabel ? <span className={`km-badge ${statusTone}`}>{statusLabel}</span> : null}
+              <span className={`km-badge ${statusTone}`}>{publicStatusLabel(cardStatus, "cdk")}</span>
               {!progress ? (
                 <button type="button" className="km-rx-link" onClick={resetCode}>
                   更换卡密
@@ -379,19 +365,26 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
           </section>
 
           {progress ? (
-            <OrderProgressPanel
-              row={progress}
-              polling={autoPoll}
-              events={events}
-              showLookupLink
-              onRetry={() => {
-                setProgress(null);
-                setEvents([]);
-                setAutoPoll(false);
-                setError("");
-              }}
-            />
-          )   : (
+            <>
+              <OrderProgressPanel
+                row={progress}
+                polling={autoPoll}
+                events={events}
+                showLookupLink
+                onRetry={() => {
+                  setProgress(null);
+                  setEvents([]);
+                  setAutoPoll(false);
+                  setError("");
+                }}
+              />
+              {finished ? (
+                <button type="button" className="km-btn km-btn-ghost km-rx-primary" onClick={redeemAnother}>
+                  再兑换一张
+                </button>
+              ) : null}
+            </>
+          ) : (
             <section className="km-rx-card km-form-stack">
               <div className="km-rx-card-head km-rx-card-head-row">
                 <div>
@@ -411,100 +404,23 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
               </div>
 
               {credMode === "session" ? (
-                <>
-                  <label className="km-rx-field">
-                    <span className="km-rx-field-label">ChatGPT Session</span>
-                    <textarea
-                      className="km-input km-rx-session"
-                      placeholder='整页 JSON，形如 { "user": {…}, "accessToken": "…" }'
-                      value={session}
-                      spellCheck={false}
-                      onChange={(e) => {
-                        setSession(e.target.value);
-                        setPreview(null);
-                      }}
-                    />
-                  </label>
-                  <SessionGuide />
-                </>
-              ) : null}
+                <SessionField
+                  value={session}
+                  onChange={(value) => {
+                    setSession(value);
+                    setPreview(null);
+                  }}
+                />
+              ) : (
+                <MailboxFields
+                  email={email}
+                  password={mailboxPassword}
+                  onEmail={setEmail}
+                  onPassword={setMailboxPassword}
+                />
+              )}
 
-              {credMode === "mailbox" ? (
-                <div className="km-rx-fields">
-                  <label className="km-rx-field">
-                    <span className="km-rx-field-label">账号邮箱</span>
-                    <input
-                      className="km-input"
-                      type="email"
-                      autoComplete="off"
-                      placeholder="you@example.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                    />
-                  </label>
-                  <label className="km-rx-field">
-                    <span className="km-rx-field-label">登录密码</span>
-                    <input
-                      className="km-input"
-                      type="password"
-                      autoComplete="new-password"
-                      placeholder="这个邮箱登录 ChatGPT 的密码"
-                      value={mailboxPassword}
-                      onChange={(e) => setMailboxPassword(e.target.value)}
-                    />
-                  </label>
-                </div>
-              ) : null}
-
-              {preview && credMode === "session" ? (
-                <div className={`km-rx-check km-submit-reveal ${preview.ok ? "km-rx-check-pass" : "km-rx-check-fail"}`}>
-                  <p className="km-rx-check-title">{preview.ok ? "Session 预检通过" : "Session 预检未通过"}</p>
-                  {preview.ok ? (
-                    <dl className="km-rx-meta">
-                      {preview.email ? (
-                        <div>
-                          <dt>账号</dt>
-                          <dd>{preview.email}</dd>
-                        </div>
-                      ) : null}
-                      {preview.name ? (
-                        <div>
-                          <dt>显示名</dt>
-                          <dd>{preview.name}</dd>
-                        </div>
-                      ) : null}
-                      {preview.summary?.plan_type || preview.planHint ? (
-                        <div>
-                          <dt>当前订阅</dt>
-                          <dd>{String(preview.summary?.plan_type || preview.planHint)}</dd>
-                        </div>
-                      ) : null}
-                      {typeof preview.summary?.has_active_subscription === "boolean" ? (
-                        <div>
-                          <dt>有效订阅</dt>
-                          <dd>{preview.summary.has_active_subscription ? "是" : "否"}</dd>
-                        </div>
-                      ) : null}
-                      {preview.summary?.expires_at ? (
-                        <div>
-                          <dt>到期</dt>
-                          <dd>{String(preview.summary.expires_at)}</dd>
-                        </div>
-                      ) : null}
-                    </dl>
-                  ) : null}
-                  {preview.errors?.map((msg) => (
-                    <p key={msg} className="km-rx-check-error">
-                      {msg}
-                    </p>
-                  ))}
-                  {preview.warnings?.map((msg) => (
-                    <p key={msg} className="km-rx-check-warn">
-                      {msg}
-                    </p>
-                  ))}
-                </div>
-              ) : null}
+              {preview && credMode === "session" ? <SessionCheckResult preview={preview} /> : null}
 
               {error ? (
                 <p className="km-rx-error" role="alert">
@@ -537,9 +453,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
                     {checking ? "预检中…" : session.trim() ? "预检 Session" : "先粘贴 Session"}
                   </button>
                 )
-              ) : null}
-
-              {credMode === "mailbox" ? (
+              ) : (
                 <button
                   className="km-btn km-rx-primary"
                   disabled={!email.trim() || !mailboxPassword.trim() || busy}
@@ -547,8 +461,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
                 >
                   {busy ? "提交中…" : "提交兑换"}
                 </button>
-              ) : null}
-
+              )}
             </section>
           )}
         </>

@@ -55,6 +55,24 @@ export function isGuessOutcome(outcome: string) {
   return failureWeight(outcome) >= 1;
 }
 
+/**
+ * 批量校验、批量提交逐张走的时候用：猜码累计到 UNKNOWN_CODE_STOP_AFTER 张，后面的不再查。
+ * 两处共用这一份，免得一边改了规则另一边没改。
+ */
+export function createBatchGuessGuard(stopAfter = UNKNOWN_CODE_STOP_AFTER) {
+  let guesses = 0;
+  return {
+    get stopped() {
+      return guesses >= stopAfter;
+    },
+    reject(outcome: string) {
+      if (isGuessOutcome(outcome)) guesses += 1;
+    },
+  };
+}
+
+export const BATCH_STOPPED_MESSAGE = "连续多张卡密无效，已停止本批";
+
 export function sumFailureWeight(outcomes: string[]) {
   return outcomes.reduce((sum, outcome) => sum + failureWeight(outcome), 0);
 }
