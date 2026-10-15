@@ -10,7 +10,7 @@ import {
 } from "@/lib/orders";
 import { driveRechargeBatch } from "@/lib/recharge-batch";
 import { clampRedeemCodes } from "@/lib/recharge-batch-core";
-import { ANON_BATCH_CODES_PER_REQUEST, UNKNOWN_CODE_STOP_AFTER } from "@/lib/redeem-guard-core";
+import { ANON_BATCH_CODES_PER_REQUEST, UNKNOWN_CODE_STOP_AFTER, isGuessOutcome } from "@/lib/redeem-guard-core";
 import { assertBatchCodeBudget, recordRedeemFailure } from "@/lib/redeem-guard";
 import { RedeemRejectedError } from "@/lib/redeem-guard-core";
 import { getSession } from "@/lib/auth";
@@ -126,7 +126,7 @@ export async function POST(req: Request) {
         list.push({ code, ok: true, orderNo: opened.order.orderNo, error: "" });
       } catch (error) {
         if (error instanceof RedeemRejectedError) {
-          unknownStreak += 1;
+          if (isGuessOutcome(error.outcome)) unknownStreak += 1;
           await recordRedeemFailure({
             ip,
             email: contactEmail,

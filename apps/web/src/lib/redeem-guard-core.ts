@@ -40,17 +40,19 @@ export function normalizeGuardEmail(email: string) {
   return `${local}@${trimmed.slice(at + 1)}`;
 }
 
-/** 预检失败算半次，避免手滑的真实客户立刻被封。其它失败算一次。 */
+/**
+ * 预检失败算半次，避免手滑的真实客户立刻被封。猜码（不存在 / 已禁用）算一次。
+ * 已使用的卡不算：卡是真的，多半是买家兑换完又粘了一次，或批量里混进了用过的；撞库猜不出真卡。
+ */
 export function failureWeight(outcome: string) {
   if (outcome === "preflight_failed") return 0.5;
-  if (
-    outcome === "unknown_code" ||
-    outcome === "used_code" ||
-    outcome === "disabled_code"
-  ) {
-    return 1;
-  }
+  if (outcome === "unknown_code" || outcome === "disabled_code") return 1;
   return 0;
+}
+
+/** 批量里遇到几张这种就停掉整批。已使用的卡不算猜码，不让它把整批卡住。 */
+export function isGuessOutcome(outcome: string) {
+  return failureWeight(outcome) >= 1;
 }
 
 export function sumFailureWeight(outcomes: string[]) {

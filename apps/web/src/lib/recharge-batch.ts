@@ -18,7 +18,7 @@ import {
 } from "@/lib/orders";
 import { REDEEM_BATCH_CONCURRENCY, mapPool } from "@/lib/recharge-batch-core";
 import { assertRedeemCodeKnown, recordRedeemFailure } from "@/lib/redeem-guard";
-import { RedeemRejectedError, UNKNOWN_CODE_STOP_AFTER } from "@/lib/redeem-guard-core";
+import { RedeemRejectedError, UNKNOWN_CODE_STOP_AFTER, isGuessOutcome } from "@/lib/redeem-guard-core";
 import type { AgentCredential } from "@/lib/recharge-types";
 
 export type BatchPreviewRow = {
@@ -64,7 +64,7 @@ export async function previewRedeemCodes(
       allowed.push(code);
     } catch (error) {
       if (error instanceof RedeemRejectedError) {
-        unknown += 1;
+        if (isGuessOutcome(error.outcome)) unknown += 1;
         if (guard) {
           await recordRedeemFailure({
             ip: guard.ip,

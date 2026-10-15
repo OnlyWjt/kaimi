@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   decideBlock,
   failureWeight,
+  isGuessOutcome,
   normalizeGuardEmail,
   retryAfterSeconds,
   sumFailureWeight,
@@ -21,8 +22,20 @@ describe("failureWeight", () => {
   it("预检失败算半次，猜码算一次，成功不算", () => {
     expect(failureWeight("preflight_failed")).toBe(0.5);
     expect(failureWeight("unknown_code")).toBe(1);
+    expect(failureWeight("disabled_code")).toBe(1);
     expect(failureWeight("ok")).toBe(0);
     expect(sumFailureWeight(["preflight_failed", "preflight_failed", "unknown_code"])).toBe(2);
+  });
+});
+
+describe("已使用的卡不算失败", () => {
+  it("不计入封禁权重，也不算批量里的猜码", () => {
+    expect(failureWeight("used_code")).toBe(0);
+    expect(sumFailureWeight(Array(30).fill("used_code"))).toBe(0);
+    expect(isGuessOutcome("used_code")).toBe(false);
+    expect(isGuessOutcome("unknown_code")).toBe(true);
+    expect(isGuessOutcome("disabled_code")).toBe(true);
+    expect(isGuessOutcome("preflight_failed")).toBe(false);
   });
 });
 
