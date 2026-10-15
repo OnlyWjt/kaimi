@@ -7,6 +7,7 @@ type GuideTab =
   | "integration"
   | "selection"
   | "commerce"
+  | "pricing"
   | "agents"
   | "earnings"
   | "appearance";
@@ -70,7 +71,7 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
               在「接入卡台」加主台/备台、填协议和 Key，把出口 IP 加进卡台白名单；再到「选卡配置」设优先级和兑换策略。保存选卡和保存策略都会同步到卡台；兑换会把第一条可用卡作为 preferred 发出去。
             </li>
             <li>
-              在「接入卡台」填本站公网地址（https://你的域名，不要 localhost），到「售卖设置」填易支付网关/PID/密钥和手续费，再到「代理管理」设每个套餐的默认成本和零售价上限。保存后看一眼异步通知地址，应是
+              在「接入卡台」填本站公网地址（https://你的域名，不要 localhost），到「售卖设置」填易支付网关/PID/密钥和手续费，再到「套餐定价」设每个套餐的默认成本和零售价上限。保存后看一眼异步通知地址，应是
               公网域名/api/webhooks/epay。
             </li>
             <li>
@@ -137,6 +138,9 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
             </GuideJump>
             <GuideJump title="选卡配置" onClick={() => onGo("selection")}>
               产品在线状态、自动选卡优先级、本站兑换策略和卡健康。保存后会把首选卡、每卡上限和是否换卡推到卡台。
+            </GuideJump>
+            <GuideJump title="套餐定价" onClick={() => onGo("pricing")}>
+              每个套餐的显示名称、默认成本、零售价上限、上游进价、店铺分类和地区说明；卡台付款地区也在这里勾。
             </GuideJump>
             <GuideJump title="售卖设置" onClick={() => onGo("commerce")}>
               运营状态（停售原因、手动关店、余额线）、下单规则、易支付商户和手续费、失败的后台任务。

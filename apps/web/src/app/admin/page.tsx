@@ -11,6 +11,7 @@ import { AdminCdks } from "@/components/admin-cdks";
 import { AdminGuide } from "@/components/admin-guide";
 import { AdminOrders, type AdminOrderKind } from "@/components/admin-orders";
 import { AdminOverview } from "@/components/admin-overview";
+import { AdminPlanPricing } from "@/components/admin-plan-pricing";
 import { AdminAppearance, AdminIntegration, AdminNotify } from "@/components/admin-site-settings";
 import { CardSelectionConfig } from "@/components/card-selection-config";
 import { AdminEarningsStats } from "@/components/admin-earnings-stats";
@@ -31,6 +32,7 @@ type Tab =
   | "notify"
   | "selection"
   | "commerce"
+  | "pricing"
   | "finished"
   | "agents"
   | "guard"
@@ -64,6 +66,7 @@ const GROUPS: ReadonlyArray<{ id: string; name: string; items: ReadonlyArray<rea
     name: "卖卡",
     items: [
       ["commerce", "售卖设置"],
+      ["pricing", "套餐定价"],
       ["finished", "成品号"],
       ["selection", "选卡配置"],
     ],
@@ -288,6 +291,7 @@ export default function AdminPage() {
         {tab === "usage" ? <AdminUsageStats /> : null}
 
         {tab === "commerce" ? <CommerceAdmin embedded /> : null}
+        {tab === "pricing" ? <AdminPlanPricing /> : null}
         {tab === "finished" ? <FinishedAccountsAdmin /> : null}
         {tab === "selection" ? <CardSelectionConfig /> : null}
 

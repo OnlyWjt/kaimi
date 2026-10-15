@@ -549,10 +549,11 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
       <section className="km-panel space-y-3">
         <h2 className="text-xl font-semibold">卡台账户</h2>
         <p className="text-sm text-[var(--km-fg-muted)]">
-          卡台地址和 API Key 在「接入卡台」。套餐价格在「代理管理」。代理的商店收益和提卡在「对账」里按代理结清，周结已停用。
+          卡台地址和 API Key 在「接入卡台」。套餐价格在「套餐定价」。代理的商店收益和提卡在「对账」里按代理结清，周结已停用。
         </p>
         <div className="flex flex-wrap gap-2">
           <a href="/admin#integration" className="km-btn km-btn-ghost inline-flex">去接入卡台</a>
+          <a href="/admin#pricing" className="km-btn km-btn-ghost inline-flex">去套餐定价</a>
           <a href="/admin#reconcile" className="km-btn km-btn-ghost inline-flex">去对账</a>
         </div>
       </section>

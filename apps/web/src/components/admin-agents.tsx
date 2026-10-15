@@ -9,22 +9,12 @@ import { buildAgentWelcomeText } from "@/lib/agent-welcome-core";
 import { copyText } from "@/lib/copy-text";
 import { isLocalAccountPlan } from "@/lib/finished-account-core";
 import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
-import {
-  isOverMaxRetailPrice,
-  maxRetailPriceError,
-} from "@/lib/plan-price-core";
+import { isOverMaxRetailPrice } from "@/lib/plan-price-core";
 import { KmSelect } from "@/components/km-select";
 import { hasNextPage, pageLabel } from "@/lib/pagination-core";
 import { groupPlansByBase, regionDisplay } from "@/lib/cardplatform/regions";
 import { RegionBadge } from "@/components/region-badge";
-
-type RegionFields = {
-  basePlanKey?: string;
-  paymentCountry?: string;
-  regionLabel?: string;
-  regionCapable?: boolean;
-  sortOrder?: number;
-};
+import { type RegionFields, allowedPlanLabels, withRegion } from "@/components/admin-plan-helpers";
 
 type AgentRow = {
   id: number;
@@ -65,240 +55,6 @@ type AgentPlanRow = {
   costOverrideCents: number | null;
   retailPriceCents: number;
 } & RegionFields;
-
-const PLAN_SHELVES = ["全部", "会员", "续费", "点数", "成品号"] as const;
-
-function planShelf(plan: { name: string; planKey: string; fulfillmentKind?: string }): Exclude<(typeof PLAN_SHELVES)[number], "全部"> {
-  if (isLocalAccountPlan(plan) || /成品/.test(plan.name)) return "成品号";
-  if (/续费|renew/i.test(`${plan.name} ${plan.planKey}`)) return "续费";
-  if (/点数|credit/i.test(`${plan.name} ${plan.planKey}`)) return "点数";
-  return "会员";
-}
-
-function withRegion<T extends { planKey: string; name: string } & RegionFields>(plans: T[]) {
-  return plans.map((plan) => ({
-    ...plan,
-    basePlanKey: plan.basePlanKey || "",
-    paymentCountry: plan.paymentCountry || "",
-    regionLabel: plan.regionLabel || "",
-    regionCapable: Boolean(plan.regionCapable),
-    sortOrder: plan.sortOrder ?? 0,
-  }));
-}
-
-function allowedPlanLabels(plans: AgentRow["allowedPlans"]) {
-  return groupPlansByBase(withRegion(plans)).map((group) => {
-    if (!group.plans.some((plan) => plan.regionCapable)) return group.primary.name;
-    const regions = group.plans.map(
-      (plan) => regionDisplay(plan.paymentCountry, plan.regionLabel).zh,
-    );
-    return `${group.primary.name}（${regions.join("/")}）`;
-  });
-}
-
-function regionTone(cost: string, enabled: boolean) {
-  const cents = centsFromYuanText(cost);
-  const priced = cents != null && cents > 0;
-  if (!priced) return { text: "待定价", tone: "text-amber-700 bg-amber-50" };
-  if (enabled) return { text: "已启用", tone: "text-emerald-800 bg-emerald-50" };
-  return { text: "未启用", tone: "text-[var(--km-fg-muted)] bg-[var(--km-bg-muted)]" };
-}
-
-function sellableLabel(plan: CatalogPlan) {
-  if (isLocalAccountPlan(plan)) return "本地库存";
-  if (plan.cardplatformSellable) return "可售";
-  return plan.paymentCountry ? "卡台已停售" : "不可售";
-}
-
-function PlanCostCards({
-  catalog,
-  costDraft,
-  capDraft,
-  shelf,
-  openGroups,
-  busy,
-  onShelf,
-  onToggleGroup,
-  onCost,
-  onCap,
-  onEnabled,
-  onGrant,
-  onRename,
-}: {
-  catalog: CatalogPlan[];
-  costDraft: Record<string, string>;
-  capDraft: Record<string, string>;
-  shelf: (typeof PLAN_SHELVES)[number];
-  openGroups: Record<string, boolean>;
-  busy: string;
-  onShelf: (shelf: (typeof PLAN_SHELVES)[number]) => void;
-  onToggleGroup: (baseKey: string) => void;
-  onCost: (planKey: string, value: string) => void;
-  onCap: (planKey: string, value: string) => void;
-  onEnabled: (planKey: string, enabled: boolean) => void;
-  onGrant: (plans: CatalogPlan[]) => void;
-  onRename: (planKeys: string[], name: string) => void;
-}) {
-  const groups = groupPlansByBase(withRegion(catalog)).map((group) => ({
-    ...group,
-    shelf: planShelf(group.primary),
-    multi: group.plans.length > 1 || group.plans.some((plan) => plan.regionCapable),
-  }));
-  const shown = shelf === "全部" ? groups : groups.filter((group) => group.shelf === shelf);
-  const sections = PLAN_SHELVES.filter((name) => name !== "全部").filter((name) =>
-    shown.some((group) => group.shelf === name),
-  );
-
-  return (
-    <div className="space-y-4">
-      <div className="km-tabs">
-        {PLAN_SHELVES.map((name) => {
-          const count = name === "全部" ? groups.length : groups.filter((group) => group.shelf === name).length;
-          if (name !== "全部" && count === 0) return null;
-          return (
-            <button
-              key={name}
-              type="button"
-              className={`km-tab ${shelf === name ? "km-tab-active" : ""}`}
-              onClick={() => onShelf(name)}
-            >
-              {name} {count}
-            </button>
-          );
-        })}
-      </div>
-      {sections.map((name) => (
-        <section key={name} className="space-y-2">
-          <h3 className="px-1 text-sm font-medium text-[var(--km-fg-muted)]">{name}</h3>
-          {shown
-            .filter((group) => group.shelf === name)
-            .map((group) => {
-              const open = Boolean(openGroups[group.baseKey]);
-              const enabledCount = group.plans.filter((plan) => {
-                const cents = centsFromYuanText(costDraft[plan.planKey] ?? "");
-                return plan.enabled && cents != null && cents > 0;
-              }).length;
-              return (
-                <article key={group.baseKey} className="overflow-hidden rounded-2xl border border-[var(--km-border)]">
-                  <div className="flex flex-wrap items-center gap-3 px-4 py-3">
-                    <label className="min-w-[12rem] flex-1 text-xs text-[var(--km-fg-muted)]">
-                      显示名称
-                      <input
-                        className="km-input mt-1"
-                        maxLength={100}
-                        aria-label={`${group.baseKey} 的显示名称`}
-                        value={group.primary.name}
-                        onChange={(event) =>
-                          onRename(
-                            group.plans.map((plan) => plan.planKey),
-                            event.target.value,
-                          )
-                        }
-                      />
-                    </label>
-                    <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onToggleGroup(group.baseKey)}>
-                      <div className="flex flex-wrap items-baseline gap-2">
-                        <span className="font-mono text-xs text-[var(--km-fg-muted)]">{group.baseKey}</span>
-                        <span className="text-xs text-[var(--km-fg-muted)]">
-                          {sellableLabel(group.primary)}
-                          {group.multi ? ` · ${enabledCount}/${group.plans.length} 已启用` : ""}
-                        </span>
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {group.plans.map((plan) => {
-                          const state = regionTone(costDraft[plan.planKey] ?? "", plan.enabled);
-                          const cents = centsFromYuanText(costDraft[plan.planKey] ?? "");
-                          return (
-                            <span
-                              key={plan.planKey}
-                              className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs ${state.tone}`}
-                            >
-                              <RegionBadge country={plan.paymentCountry || ""} regionLabel={plan.regionLabel} compact />
-                              {state.text}
-                              {cents != null && cents > 0 ? ` ¥${costDraft[plan.planKey]}` : ""}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    </button>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-[var(--km-fg-muted)]">{open ? "收起" : "编辑"}</span>
-                      {group.multi ? (
-                        <button
-                          type="button"
-                          className="km-btn km-btn-ghost km-btn-sm"
-                          disabled={Boolean(busy)}
-                          onClick={() => onGrant(group.plans)}
-                        >
-                          全部启用并开放
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                  {open ? (
-                    <div className={`grid gap-px border-t border-[var(--km-border)] bg-[var(--km-border)] ${group.multi ? "md:grid-cols-3" : ""}`}>
-                      {group.plans.map((plan) => {
-                        const cents = centsFromYuanText(costDraft[plan.planKey] ?? "");
-                        const unpriced = Boolean(plan.paymentCountry) && (cents == null || cents <= 0);
-                        return (
-                          <div key={plan.planKey} className="space-y-3 bg-[var(--km-bg-elevated)] p-4">
-                            <div className="flex items-center justify-between gap-2">
-                              <RegionBadge country={plan.paymentCountry || ""} regionLabel={plan.regionLabel} size="md" />
-                              <span className="text-xs text-[var(--km-fg-muted)]">{sellableLabel(plan)}</span>
-                            </div>
-                            <label className="block text-xs text-[var(--km-fg-muted)]">
-                              默认成本
-                              <input
-                                className="km-input mt-1"
-                                inputMode="decimal"
-                                value={costDraft[plan.planKey] ?? ""}
-                                onChange={(event) => onCost(plan.planKey, event.target.value)}
-                              />
-                            </label>
-                            <label className="block text-xs text-[var(--km-fg-muted)]">
-                              零售价上限
-                              <input
-                                className="km-input mt-1"
-                                inputMode="decimal"
-                                placeholder="不限价"
-                                value={capDraft[plan.planKey] ?? ""}
-                                onChange={(event) => onCap(plan.planKey, event.target.value)}
-                              />
-                            </label>
-                            <div className="flex items-center justify-between gap-2">
-                              <label className="flex items-center gap-2 text-sm" title={unpriced ? "先填默认成本" : undefined}>
-                                <input
-                                  type="checkbox"
-                                  checked={plan.enabled}
-                                  disabled={unpriced}
-                                  onChange={(event) => onEnabled(plan.planKey, event.target.checked)}
-                                />
-                                启用
-                              </label>
-                              {group.multi ? null : (
-                                <button
-                                  type="button"
-                                  className="text-xs text-[var(--km-fg-muted)] underline disabled:opacity-50"
-                                  disabled={Boolean(busy)}
-                                  onClick={() => onGrant([plan])}
-                                >
-                                  开放给全部代理
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </article>
-              );
-            })}
-        </section>
-      ))}
-    </div>
-  );
-}
 
 function AgentActionMenu({
   open,
@@ -410,8 +166,6 @@ export function AdminAgents() {
   const { ask, dialog } = useAskDialog();
   const [list, setList] = useState<AgentRow[]>([]);
   const [catalog, setCatalog] = useState<CatalogPlan[]>([]);
-  const [costDraft, setCostDraft] = useState<Record<string, string>>({});
-  const [capDraft, setCapDraft] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
@@ -419,9 +173,6 @@ export function AdminAgents() {
   const [agentPlans, setAgentPlans] = useState<AgentPlanRow[]>([]);
   const [overrideDraft, setOverrideDraft] = useState<Record<string, string>>({});
   const [plansLoading, setPlansLoading] = useState(false);
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
-  const [shelf, setShelf] = useState<(typeof PLAN_SHELVES)[number]>("全部");
-  const [costsOpen, setCostsOpen] = useState(false);
   const [agentQuery, setAgentQuery] = useState("");
   const [agentStatus, setAgentStatus] = useState("");
   const [agentPlan, setAgentPlan] = useState("");
@@ -499,24 +250,6 @@ export function AdminAgents() {
       setList(agentsData.list || []);
       setCatalog(nextCatalog);
       setRedeemUrl(String(portalData.redeemUrl || ""));
-      setCostDraft(
-        Object.fromEntries(
-          nextCatalog.map((item) => [
-            item.planKey,
-            yuanTextFromCents(item.globalCostPriceCents),
-          ]),
-        ),
-      );
-      setCapDraft(
-        Object.fromEntries(
-          nextCatalog.map((item) => [
-            item.planKey,
-            item.maxRetailPriceCents
-              ? yuanTextFromCents(item.maxRetailPriceCents)
-              : "",
-          ]),
-        ),
-      );
     } catch (reason) {
       toast(reason instanceof Error ? reason.message : "加载失败", "err");
     } finally {
@@ -735,117 +468,6 @@ export function AdminAgents() {
     }
   }
 
-  function pricePayload(source: CatalogPlan[]) {
-    const displayName = new Map<string, string>();
-    for (const group of groupPlansByBase(withRegion(source))) {
-      const name = group.primary.name.trim();
-      for (const plan of group.plans) displayName.set(plan.planKey, name);
-    }
-    return source.map((item) => {
-      const name = displayName.get(item.planKey) ?? item.name.trim();
-      const cents = centsFromYuanText(costDraft[item.planKey] ?? "");
-      if (!name) {
-        throw new Error(`${item.planKey} 的显示名称不能为空`);
-      }
-      if (cents == null || Number.isNaN(cents)) {
-        throw new Error(`${name} 的默认成本请填金额`);
-      }
-      const capRaw = capDraft[item.planKey] ?? "";
-      const capCents = centsFromYuanText(capRaw);
-      if (capRaw.trim() && (capCents == null || Number.isNaN(capCents))) {
-        throw new Error(`${name} 的零售价上限请填金额`);
-      }
-      const capError = maxRetailPriceError(capCents, cents);
-      if (capError) throw new Error(`${name} ${capError}`);
-      return {
-        planKey: item.planKey,
-        name,
-        globalCostPriceCents: cents,
-        maxRetailPriceCents: capRaw.trim() ? capCents : null,
-        enabled: item.enabled,
-      };
-    });
-  }
-
-  async function saveDefaultPrices() {
-    setBusy("defaults");
-    try {
-      const response = await fetch("/api/admin/plans", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plans: pricePayload(catalog) }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "默认价格保存失败");
-      toast("默认成本已保存");
-      await load();
-    } catch (reason) {
-      toast(reason instanceof Error ? reason.message : "默认价格保存失败", "err");
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function enableForAllAgents(plans: CatalogPlan[]) {
-    const ready: CatalogPlan[] = [];
-    const skipped: string[] = [];
-    for (const plan of plans) {
-      const cents = centsFromYuanText(costDraft[plan.planKey] ?? "");
-      const label = plan.paymentCountry
-        ? `${plan.name} · ${regionDisplay(plan.paymentCountry, plan.regionLabel).zh}`
-        : plan.name;
-      if (cents == null || Number.isNaN(cents) || (plan.paymentCountry && cents <= 0)) {
-        skipped.push(label);
-        continue;
-      }
-      ready.push(plan);
-    }
-    if (ready.length === 0) {
-      toast("先填好默认成本。成本为 0 的地区不能启用。", "err");
-      return;
-    }
-    const names = ready
-      .map((plan) =>
-        plan.paymentCountry ? regionDisplay(plan.paymentCountry, plan.regionLabel).zh : plan.name,
-      )
-      .join("、");
-    const answer = await ask({
-      title: "开放给全部代理",
-      message: `启用 ${names}，并让所有在营代理都能卖。${
-        skipped.length ? `未定价的地区会跳过：${skipped.join("、")}。` : ""
-      }`,
-      confirmLabel: "启用并开放",
-      cancelLabel: "取消",
-    });
-    if (!answer) return;
-    setBusy("grant-all");
-    try {
-      const keys = new Set(ready.map((plan) => plan.planKey));
-      const next = catalog.map((item) => (keys.has(item.planKey) ? { ...item, enabled: true } : item));
-      setCatalog(next);
-      const saved = await fetch("/api/admin/plans", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plans: pricePayload(next) }),
-      });
-      const savedData = await saved.json();
-      if (!saved.ok) throw new Error(savedData.error || "默认价格保存失败");
-      const granted = await fetch("/api/admin/plans/grant", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planKeys: [...keys] }),
-      });
-      const grantedData = await granted.json();
-      if (!granted.ok) throw new Error(grantedData.error || "开放失败");
-      toast(typeof grantedData.message === "string" ? grantedData.message : "已开放给全部代理");
-      await load();
-    } catch (reason) {
-      toast(reason instanceof Error ? reason.message : "开放失败", "err");
-    } finally {
-      setBusy("");
-    }
-  }
-
   async function saveAgentPlans() {
     if (!selectedAgent) return;
     setBusy("agent-plans");
@@ -990,87 +612,16 @@ export function AdminAgents() {
         </details>
       </section>
 
-      <section className="km-panel space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xl font-semibold">默认成本价</h2>
-          <button type="button" className="km-btn km-btn-ghost km-btn-sm shrink-0" onClick={() => setCostsOpen((current) => !current)}>
-            {costsOpen ? "收起" : "展开"}
-          </button>
-        </div>
+      <section className="km-panel flex flex-wrap items-center justify-between gap-3">
         <div>
-            <p className="text-sm text-[var(--km-fg-muted)]">
-              {catalog.length === 0
-                ? "还没有套餐。等自动同步，或到「接入卡台」立刻拉一次。"
-                : `${groupPlansByBase(withRegion(catalog)).length} 个套餐 · ${PLAN_SHELVES.filter((name) => name !== "全部")
-                    .map((name) => {
-                      const count = groupPlansByBase(withRegion(catalog)).filter((group) => planShelf(group.primary) === name).length;
-                      return count ? `${name} ${count}` : "";
-                    })
-                    .filter(Boolean)
-                    .join(" · ")}`}
-            </p>
-            {costsOpen ? (
-              <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-                显示名称由管理员填写。保存后，代理后台和顾客店铺都使用这个名称。代理在店铺装修里另行填写商品名时，顾客看到的是代理填写的名称。
-                这是平台给代理的默认成本。代理登录后只能在自己的成本之上加零售价。
-                零售价上限留空表示不限价；填了之后代理改价不能超过它，但已经高于上限的老价格照卖，会在下面的「套餐」弹窗里标出来。
-              </p>
-            ) : (
-              <p className="mt-1 text-sm text-[var(--km-fg-muted)]">点开再改显示名称、成本和上限。</p>
-            )}
-        </div>
-        {costsOpen && catalog.length === 0 ? (
-          <p className="text-sm text-[var(--km-fg-muted)]">
-            还没有套餐。等自动同步，或到「接入卡台」立刻拉一次。
+          <h2 className="text-xl font-semibold">默认成本价</h2>
+          <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
+            套餐名称、默认成本、零售价上限、店铺分类在「卖卡 › 套餐定价」统一改；这里只给单个代理改成本。
           </p>
-        ) : null}
-        {costsOpen && catalog.length > 0 ? (
-          <PlanCostCards
-            catalog={catalog}
-            costDraft={costDraft}
-            capDraft={capDraft}
-            shelf={shelf}
-            openGroups={openGroups}
-            busy={busy}
-            onShelf={setShelf}
-            onToggleGroup={(baseKey) =>
-              setOpenGroups((current) => ({ ...current, [baseKey]: !current[baseKey] }))
-            }
-            onCost={(planKey, value) => setCostDraft((current) => ({ ...current, [planKey]: value }))}
-            onCap={(planKey, value) => setCapDraft((current) => ({ ...current, [planKey]: value }))}
-            onEnabled={(planKey, enabled) =>
-              setCatalog((current) =>
-                current.map((item) => (item.planKey === planKey ? { ...item, enabled } : item)),
-              )
-            }
-            onGrant={(plans) => void enableForAllAgents(plans)}
-            onRename={(planKeys, name) =>
-              setCatalog((current) =>
-                current.map((item) => (planKeys.includes(item.planKey) ? { ...item, name } : item)),
-              )
-            }
-          />
-        ) : null}
-        {costsOpen ? (
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className="km-btn"
-            disabled={Boolean(busy) || catalog.length === 0}
-            onClick={() => void saveDefaultPrices()}
-          >
-            {busy === "defaults" ? "保存中…" : "保存名称和价格"}
-          </button>
-          <button
-            type="button"
-            className="km-btn km-btn-ghost"
-            disabled={Boolean(busy) || catalog.every((plan) => !plan.enabled)}
-            onClick={() => void enableForAllAgents(catalog.filter((plan) => plan.enabled))}
-          >
-            {busy === "grant-all" ? "开放中…" : "把已勾选的套餐开放给全部代理"}
-          </button>
         </div>
-        ) : null}
+        <a href="/admin#pricing" className="km-btn km-btn-ghost">
+          去套餐定价
+        </a>
       </section>
 
       <section className="km-panel space-y-4">
