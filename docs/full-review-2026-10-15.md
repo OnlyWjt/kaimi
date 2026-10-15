@@ -29,24 +29,24 @@
 
 ### P1 产品与信息架构
 
-1. **后台有两个「订单」入口，概念重叠。** 「日常 › 订单」（全部 / 店铺订单 / 兑换记录）和「卖卡 › 即时发卡」（店铺订单 + 手续费核对 + 退款）列的是同一批店铺订单，操作却分散在两边。建议：订单相关操作都收进「日常 › 订单」的店铺订单视图，「即时发卡」只留运营状态和配置。
-2. **「即时发卡」页把运营和配置混成一长页。** 运营状态、订单列表、下单规则、易支付商户与费率、卡台账户入口都在一页里，手机上近 3500px 高。顶上还飘着一个跟本页无关的「导出全部收益」按钮（应在「收益统计」）。建议：支付商户 / 费率 / 下单规则搬到「系统」组。
+1. ~~**后台有两个「订单」入口，概念重叠。** 「日常 › 订单」（全部 / 店铺订单 / 兑换记录）和「卖卡 › 即时发卡」（店铺订单 + 手续费核对 + 退款）列的是同一批店铺订单，操作却分散在两边。建议：订单相关操作都收进「日常 › 订单」的店铺订单视图，「即时发卡」只留运营状态和配置。~~ **已处理（第二轮）：** 店铺订单的补发、人工核对、手续费、开票通知、退款都搬进「日常 › 订单 › 店铺订单」，可展开明细，`#store-orders` 直达。
+2. ~~**「即时发卡」页把运营和配置混成一长页。** 运营状态、订单列表、下单规则、易支付商户与费率、卡台账户入口都在一页里，手机上近 3500px 高。顶上还飘着一个跟本页无关的「导出全部收益」按钮（应在「收益统计」）。建议：支付商户 / 费率 / 下单规则搬到「系统」组。~~ **已处理（第二轮）：** 「即时发卡」改名「售卖设置」，只留运营状态、下单规则、易支付和失败任务；「导出全部收益」去掉（收益统计页本来就有按范围导出）。
 3. **「默认成本价」放在「代理 › 代理管理」里，**其实是套餐定价，跟「卖卡」更贴近。
-4. **`/shop` 在内部发卡关闭时是死路：**页面写「请先购买卡密，再到本站兑换开通」，但没告诉人去哪买。现在业务都在代理店铺，建议关闭时直接 404 或跳首页，并从导航里去掉。
+4. ~~**`/shop` 在内部发卡关闭时是死路：**页面写「请先购买卡密，再到本站兑换开通」，但没告诉人去哪买。现在业务都在代理店铺，建议关闭时直接 404 或跳首页，并从导航里去掉。~~ **已处理（第二轮）：** `/shop` 跳首页、`/shop/query` 跳 `/lookup`，后台「开启内部发卡页」开关删除。
 5. **首页 `/` 只有平台品牌「Kaimi」和三张入口卡**，对从代理店铺来的买家没有上下文。如果首页只给兑换用，标题和文案可以直接围绕「兑换 / 查进度」，不必再出现「发卡网」字样。
 
 ### P1 开发
 
-6. **旧的 `cdk_pool` / 内部发卡链路还在运行时代码里**：`lib/inventory.ts`、`app/api/shop/*`、`lib/orders.ts` 的兑换锁卡、`/api/cdk/lookup`。表里卡密是**明文**存的（`issued_cdks` 是加密 + hash）。确认线上没有存量后：要么迁成加密存储，要么整条链路下线，少一套状态机。
-7. **审计日志里的 IP 可伪造。** 8 处用 `x-forwarded-for` 的第一段写审计（如 `app/api/admin/agents/[id]/route.ts`、`lib/store-orders.ts` 传给易支付的 `clientip`），和限流用的 `clientIp()` 口径不一致。统一改用 `clientIp(req)`。
+6. ~~**旧的 `cdk_pool` / 内部发卡链路还在运行时代码里**：`lib/inventory.ts`、`app/api/shop/*`、`lib/orders.ts` 的兑换锁卡、`/api/cdk/lookup`。表里卡密是**明文**存的（`issued_cdks` 是加密 + hash）。确认线上没有存量后：要么迁成加密存储，要么整条链路下线，少一套状态机。~~ **已处理（第二轮）：** 内部发卡下单和库存抢占代码删除；`cdk_pool` 和售码订单里的存量卡密由版本化迁移 v1 改成密文 + 查找键，兑换时仍能识别。本地库 5 张存量卡验证过迁移后都能按卡密找回。
+7. ~~**审计日志里的 IP 可伪造。** 8 处用 `x-forwarded-for` 的第一段写审计（如 `app/api/admin/agents/[id]/route.ts`、`lib/store-orders.ts` 传给易支付的 `clientip`），和限流用的 `clientIp()` 口径不一致。统一改用 `clientIp(req)`。~~ **已处理（第二轮）：** 全部改成 `clientIp(req)`，包括对账接口自带的那份 `clientIp`。
 8. **`background_jobs` 已完成的行没有清理。** 和 `redeem_guard_events` 一样放进每日清理任务（比如保留 30 天）。
 9. **lint warning 清掉。** 主要是 `lib/agent-draw.ts` 里几个形参没用、`lib/orders.ts:286` 的 `now`、`lib/plan-grant.ts` 的 `platformPlans` 和若干 `useEffect` 依赖。另外 `next lint` 在 Next 16 会移除，提前换成 `eslint` CLI。
 
 ### P2 架构
 
-10. **超大文件**：`lib/agent-draw.ts`（2237 行）、`components/agent-storefront.tsx`（2064 行）、`db/migrate-lib.ts`（1946 行）、`components/admin-agents.tsx`（1604 行）、`app/admin/page.tsx`（1400 行）、`app/globals.css`（3121 行）。`app/api/admin/route.ts` 还在用 `section=` 一个入口分发十几种功能。按上一份文档 P2-2 的思路逐个拆。
-11. **迁移仍是每次启动全量跑**，靠吞 `duplicate column` 保幂等，一次性回填靠 `settings` 标记。建议加 `schema_migrations(version)`，新迁移按版本只跑一次。
-12. **进程内状态决定了只能单实例部署**：限流、登录锁定、开放 API 限流、`lastUsedWriteAt` 都在内存里，SQLite 也是本地文件。目前规模够用，但 README 的部署章节应该写明「只能跑一个副本」。
+10. **超大文件**：`lib/agent-draw.ts`（2237 行）、`components/agent-storefront.tsx`（2064 行）、`db/migrate-lib.ts`（1946 行）、`components/admin-agents.tsx`（1604 行）、`app/admin/page.tsx`（1400 行）、`app/globals.css`（3121 行）。`app/api/admin/route.ts` 还在用 `section=` 一个入口分发十几种功能。按上一份文档 P2-2 的思路逐个拆。 **部分处理（第二轮）：** `app/admin/page.tsx` 拆成外壳（311 行）+ 总览/订单/卡密/接入与通知/外观 5 个组件；`lib/agent-draw.ts` 拆出账单查询和导出（`agent-draw-bills.ts`）及公共小件（`agent-draw-shared.ts`）。其余几个大文件见下面「第二轮没做的」。
+11. ~~**迁移仍是每次启动全量跑**，靠吞 `duplicate column` 保幂等，一次性回填靠 `settings` 标记。建议加 `schema_migrations(version)`，新迁移按版本只跑一次。~~ **已处理（第二轮）：** 新增 `db/versioned-migrations.ts` + `schema_migrations` 表，一次性数据迁移按版本只跑一次、和版本记录同事务；`ensureSchema` 只留幂等 DDL（实测整份 20ms 左右，不值得拆）。
+12. ~~**进程内状态决定了只能单实例部署**：限流、登录锁定、开放 API 限流、`lastUsedWriteAt` 都在内存里，SQLite 也是本地文件。目前规模够用，但 README 的部署章节应该写明「只能跑一个副本」。~~ **已处理（第二轮）：** README 部署章节加「只能跑一个实例」。
 13. **预览设计稿（`/preview/*`、`admin-desk-rest-preview.tsx`、`admin-agent-desk-preview.tsx`、`agent-console-preview.tsx`，合计约 3500 行）**生产环境已 404，但仍跟着打包和类型检查。定稿后删掉或移出 `src`。
 
 ### P2 仓库卫生
@@ -64,3 +64,12 @@
 - 发卡租约：`issuing` 状态用 lease token 防并发，上游已出卡但本地写库失败的情况会保留引用等人工处理。
 - 登录：按 IP 限流 + 按用户名锁定，改密码后旧会话失效。
 - 移动端：截图的前台、后台、代理后台页面在 390 宽度下都没有横向溢出。
+
+---
+
+## 四、第二轮（同分支）没做的
+
+- **剩下的大文件**：`components/agent-storefront.tsx`（2064）、`db/migrate-lib.ts`（1950，按上面的约定只放 DDL，体积会停在这里）、`lib/reconciliation.ts`（1619）、`components/admin-agents.tsx`（1604）、`lib/referrals.ts`（1480）、`app/globals.css`（3121）。这几个内部逻辑耦合更紧、DB 测试覆盖不全，建议每个单独开分支、配着测试拆，不和这次混在一起。
+- **`app/api/admin/route.ts` 的 `section=` 分发**还在，前端已经收进 `components/admin-api.ts` 一处调用，后端拆路由时只改这一个文件。
+- 第 3、5、8、9、13、14、15 条没动。
+- 测试偶发一次 vitest worker 进程意外退出（约 25 次全量跑出现 2 次，不是用例失败，崩的那个文件没上报）。新加的迁移测试单独跑 25 次没复现，没能定位到具体文件，先记在这里。
