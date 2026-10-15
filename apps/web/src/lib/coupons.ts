@@ -24,6 +24,7 @@ import {
 } from "@/lib/coupon-core";
 import { getMaxOrderQuantity } from "@/lib/store-quantity";
 import type { PaymentChannel } from "@/lib/payments/fees";
+import { isUniqueViolation } from "@/lib/db-errors";
 
 export type { CouponPreviewTicket };
 
@@ -259,7 +260,7 @@ export async function createAgentCoupon(
     );
     return item ?? created;
   } catch (error) {
-    if (/UNIQUE|unique/i.test(error instanceof Error ? error.message : String(error))) {
+    if (isUniqueViolation(error)) {
       throw new Error("这个券码在本店已经用过了");
     }
     throw error;
@@ -320,7 +321,7 @@ export async function updateAgentCoupon(
       await replaceCouponPlans(tx, couponId, draft.planKeys);
     });
   } catch (error) {
-    if (/UNIQUE|unique/i.test(error instanceof Error ? error.message : String(error))) {
+    if (isUniqueViolation(error)) {
       throw new Error("这个券码在本店已经用过了");
     }
     throw error;

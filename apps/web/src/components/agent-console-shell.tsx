@@ -31,6 +31,15 @@ function ContactRequiredBanner({ gate }: { gate: Exclude<ContactGate, { state: "
   );
 }
 
+/** 平台停售时每一页都挂着。具体原因是运维细节，不给代理看，只讲清楚影响、不用他处理。 */
+function SalesPausedBanner() {
+  return (
+    <div className="km-acp-warn mb-4 text-[var(--km-danger)]">
+      平台暂时停止了所有店铺的购买，买家现在下不了单。恢复后店铺自动重新开放，不用你操作。
+    </div>
+  );
+}
+
 const NAV = [
   { href: "/agent", label: "概览", group: "日常" },
   { href: "/agent/notices", label: "公告", group: "日常" },
@@ -262,6 +271,7 @@ export function AgentConsoleShell({
           </div>
         </aside>
         <div className="km-acp-main">
+          {profile.salesPaused ? <SalesPausedBanner /> : null}
           {profile.contactGate.state !== "ok" ? (
             <ContactRequiredBanner gate={profile.contactGate} />
           ) : null}

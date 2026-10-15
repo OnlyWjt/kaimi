@@ -21,12 +21,26 @@ describe("normalizeCouponCode", () => {
 });
 
 describe("applyCoupon", () => {
-  it("折扣按几折四舍五入", () => {
-    expect(applyCoupon(15000, { kind: "percent", percentZhe: 8, thresholdCents: 0, amountCents: 0 })).toEqual({
+  it("折扣按实付百分比算：80 = 8 折，95 = 9.5 折", () => {
+    expect(applyCoupon(15000, { kind: "percent", percentZhe: 80, thresholdCents: 0, amountCents: 0 })).toEqual({
       ok: true,
       goodsCents: 12000,
       discountCents: 3000,
     });
+    expect(applyCoupon(15000, { kind: "percent", percentZhe: 95, thresholdCents: 0, amountCents: 0 })).toEqual({
+      ok: true,
+      goodsCents: 14250,
+      discountCents: 750,
+    });
+  });
+
+  // 线上出过：填 96（想打 9.6 折）的券按老算法把 ¥150 算成 ¥1440
+  it("折扣券永远不会让价格变高", () => {
+    for (let p = 1; p <= 99; p += 1) {
+      const r = applyCoupon(15000, { kind: "percent", percentZhe: p, thresholdCents: 0, amountCents: 0 });
+      expect(r.ok && r.goodsCents < 15000).toBe(true);
+    }
+    expect(applyCoupon(15000, { kind: "percent", percentZhe: 100, thresholdCents: 0, amountCents: 0 }).ok).toBe(false);
   });
 
   it("满减未达标时报错，达标后减免且不超过原价", () => {
@@ -48,7 +62,7 @@ describe("applyCoupon", () => {
 describe("quoteCouponTicket", () => {
   it("折扣券按买 1 张算出券后价、开票价和收益", () => {
     const ticket = quoteCouponTicket({
-      spec: { kind: "percent", percentZhe: 8, thresholdCents: 0, amountCents: 0 },
+      spec: { kind: "percent", percentZhe: 80, thresholdCents: 0, amountCents: 0 },
       listCents: 15000,
       costCents: 3000,
       feeRule,
@@ -102,14 +116,14 @@ describe("parseCouponDraft", () => {
       name: "新客 8 折",
       code: "new8",
       kind: "percent",
-      percentZhe: 8,
+      percentZhe: 80,
       maxUses: 20,
       planKeys: ["plus", "plus"],
     });
     expect(percent).toMatchObject({
       code: "NEW8",
       kind: "percent",
-      percentZhe: 8,
+      percentZhe: 80,
       planKeys: ["plus"],
       maxUses: 20,
     });
@@ -129,7 +143,7 @@ describe("parseCouponDraft", () => {
         name: "空套餐",
         code: "NONE1",
         kind: "percent",
-        percentZhe: 9,
+        percentZhe: 90,
         maxUses: 1,
         planKeys: [],
       }),
@@ -140,7 +154,7 @@ describe("parseCouponDraft", () => {
 describe("previewCouponWarnings", () => {
   it("利润不够的套餐会提醒，达不到满减也会提醒", () => {
     const below = previewCouponWarnings({
-      spec: { kind: "percent", percentZhe: 1, thresholdCents: 0, amountCents: 0 },
+      spec: { kind: "percent", percentZhe: 10, thresholdCents: 0, amountCents: 0 },
       planKeys: ["plus"],
       maxQuantity: 5,
       channels: [{ channel: "alipay", feeRule }],

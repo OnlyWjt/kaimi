@@ -10,6 +10,7 @@ import { parseContactsJson } from "@/lib/agent-storefront-config";
 import { requireAdmin } from "@/lib/auth";
 import { normalizeAgentSlug, validateAgentSlug } from "@/lib/agent-slug";
 import { bootDb } from "@/lib/config";
+import { isUniqueViolation } from "@/lib/db-errors";
 
 const createSchema = z.object({
   username: z
@@ -36,7 +37,7 @@ async function authorize() {
 }
 
 function uniqueFailure(error: unknown) {
-  return /UNIQUE|unique/i.test(error instanceof Error ? error.message : String(error));
+  return isUniqueViolation(error);
 }
 
 export async function GET() {

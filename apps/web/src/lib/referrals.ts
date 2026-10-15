@@ -2,7 +2,7 @@
  * 店铺邀请返券：设置、下单接入、发货后记邀请、定时发券、退款作废、统计。
  * 设计见 docs/agent-store-referral-coupon-design.md。
  */
-import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, like, lt, lte, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, like, lte, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   agentPlanPrices,
@@ -19,10 +19,9 @@ import {
 } from "@/db/schema";
 import { publicShopName } from "@/lib/agent-names";
 import { resolveProductName, rowToSettings } from "@/lib/agent-storefront-config";
-import type { AuthSession } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit";
 import { planNameWithRegion } from "@/lib/cardplatform/regions";
-import { decryptSecret, encryptSecret, hashLookupValue } from "@/lib/crypto";
+import { encryptSecret } from "@/lib/crypto";
 import { formatBeijingDateTime } from "@/lib/datetime";
 import { yuanTextFromCents } from "@/lib/money";
 import { getPublicBaseUrl } from "@/lib/public-url";
@@ -30,7 +29,6 @@ import { isLocalAccountPlan } from "@/lib/finished-account-core";
 import type { FeeRule } from "@/lib/payments/fees";
 import {
   REFERRAL_COUPON_CODE_LENGTH,
-  REFERRAL_DEFAULTS,
   REFERRAL_INVITE_CODE_LENGTH,
   type ReferralRewards,
   type ReferralSettingsInput,
@@ -49,60 +47,32 @@ import {
   referralRewardsError,
   referralSettingsError,
 } from "@/lib/referral-core";
+import { type Actor, type Conn, type Tx, PAID_STATUSES, ReferralError, describeRewards, effectiveSettings, nowIso, planDisplayNames, referralEmailHash, safeDecrypt, settingsRow } from "@/lib/referrals-shared";
+import {
+  expireReferralCoupons,
+  retryReferralCouponNotices,
+  sendReferralCouponNotice,
+  sendReferralCouponReminders,
+} from "@/lib/referrals-mail";
 
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-type Conn = typeof db | Tx;
-type Actor = Pick<AuthSession, "id" | "role">;
-
-export class ReferralError extends Error {
-  readonly status: number;
-  constructor(message: string, status = 400) {
-    super(message);
-    this.status = status;
-  }
-}
-
-/** 付过款的状态。refunding 还在等平台退，先当付过。 */
-const PAID_STATUSES = ["paid", "manual", "refunding", "refunded"];
-
-export function referralEmailHash(email: string) {
-  return hashLookupValue(normalizeReferralEmail(email));
-}
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function safeDecrypt(value: string) {
-  try {
-    return decryptSecret(value);
-  } catch {
-    return "";
-  }
-}
+export { ReferralError, referralEmailHash } from "@/lib/referrals-shared";
+export {
+  expireReferralCoupons,
+  retryReferralCouponNotices,
+  sendReferralCouponNotice,
+  sendReferralCouponReminders,
+} from "@/lib/referrals-mail";
+export {
+  adminDisableReferral,
+  adminReferralOverview,
+  adminRestoreReferral,
+  getReferralInviter,
+  listReferralInviters,
+  referralSummary,
+  revokeReferralCoupon,
+} from "@/lib/referrals-report";
 
 /* —————————————————— 设置 —————————————————— */
-
-async function settingsRow(agentId: number, conn: Conn = db) {
-  const [row] = await conn
-    .select()
-    .from(agentReferralSettings)
-    .where(eq(agentReferralSettings.agentId, agentId))
-    .limit(1);
-  return row ?? null;
-}
-
-function effectiveSettings(row: typeof agentReferralSettings.$inferSelect | null) {
-  return {
-    enabled: Boolean(row?.enabled),
-    firstEnabledAt: row?.firstEnabledAt ?? null,
-    couponValidDays: row?.couponValidDays ?? REFERRAL_DEFAULTS.couponValidDays,
-    coolingDays: row?.coolingDays ?? REFERRAL_DEFAULTS.coolingDays,
-    minOrderCents: row?.minOrderCents ?? REFERRAL_DEFAULTS.minOrderCents,
-    monthlyCap: row?.monthlyCap ?? REFERRAL_DEFAULTS.monthlyCap,
-    disabledByAdminAt: row?.disabledByAdminAt ?? null,
-  };
-}
 
 async function feeRules(): Promise<FeeRule[]> {
   const rows = await db.select().from(paymentChannelConfigs);
@@ -159,39 +129,6 @@ async function sellablePlans(agentId: number) {
       retailPriceCents: row.retailPriceCents,
       costCents: row.costOverrideCents ?? row.globalCostPriceCents,
     }));
-}
-
-/** 只给买家看的商品名，按 plan_key 查；下架了的也要能显示（券上的快照）。 */
-async function planDisplayNames(agentId: number, planKeys: string[]) {
-  const keys = [...new Set(planKeys)];
-  if (!keys.length) return new Map<string, string>();
-  const rows = await db
-    .select({
-      planKey: platformPlans.planKey,
-      basePlanKey: platformPlans.basePlanKey,
-      name: platformPlans.name,
-      paymentCountry: platformPlans.paymentCountry,
-      regionLabel: platformPlans.regionLabel,
-      regionCapable: platformPlans.regionCapable,
-    })
-    .from(platformPlans)
-    .where(inArray(platformPlans.planKey, keys));
-  const storefront = await db.query.agentStorefronts.findFirst({
-    where: eq(agentStorefronts.agentId, agentId),
-  });
-  const names = rowToSettings(storefront).productNames;
-  return new Map(
-    rows.map((row) => [
-      row.planKey,
-      planNameWithRegion(
-        resolveProductName(row.basePlanKey || row.planKey, row.name, names).zh,
-        row.regionCapable,
-        row.paymentCountry,
-        row.regionLabel,
-        "paren",
-      ),
-    ]),
-  );
 }
 
 export async function getReferralSettings(agentId: number) {
@@ -831,15 +768,6 @@ async function issueOne(referralId: number, now: Date) {
   return true;
 }
 
-function describeRewards(rewards: ReferralRewards, names: Map<string, string>) {
-  return describeReferralRewards(
-    Object.entries(rewards).map(([planKey, amountCents]) => ({
-      planName: names.get(planKey) || planKey,
-      amountCents,
-    })),
-  );
-}
-
 /* —————————————————— 通知 —————————————————— */
 
 /** 给代理发 Telegram。没绑定、关了通知就不发；失败只记日志，不影响业务。 */
@@ -888,201 +816,6 @@ export async function referralInviteMailLines(order: {
   ];
 }
 
-const MAIL_ATTEMPTS = 5;
-const MAIL_SENDING_STALE_MS = 2 * 60_000;
-const REMIND_BEFORE_MS = 3 * 86_400_000;
-/** 有效期太短的券不发到期提醒，免得刚到账就提醒要过期。 */
-const REMIND_MIN_VALID_MS = 4 * 86_400_000;
-
-async function couponMailContext(couponId: number) {
-  const coupon = await db.query.agentReferralCoupons.findFirst({
-    where: eq(agentReferralCoupons.id, couponId),
-  });
-  if (!coupon) return null;
-  const [code, agent] = await Promise.all([
-    db.query.agentReferralCodes.findFirst({ where: eq(agentReferralCodes.id, coupon.codeId) }),
-    db.query.agents.findFirst({ where: eq(agents.id, coupon.agentId), columns: { currentSlug: true } }),
-  ]);
-  const rewards = parseReferralRewards(coupon.rewardsJson);
-  const names = await planDisplayNames(coupon.agentId, Object.keys(rewards));
-  const origin = await getPublicBaseUrl();
-  const email = code ? safeDecrypt(code.ownerEmailEncrypted) : "";
-  return {
-    coupon,
-    email,
-    description: describeRewards(rewards, names),
-    shopUrl: origin && agent?.currentSlug ? `${origin}/s/${agent.currentSlug}` : "",
-  };
-}
-
-function couponUseLines(ctx: NonNullable<Awaited<ReturnType<typeof couponMailContext>>>) {
-  return [
-    `券码 ${ctx.coupon.code}`,
-    `可用于：${ctx.description}`,
-    `有效期至 ${formatBeijingDateTime(ctx.coupon.expiresAt)}（北京时间）`,
-    "",
-    `下次在本店下单时，在「优惠券」里填券码。下单邮箱要用这个邮箱（${maskReferralEmail(ctx.email)}），别的邮箱用不了。`,
-    ...(ctx.shopUrl ? [ctx.shopUrl] : []),
-  ];
-}
-
-/** 得券通知邮件。认领 notice_status，并发和重试都只发一次。 */
-export async function sendReferralCouponNotice(couponId: number) {
-  const now = nowIso();
-  const stale = new Date(Date.now() - MAIL_SENDING_STALE_MS).toISOString();
-  const [claimed] = await db
-    .update(agentReferralCoupons)
-    .set({ noticeStatus: "sending", updatedAt: now })
-    .where(
-      and(
-        eq(agentReferralCoupons.id, couponId),
-        lt(agentReferralCoupons.noticeAttempts, MAIL_ATTEMPTS),
-        or(
-          inArray(agentReferralCoupons.noticeStatus, ["pending", "failed"]),
-          and(eq(agentReferralCoupons.noticeStatus, "sending"), lt(agentReferralCoupons.updatedAt, stale)),
-        ),
-      ),
-    )
-    .returning({ id: agentReferralCoupons.id });
-  if (!claimed) return;
-  const finish = (status: string, error = "", countAttempt = false) =>
-    db
-      .update(agentReferralCoupons)
-      .set({
-        noticeStatus: status,
-        noticeError: error.slice(0, 300),
-        ...(countAttempt ? { noticeAttempts: sql`${agentReferralCoupons.noticeAttempts} + 1` } : {}),
-        updatedAt: nowIso(),
-      })
-      .where(eq(agentReferralCoupons.id, couponId));
-  try {
-    const ctx = await couponMailContext(couponId);
-    if (!ctx || ctx.coupon.status !== "unused") {
-      await finish("skipped", "券已不可用");
-      return;
-    }
-    const { sendShopMail } = await import("@/lib/mail");
-    const result = await sendShopMail({
-      agentId: ctx.coupon.agentId,
-      to: ctx.email,
-      subject: (shop) => `${shop} 邀请券到账`,
-      lines: () => ["你邀请的好友在本店下单成功，送你一张邀请券：", "", ...couponUseLines(ctx)],
-    });
-    await finish(result.sent ? "sent" : "skipped", result.sent ? "" : result.reason);
-  } catch (error) {
-    await finish("failed", error instanceof Error ? error.message : "发信失败", true);
-    throw error;
-  }
-}
-
-/** 定时补发失败的得券邮件。只补发券后 3 天内的，过久就不打扰了。 */
-export async function retryReferralCouponNotices(limit = 10) {
-  const since = new Date(Date.now() - 3 * 86_400_000).toISOString();
-  const rows = await db
-    .select({ id: agentReferralCoupons.id })
-    .from(agentReferralCoupons)
-    .where(
-      and(
-        inArray(agentReferralCoupons.noticeStatus, ["pending", "failed", "sending"]),
-        lt(agentReferralCoupons.noticeAttempts, MAIL_ATTEMPTS),
-        gte(agentReferralCoupons.createdAt, since),
-      ),
-    )
-    .limit(limit);
-  let sent = 0;
-  for (const row of rows) {
-    try {
-      await sendReferralCouponNotice(row.id);
-      sent += 1;
-    } catch {
-      /* 已记 failed，下一轮再试 */
-    }
-  }
-  return sent;
-}
-
-/** 到期前 3 天提醒还没用的券，每张只提醒一次。 */
-export async function sendReferralCouponReminders(now = new Date(), limit = 20) {
-  const nowIsoValue = now.toISOString();
-  const soon = new Date(now.getTime() + REMIND_BEFORE_MS).toISOString();
-  const stale = new Date(now.getTime() - MAIL_SENDING_STALE_MS).toISOString();
-  const candidates = await db
-    .select({
-      id: agentReferralCoupons.id,
-      createdAt: agentReferralCoupons.createdAt,
-      expiresAt: agentReferralCoupons.expiresAt,
-    })
-    .from(agentReferralCoupons)
-    .where(
-      and(
-        eq(agentReferralCoupons.status, "unused"),
-        gt(agentReferralCoupons.expiresAt, nowIsoValue),
-        lte(agentReferralCoupons.expiresAt, soon),
-        inArray(agentReferralCoupons.remindStatus, ["", "failed", "sending"]),
-        lt(agentReferralCoupons.remindAttempts, 3),
-      ),
-    )
-    .limit(limit);
-  let sent = 0;
-  for (const row of candidates) {
-    if (Date.parse(row.expiresAt) - Date.parse(row.createdAt) < REMIND_MIN_VALID_MS) {
-      await db
-        .update(agentReferralCoupons)
-        .set({ remindStatus: "skipped" })
-        .where(and(eq(agentReferralCoupons.id, row.id), eq(agentReferralCoupons.remindStatus, "")));
-      continue;
-    }
-    const [claimed] = await db
-      .update(agentReferralCoupons)
-      .set({ remindStatus: "sending", updatedAt: nowIso() })
-      .where(
-        and(
-          eq(agentReferralCoupons.id, row.id),
-          eq(agentReferralCoupons.status, "unused"),
-          or(
-            inArray(agentReferralCoupons.remindStatus, ["", "failed"]),
-            and(eq(agentReferralCoupons.remindStatus, "sending"), lt(agentReferralCoupons.updatedAt, stale)),
-          ),
-        ),
-      )
-      .returning({ id: agentReferralCoupons.id });
-    if (!claimed) continue;
-    try {
-      const ctx = await couponMailContext(row.id);
-      if (!ctx) continue;
-      const { sendShopMail } = await import("@/lib/mail");
-      const result = await sendShopMail({
-        agentId: ctx.coupon.agentId,
-        to: ctx.email,
-        subject: (shop) => `${shop} 邀请券快到期了`,
-        lines: () => ["你在本店的邀请券还没用，3 天内就要到期了：", "", ...couponUseLines(ctx)],
-      });
-      await db
-        .update(agentReferralCoupons)
-        .set({ remindStatus: result.sent ? "sent" : "skipped" })
-        .where(eq(agentReferralCoupons.id, row.id));
-      if (result.sent) sent += 1;
-    } catch (error) {
-      console.warn(`[referral] 到期提醒失败：${error instanceof Error ? error.message : error}`);
-      await db
-        .update(agentReferralCoupons)
-        .set({ remindStatus: "failed", remindAttempts: sql`${agentReferralCoupons.remindAttempts} + 1` })
-        .where(eq(agentReferralCoupons.id, row.id));
-    }
-  }
-  return sent;
-}
-
-export async function expireReferralCoupons(now = new Date()) {
-  const rows = await db
-    .update(agentReferralCoupons)
-    .set({ status: "expired", updatedAt: now.toISOString() })
-    .where(and(eq(agentReferralCoupons.status, "unused"), lte(agentReferralCoupons.expiresAt, now.toISOString())))
-    .returning({ id: agentReferralCoupons.id });
-  return rows.length;
-}
-
-/** sync-scheduler 每分钟调一次。 */
 export async function runReferralJobs() {
   const processed = await processPendingReferralOrders();
   const { issued } = await issueDueReferralCoupons();
@@ -1160,321 +893,3 @@ export async function buyerReferralView(order: { agentId: number; customerEmail:
   };
 }
 
-/* —————————————————— 代理 / 管理员查看 —————————————————— */
-
-export async function referralSummary(agentId: number | null, range: "month" | "all") {
-  const since = range === "month" ? beijingMonthStartIso(new Date()) : "";
-  const agentFilter = (column: typeof agentReferrals.agentId | typeof agentReferralCoupons.agentId) =>
-    agentId ? eq(column, agentId) : undefined;
-  const [referralRows, couponRows] = await Promise.all([
-    db
-      .select({
-        status: agentReferrals.status,
-        n: sql<number>`count(*)`,
-        amount: sql<number>`coalesce(sum(${agentReferrals.orderAmountCents}), 0)`,
-      })
-      .from(agentReferrals)
-      .where(and(agentFilter(agentReferrals.agentId), since ? gte(agentReferrals.createdAt, since) : undefined))
-      .groupBy(agentReferrals.status),
-    db
-      .select({
-        status: agentReferralCoupons.status,
-        n: sql<number>`count(*)`,
-        discount: sql<number>`coalesce(sum(${agentReferralCoupons.usedDiscountCents}), 0)`,
-      })
-      .from(agentReferralCoupons)
-      .where(
-        and(agentFilter(agentReferralCoupons.agentId), since ? gte(agentReferralCoupons.createdAt, since) : undefined),
-      )
-      .groupBy(agentReferralCoupons.status),
-  ]);
-  const ref = (status: string) => referralRows.find((row) => row.status === status);
-  const cou = (status: string) => couponRows.find((row) => row.status === status);
-  const invitedRows = referralRows.filter((row) => row.status !== "void");
-  return {
-    invitedCount: invitedRows.reduce((sum, row) => sum + Number(row.n), 0),
-    invitedAmountCents: invitedRows.reduce((sum, row) => sum + Number(row.amount), 0),
-    coolingCount: Number(ref("cooling")?.n) || 0,
-    cappedCount: Number(ref("capped")?.n) || 0,
-    voidCount: Number(ref("void")?.n) || 0,
-    issuedCount: couponRows.reduce((sum, row) => sum + Number(row.n), 0),
-    usedCount: Number(cou("used")?.n) || 0,
-    expiredCount: Number(cou("expired")?.n) || 0,
-    revokedCount: Number(cou("revoked")?.n) || 0,
-    discountCents: Number(cou("used")?.discount) || 0,
-  };
-}
-
-export async function listReferralInviters(
-  agentId: number,
-  input: { q?: string; page?: number; pageSize?: number },
-) {
-  const page = Math.max(1, Math.trunc(input.page || 1));
-  const pageSize = Math.min(100, Math.max(1, Math.trunc(input.pageSize || 20)));
-  const q = (input.q || "").trim();
-  let filterIds: number[] | null = null;
-  if (q) {
-    // 邮箱是加密存的，按 hash 精确查；也可以直接搜邀请码或券码
-    const upper = q.toUpperCase();
-    const byCode = await db
-      .select({ id: agentReferralCodes.id })
-      .from(agentReferralCodes)
-      .where(
-        and(
-          eq(agentReferralCodes.agentId, agentId),
-          or(eq(agentReferralCodes.code, upper), eq(agentReferralCodes.ownerEmailHash, referralEmailHash(q))),
-        ),
-      );
-    const byCoupon = await db
-      .select({ id: agentReferralCoupons.codeId })
-      .from(agentReferralCoupons)
-      .where(and(eq(agentReferralCoupons.agentId, agentId), eq(agentReferralCoupons.code, upper)));
-    filterIds = [...new Set([...byCode, ...byCoupon].map((row) => row.id))];
-    if (!filterIds.length) return { list: [], total: 0, page, pageSize };
-  }
-  // 只列有过邀请的邀请人；没邀请过人的买家太多，列出来没意义
-  const where = and(
-    eq(agentReferralCodes.agentId, agentId),
-    filterIds ? inArray(agentReferralCodes.id, filterIds) : undefined,
-    filterIds ? undefined : sql`exists (select 1 from agent_referrals r where r.code_id = ${agentReferralCodes.id})`,
-  );
-  const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(agentReferralCodes).where(where);
-  const codes = await db
-    .select()
-    .from(agentReferralCodes)
-    .where(where)
-    .orderBy(desc(agentReferralCodes.id))
-    .limit(pageSize)
-    .offset((page - 1) * pageSize);
-  const ids = codes.map((code) => code.id);
-  const [refStats, couponStats] = ids.length
-    ? await Promise.all([
-        db
-          .select({ codeId: agentReferrals.codeId, status: agentReferrals.status, n: sql<number>`count(*)` })
-          .from(agentReferrals)
-          .where(inArray(agentReferrals.codeId, ids))
-          .groupBy(agentReferrals.codeId, agentReferrals.status),
-        db
-          .select({
-            codeId: agentReferralCoupons.codeId,
-            status: agentReferralCoupons.status,
-            n: sql<number>`count(*)`,
-            discount: sql<number>`coalesce(sum(${agentReferralCoupons.usedDiscountCents}), 0)`,
-          })
-          .from(agentReferralCoupons)
-          .where(inArray(agentReferralCoupons.codeId, ids))
-          .groupBy(agentReferralCoupons.codeId, agentReferralCoupons.status),
-      ])
-    : [[], []];
-  return {
-    list: codes.map((code) => {
-      const refs = refStats.filter((row) => row.codeId === code.id);
-      const cps = couponStats.filter((row) => row.codeId === code.id);
-      const refCount = (status: string) => Number(refs.find((row) => row.status === status)?.n) || 0;
-      return {
-        codeId: code.id,
-        code: code.code,
-        email: safeDecrypt(code.ownerEmailEncrypted),
-        createdAt: code.createdAt,
-        rewardedCount: refCount("rewarded"),
-        coolingCount: refCount("cooling"),
-        cappedCount: refCount("capped"),
-        voidCount: refCount("void"),
-        couponCount: cps.reduce((sum, row) => sum + Number(row.n), 0),
-        usedCount: Number(cps.find((row) => row.status === "used")?.n) || 0,
-        discountCents: Number(cps.find((row) => row.status === "used")?.discount) || 0,
-      };
-    }),
-    total: Number(total) || 0,
-    page,
-    pageSize,
-  };
-}
-
-export async function getReferralInviter(agentId: number, codeId: number) {
-  const [code] = await db
-    .select()
-    .from(agentReferralCodes)
-    .where(and(eq(agentReferralCodes.id, codeId), eq(agentReferralCodes.agentId, agentId)))
-    .limit(1);
-  if (!code) throw new ReferralError("邀请人不存在", 404);
-  const [referrals, coupons] = await Promise.all([
-    db
-      .select({
-        id: agentReferrals.id,
-        status: agentReferrals.status,
-        voidReason: agentReferrals.voidReason,
-        qualifyAt: agentReferrals.qualifyAt,
-        orderAmountCents: agentReferrals.orderAmountCents,
-        inviteeEmailEncrypted: agentReferrals.inviteeEmailEncrypted,
-        createdAt: agentReferrals.createdAt,
-        orderNo: storeOrders.orderNo,
-        couponId: agentReferrals.couponId,
-      })
-      .from(agentReferrals)
-      .innerJoin(storeOrders, eq(storeOrders.id, agentReferrals.storeOrderId))
-      .where(eq(agentReferrals.codeId, code.id))
-      .orderBy(desc(agentReferrals.id)),
-    db
-      .select({
-        id: agentReferralCoupons.id,
-        code: agentReferralCoupons.code,
-        status: agentReferralCoupons.status,
-        rewardsJson: agentReferralCoupons.rewardsJson,
-        expiresAt: agentReferralCoupons.expiresAt,
-        usedDiscountCents: agentReferralCoupons.usedDiscountCents,
-        revokedReason: agentReferralCoupons.revokedReason,
-        createdAt: agentReferralCoupons.createdAt,
-        usedOrderNo: storeOrders.orderNo,
-      })
-      .from(agentReferralCoupons)
-      .leftJoin(storeOrders, eq(storeOrders.id, agentReferralCoupons.usedOrderId))
-      .where(eq(agentReferralCoupons.codeId, code.id))
-      .orderBy(desc(agentReferralCoupons.id)),
-  ]);
-  const names = await planDisplayNames(
-    agentId,
-    coupons.flatMap((coupon) => Object.keys(parseReferralRewards(coupon.rewardsJson))),
-  );
-  const now = Date.now();
-  return {
-    codeId: code.id,
-    code: code.code,
-    email: safeDecrypt(code.ownerEmailEncrypted),
-    createdAt: code.createdAt,
-    referrals: referrals.map(({ inviteeEmailEncrypted, ...row }) => ({
-      ...row,
-      inviteeEmail: safeDecrypt(inviteeEmailEncrypted),
-    })),
-    coupons: coupons.map(({ rewardsJson, ...row }) => ({
-      ...row,
-      status: row.status === "unused" && Date.parse(row.expiresAt) <= now ? "expired" : row.status,
-      description: describeReferralRewards(
-        Object.entries(parseReferralRewards(rewardsJson)).map(([planKey, amountCents]) => ({
-          planName: names.get(planKey) || planKey,
-          amountCents,
-        })),
-      ),
-    })),
-  };
-}
-
-/** 停用一张没用掉的券。agentId 传了就只能停自己店的。 */
-export async function revokeReferralCoupon(
-  input: { couponId: number; reason: string; agentId?: number },
-  actor: Actor,
-) {
-  const reason = input.reason.trim();
-  if (!reason) throw new ReferralError("请填写停用原因");
-  const [row] = await db
-    .update(agentReferralCoupons)
-    .set({ status: "revoked", revokedReason: reason.slice(0, 200), revokedBy: actor.id, updatedAt: nowIso() })
-    .where(
-      and(
-        eq(agentReferralCoupons.id, input.couponId),
-        input.agentId ? eq(agentReferralCoupons.agentId, input.agentId) : undefined,
-        eq(agentReferralCoupons.status, "unused"),
-      ),
-    )
-    .returning({ id: agentReferralCoupons.id, agentId: agentReferralCoupons.agentId });
-  if (!row) throw new ReferralError("只有未使用的券可以停用", 409);
-  await writeAuditLog({
-    actor,
-    action: actor.role === "agent" ? "agent.referral.coupon.revoke" : "admin.referral.coupon.revoke",
-    targetType: "agent_referral_coupon",
-    targetId: row.id,
-    metadata: { agentId: row.agentId, reason },
-  });
-}
-
-export async function adminDisableReferral(agentId: number, actor: Actor) {
-  const now = nowIso();
-  const [row] = await db
-    .update(agentReferralSettings)
-    .set({ enabled: false, disabledByAdminAt: now, updatedAt: now })
-    .where(and(eq(agentReferralSettings.agentId, agentId), eq(agentReferralSettings.enabled, true)))
-    .returning({ agentId: agentReferralSettings.agentId });
-  if (!row) throw new ReferralError("这个代理没开邀请有礼", 409);
-  await writeAuditLog({ actor, action: "admin.referral.disable", targetType: "agent", targetId: agentId });
-}
-
-/** 解除平台关闭：代理可以自己再打开。不替代理开启，面额要代理自己定。 */
-export async function adminRestoreReferral(agentId: number, actor: Actor) {
-  const [row] = await db
-    .update(agentReferralSettings)
-    .set({ disabledByAdminAt: null, updatedAt: nowIso() })
-    .where(and(eq(agentReferralSettings.agentId, agentId), isNotNull(agentReferralSettings.disabledByAdminAt)))
-    .returning({ agentId: agentReferralSettings.agentId });
-  if (!row) throw new ReferralError("这个代理的邀请有礼没有被平台关闭", 409);
-  await writeAuditLog({ actor, action: "admin.referral.restore", targetType: "agent", targetId: agentId });
-}
-
-/** 管理端：每个开过活动的代理一行，外加需要人工看一眼的邀请人。 */
-export async function adminReferralOverview() {
-  const [settingsRows, total, month] = await Promise.all([
-    db.select().from(agentReferralSettings).where(isNotNull(agentReferralSettings.firstEnabledAt)),
-    referralSummary(null, "all"),
-    referralSummary(null, "month"),
-  ]);
-  const agentIds = settingsRows.map((row) => row.agentId);
-  const agentRows = agentIds.length
-    ? await db
-        .select({ id: agents.id, displayName: agents.displayName, shopName: agents.shopName })
-        .from(agents)
-        .where(inArray(agents.id, agentIds))
-    : [];
-  const perAgent = await Promise.all(
-    settingsRows.map(async (row) => {
-      const agent = agentRows.find((item) => item.id === row.agentId);
-      return {
-        agentId: row.agentId,
-        name: agent ? publicShopName(agent) : String(row.agentId),
-        enabled: row.enabled,
-        disabledByAdmin: Boolean(row.disabledByAdminAt),
-        month: await referralSummary(row.agentId, "month"),
-        total: await referralSummary(row.agentId, "all"),
-      };
-    }),
-  );
-  // 本月触顶、或被邀请订单作废多的邀请人
-  const monthStart = beijingMonthStartIso(new Date());
-  const flagged = await db
-    .select({
-      codeId: agentReferrals.codeId,
-      agentId: agentReferrals.agentId,
-      capped: sql<number>`sum(case when ${agentReferrals.status} = 'capped' then 1 else 0 end)`,
-      voided: sql<number>`sum(case when ${agentReferrals.status} = 'void' then 1 else 0 end)`,
-      n: sql<number>`count(*)`,
-    })
-    .from(agentReferrals)
-    .where(gte(agentReferrals.createdAt, monthStart))
-    .groupBy(agentReferrals.codeId, agentReferrals.agentId)
-    .having(
-      sql`sum(case when ${agentReferrals.status} = 'capped' then 1 else 0 end) > 0 or sum(case when ${agentReferrals.status} = 'void' then 1 else 0 end) >= 2`,
-    )
-    .limit(50);
-  const flaggedCodes = flagged.length
-    ? await db
-        .select()
-        .from(agentReferralCodes)
-        .where(inArray(agentReferralCodes.id, flagged.map((row) => row.codeId)))
-    : [];
-  return {
-    total,
-    month,
-    agents: perAgent,
-    flagged: flagged.map((row) => {
-      const code = flaggedCodes.find((item) => item.id === row.codeId);
-      return {
-        agentId: row.agentId,
-        agentName: perAgent.find((item) => item.agentId === row.agentId)?.name || String(row.agentId),
-        codeId: row.codeId,
-        code: code?.code || "",
-        email: code ? maskReferralEmail(safeDecrypt(code.ownerEmailEncrypted)) : "",
-        monthCount: Number(row.n) || 0,
-        cappedCount: Number(row.capped) || 0,
-        voidCount: Number(row.voided) || 0,
-      };
-    }),
-  };
-}

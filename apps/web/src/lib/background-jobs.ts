@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { and, asc, eq, inArray, lte, or } from "drizzle-orm";
+import { and, asc, eq, inArray, lt, lte, or } from "drizzle-orm";
 import { db } from "@/db";
 import { backgroundJobs, storeOrders } from "@/db/schema";
 import { fulfillStoreOrder } from "@/lib/fulfillment/fulfill-store-order";
@@ -145,4 +145,26 @@ export async function processBackgroundJobs(limit = 20) {
     }
   }
   return { completed, failed };
+}
+
+/**
+ * 已完成的任务保留 30 天，之后删掉，表不再无限长。
+ *
+ * dedupe_key 是唯一索引，删掉完成行等于放开了同一个 key 再入队。现有的 key 都不怕：
+ * 发卡、手续费对账只在订单从未付款变成已付款那一刻入队；回调投递的 key 带投递 id 和第几次，
+ * 投递记录本身也只留 30 天。失败的任务不删，后台「失败任务」要看。
+ */
+export const COMPLETED_JOB_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+export async function pruneCompletedJobs(now = Date.now()) {
+  const deleted = await db
+    .delete(backgroundJobs)
+    .where(
+      and(
+        eq(backgroundJobs.status, "completed"),
+        lt(backgroundJobs.updatedAt, new Date(now - COMPLETED_JOB_RETENTION_MS).toISOString()),
+      ),
+    )
+    .returning({ id: backgroundJobs.id });
+  return deleted.length;
 }

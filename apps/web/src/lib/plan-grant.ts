@@ -1,6 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
-import { agentPlanPrices, agents, platformPlans } from "@/db/schema";
+import { agentPlanPrices, agents } from "@/db/schema";
 import {
   GRANT_PLANS_SAVE_FIRST,
   formatGrantPlansToast,

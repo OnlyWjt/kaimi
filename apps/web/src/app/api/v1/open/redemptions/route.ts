@@ -14,13 +14,13 @@ import { RedeemRejectedError } from "@/lib/redeem-guard-core";
 import { checkChatGPTSessionLocal } from "@/lib/session-check";
 import { publicErrorMessage } from "@/lib/public-error";
 import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
+import { MAILBOX_REDEEM_REMOVED, type AgentCredential } from "@/lib/recharge-types";
 
 const schema = z.object({
   code: z.string().min(REDEEM_CODE_MIN_LENGTH),
-  mode: z.enum(["session", "mailbox"]).default("session"),
+  mode: z.string().default("session"),
   session: z.string().optional().default(""),
   email: z.string().optional().default(""),
-  password: z.string().optional().default(""),
 });
 
 export async function POST(req: Request) {
@@ -60,18 +60,11 @@ export async function POST(req: Request) {
         return finish(openFail("CDK_INVALID", "卡密无效或已使用"));
       }
     }
-    let email = body.email.trim();
-    if (body.mode === "session") {
-      const local = checkChatGPTSessionLocal(body.session);
-      if (!local.ok) return finish(openFail("VALIDATION_FAILED", local.errors[0] || "Session 无效"));
-      email = (local.email || email).trim();
-    } else if (!email) {
-      return finish(openFail("VALIDATION_FAILED", "请填写账号邮箱"));
-    }
-    const account =
-      body.mode === "mailbox"
-        ? { mode: "mailbox" as const, email, password: body.password, email_password: body.password }
-        : { mode: "session" as const, session: body.session, email };
+    if (body.mode !== "session") return finish(openFail("VALIDATION_FAILED", MAILBOX_REDEEM_REMOVED));
+    const local = checkChatGPTSessionLocal(body.session);
+    if (!local.ok) return finish(openFail("VALIDATION_FAILED", local.errors[0] || "Session 无效"));
+    const email = (local.email || body.email).trim();
+    const account: AgentCredential = { mode: "session", session: body.session, email };
     const opened = await beginRechargeOrder({
       cdkCode: body.code.trim(),
       email,

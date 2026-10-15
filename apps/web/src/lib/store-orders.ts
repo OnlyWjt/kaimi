@@ -18,6 +18,7 @@ import { createEpayPayment } from "@/lib/payments/epay";
 import { epayReady, getEpayConfig } from "@/lib/payments/config";
 import type { PaymentChannel } from "@/lib/payments/fees";
 import { assertStoreSalesOpen } from "@/lib/ops-health";
+import { clientIp } from "@/lib/rate-limit";
 import { buildReturnUrl } from "@/lib/open-api/return-url";
 import { maskOrderNo } from "@/lib/order-no-mask";
 import { storeOrderQueryUrl } from "@/lib/store-order-links";
@@ -37,7 +38,10 @@ import {
   planNameWithRegion,
   regionConfirmationRequired,
 } from "@/lib/cardplatform/regions";
-import { countUnusedFinishedAccounts } from "@/lib/finished-accounts";
+import {
+  countPendingStoreAccountClaims,
+  countUnusedFinishedAccounts,
+} from "@/lib/finished-accounts";
 import {
   applyCheckoutCoupon,
   loadCheckoutCoupon,
@@ -329,12 +333,16 @@ export async function createStoreOrder(input: {
 
   const cardplatform = localAccount ? null : await getDefaultCardplatformAccount();
   if (!localAccount && !cardplatform) unavailable("没有可用的卡台账户");
-  if (localAccount) {
-    const unused = await countUnusedFinishedAccounts(offer.planKey);
-    if (unused < quantity) {
+  const assertAccountsAvailable = async (conn: Parameters<typeof countUnusedFinishedAccounts>[1]) => {
+    const [unused, pending] = await Promise.all([
+      countUnusedFinishedAccounts(offer.planKey, conn),
+      countPendingStoreAccountClaims(offer.planKey, conn),
+    ]);
+    if (unused - pending < quantity) {
       throw new Error("这个套餐正在补货中，请稍后再试。");
     }
-  }
+  };
+  if (localAccount) await assertAccountsAvailable(db);
 
   const epay = await getEpayConfig();
   if (!epayReady(epay)) unavailable("易支付未配置");
@@ -372,6 +380,8 @@ export async function createStoreOrder(input: {
   const fulfillmentIdempotencyKey = `kaimi-order-${orderNo}`;
   const createdAt = new Date().toISOString();
   const order = await db.transaction(async (tx) => {
+    // 事务里再数一次：上面那次和插入之间可能有别人刚下了单。
+    if (localAccount) await assertAccountsAvailable(tx);
     if (coupon) {
       await reserveCoupon(tx, { couponId: coupon.id, agentId: agent.id });
     }
@@ -434,6 +444,7 @@ export async function createStoreOrder(input: {
   });
 
   let payment: Awaited<ReturnType<typeof createEpayPayment>>;
+  const buyerIp = clientIp(input.request);
   try {
     payment = await createEpayPayment(epay, {
       outTradeNo: orderNo,
@@ -446,9 +457,7 @@ export async function createStoreOrder(input: {
         ? buildReturnUrl(input.returnUrl, orderNo)
         : storeOrderQueryUrl(base, orderNo, queryToken),
       channel: input.channel,
-      clientIp:
-        input.request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-        undefined,
+      clientIp: buyerIp === "local" ? undefined : buyerIp,
     });
   } catch (error) {
     // 支付单都没建成，买家付不了款：关掉订单并归还优惠券次数。

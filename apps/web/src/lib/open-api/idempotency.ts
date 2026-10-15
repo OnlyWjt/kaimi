@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { apiIdempotency } from "@/db/schema";
 import { hashLookupValue } from "@/lib/crypto";
 import { openFail } from "./respond";
+import { isUniqueViolation } from "@/lib/db-errors";
 
 function replayResponse(status: number, responseJson: string) {
   return new NextResponse(responseJson, {
@@ -31,8 +32,7 @@ export async function claimIdempotent(input: {
     });
     return { requestHash, replay: null as NextResponse | null };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!/UNIQUE|unique/i.test(message)) throw error;
+    if (!isUniqueViolation(error)) throw error;
   }
   const existing = await db.query.apiIdempotency.findFirst({
     where: and(

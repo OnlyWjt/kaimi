@@ -1,16 +1,11 @@
 import { NextResponse } from "next/server";
 import { ReconciliationError } from "@/lib/reconciliation";
 
+// 审计里的 IP 和限流同一个口径：XFF 第一段客户端能随便写，不能当真实来源。
+export { clientIp } from "@/lib/rate-limit";
+
 export function newRequestId() {
   return `req-${crypto.randomUUID().slice(0, 8)}`;
-}
-
-export function clientIp(req: Request) {
-  return (
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    req.headers.get("x-real-ip") ||
-    ""
-  );
 }
 
 export function idempotencyKey(req: Request) {

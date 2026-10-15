@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { checkNoRevive, splitLocked, validateMarkPaid, type LockedLine } from "./reconciliation-core";
+import { reconciliationSource } from "./reconciliation-source.test-helper";
 
-const reconciliation = readFileSync(new URL("./reconciliation.ts", import.meta.url), "utf8");
+const reconciliation = reconciliationSource();
 const agentList = readFileSync(new URL("../app/api/agent/reconciliations/route.ts", import.meta.url), "utf8");
 const agentOne = readFileSync(new URL("../app/api/agent/reconciliations/[id]/route.ts", import.meta.url), "utf8");
 

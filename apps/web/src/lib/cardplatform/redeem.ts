@@ -16,11 +16,7 @@ import {
   findIssuedCdkByCode,
   nestedString,
 } from "./issued-redemption";
-import {
-  mapCardplatformStatus,
-  parseCardplatformRequestId,
-  requestIdForRedeem,
-} from "./status";
+import { mapCardplatformStatus, parseCardplatformRequestId } from "./status";
 import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
 
 export {
@@ -42,16 +38,7 @@ export type RedeemableCdk = {
 };
 
 export function cardplatformCredential(account: AgentCredential) {
-  const source = account as unknown as Record<string, unknown>;
-  return {
-    mode: account.mode,
-    ...(account.mode === "mailbox"
-      ? {
-          email: String(source.email || ""),
-          password: String(source.password || source.email_password || ""),
-        }
-      : { session: String(source.session || "") }),
-  };
+  return { mode: "session" as const, session: String(account.session || "") };
 }
 
 async function planInfoFor(planKey: string) {

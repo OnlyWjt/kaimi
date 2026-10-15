@@ -19,7 +19,7 @@ import { assertBatchCodeBudget, recordRedeemFailure } from "@/lib/redeem-guard";
 import { RedeemRejectedError } from "@/lib/redeem-guard-core";
 import { getSession } from "@/lib/auth";
 import { clientIp } from "@/lib/rate-limit";
-import type { AgentCredential } from "@/lib/recharge-types";
+import { MAILBOX_REDEEM_REMOVED, type AgentCredential } from "@/lib/recharge-types";
 import { checkChatGPTSessionLocal } from "@/lib/session-check";
 import { publicErrorMessage } from "@/lib/public-error";
 
@@ -27,16 +27,12 @@ const schema = z
   .object({
     codes: z.array(z.string()).min(1).max(200),
     email: z.string().email().optional().or(z.literal("")),
-    mode: z.enum(["session", "mailbox"]).optional().default("session"),
+    mode: z.string().optional().default("session"),
     session: z.string().optional().default(""),
-    password: z.string().optional().default(""),
   })
   .superRefine((val, ctx) => {
-    if (val.mode === "mailbox") {
-      if (!val.password || val.password.length < 4) {
-        ctx.addIssue({ code: "custom", path: ["password"], message: "请填写邮箱密码" });
-      }
-    } else if (!val.session || val.session.trim().length < 8) {
+    // mode 不对在 POST 里单独回话术，这里只核 Session。
+    if (val.mode === "session" && (!val.session || val.session.trim().length < 8)) {
       ctx.addIssue({ code: "custom", path: ["session"], message: "请填写 Session" });
     }
   });
@@ -50,6 +46,9 @@ export async function POST(req: Request) {
 
   try {
     const body = schema.parse(await req.json());
+    if (body.mode !== "session") {
+      return NextResponse.json({ error: MAILBOX_REDEEM_REMOVED }, { status: 400 });
+    }
     const session = await getSession().catch(() => null);
     const anonymous = !(session?.role === "agent" && session.agentId);
     const ip = clientIp(req);
@@ -68,42 +67,27 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "请填写要兑换的卡密" }, { status: 400 });
     }
 
-    let account: AgentCredential;
-    let contactEmail: string;
-    if (body.mode === "mailbox") {
-      contactEmail = String(body.email || "").trim();
-      if (!contactEmail) {
-        return NextResponse.json({ error: "请填写账号邮箱" }, { status: 400 });
-      }
-      account = {
-        mode: "mailbox",
-        email: contactEmail,
-        password: body.password.trim(),
-        email_password: body.password.trim(),
-      };
-    } else {
-      // 这里只做本地格式校验。整批开跑前多打一次卡台预检，等于白烧一张卡的
-      // preview + preflight；每张卡提交时都会自己预检，Session 不对会逐行报出来。
-      const local = checkChatGPTSessionLocal(body.session);
-      if (!local.ok) {
-        return NextResponse.json(
-          { error: local.errors[0] || "Session 无效", errors: local.errors },
-          { status: 400 },
-        );
-      }
-      contactEmail = (local.email || body.email || "").trim();
-      if (!contactEmail) {
-        return NextResponse.json(
-          { error: "Session 中未读到邮箱，请更换账号后再试" },
-          { status: 400 },
-        );
-      }
-      account = {
-        mode: "session",
-        session: body.session.trim(),
-        email: contactEmail,
-      };
+    // 这里只做本地格式校验。整批开跑前多打一次卡台预检，等于白烧一张卡的
+    // preview + preflight；每张卡提交时都会自己预检，Session 不对会逐行报出来。
+    const local = checkChatGPTSessionLocal(body.session);
+    if (!local.ok) {
+      return NextResponse.json(
+        { error: local.errors[0] || "Session 无效", errors: local.errors },
+        { status: 400 },
+      );
     }
+    const contactEmail = (local.email || body.email || "").trim();
+    if (!contactEmail) {
+      return NextResponse.json(
+        { error: "Session 中未读到邮箱，请更换账号后再试" },
+        { status: 400 },
+      );
+    }
+    const account: AgentCredential = {
+      mode: "session",
+      session: body.session.trim(),
+      email: contactEmail,
+    };
 
     // 建单是纯本地写库，逐张串行做完就把单号还给前端；上游那串慢调用交给 after()。
     const guesses = createBatchGuessGuard();

@@ -1,13 +1,24 @@
 import { NextResponse } from "next/server";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { cdkPool, orders } from "@/db/schema";
+import { orders } from "@/db/schema";
 import { bootDb } from "@/lib/config";
 import { getStatusHistory, pollRechargeIfNeeded } from "@/lib/orders";
 import { getOrderTimelines, getUpstreamSnapshots } from "@/lib/order-timeline";
-import { maskCode } from "@/lib/crypto";
+import { decryptSecret, maskCode } from "@/lib/crypto";
+import { poolCodesByOrderIds } from "@/lib/inventory";
 import { maskOrderNo } from "@/lib/order-no-mask";
 import { enforceRateLimit } from "@/lib/rate-limit";
+
+/** 旧售码订单发出去的卡密，存的是密文数组（迁移前的老行可能还是明文，decryptSecret 原样放过）。 */
+function deliveredCodes(json: string) {
+  try {
+    const list = JSON.parse(json || "[]");
+    return Array.isArray(list) ? list.map((code) => decryptSecret(String(code))) : [];
+  } catch {
+    return [];
+  }
+}
 
 export async function GET(req: Request) {
   const limited = enforceRateLimit(req, "shop-query", 30);
@@ -38,17 +49,7 @@ export async function GET(req: Request) {
     limit: 20,
   });
 
-  const cdkRows = list.length
-    ? await db
-        .select({ orderId: cdkPool.orderId, code: cdkPool.code })
-        .from(cdkPool)
-        .where(
-          inArray(
-            cdkPool.orderId,
-            list.map((o) => o.id),
-          ),
-        )
-    : [];
+  const cdkRows = await poolCodesByOrderIds(list.map((o) => o.id));
   const codeByOrder = new Map<number, string>();
   for (const row of cdkRows) {
     if (row.orderId) codeByOrder.set(row.orderId, row.code);
@@ -93,13 +94,13 @@ export async function GET(req: Request) {
           fullCodesAllowed &&
           o.kind === "code" &&
           (o.payStatus === "paid" || o.payStatus === "manual")
-            ? (JSON.parse(o.deliveredCodesJson || "[]") as string[])
+            ? deliveredCodes(o.deliveredCodesJson)
             : [],
         /** 明文卡密被藏起来了，界面要据此提示买家改用订单号查。 */
         codesMasked: !fullCodesAllowed,
         codeHints:
           o.kind === "code"
-            ? (JSON.parse(o.deliveredCodesJson || "[]") as string[]).map(maskCode)
+            ? deliveredCodes(o.deliveredCodesJson).map(maskCode)
             : [],
       };
     }),

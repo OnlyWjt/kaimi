@@ -2,7 +2,11 @@ import type { Metadata } from "next";
 import { IBM_Plex_Sans, Sora } from "next/font/google";
 import { ToastHost } from "@/components/toast";
 import { getSiteAppearance } from "@/lib/storefront";
+// 顺序就是层叠顺序：后面的覆盖前面的，别随手调换。
 import "./globals.css";
+import "./order-page.css";
+import "./storefront.css";
+import "./admin-extras.css";
 import "./redeem.css";
 
 const sora = Sora({
@@ -23,7 +27,7 @@ async function siteAppearanceOrFallback() {
     return await getSiteAppearance();
   } catch (error) {
     console.warn("[layout] 读站点外观失败，先用默认主题", error);
-    return { siteName: "Kaimi", themeId: "snow" as const, shopEnabled: false };
+    return { siteName: "Kaimi", themeId: "snow" as const };
   }
 }
 

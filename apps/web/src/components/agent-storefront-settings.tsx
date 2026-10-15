@@ -307,6 +307,8 @@ export function AgentStorefrontSettings() {
                 <div className="flex flex-wrap items-start gap-3">
                   <div className="km-acp-cover-preview">
                     {preview ? (
+                      // 封面可能是代理贴的任意外链，next/image 要先配远程域名白名单，这里直接用 img
+                      // eslint-disable-next-line @next/next/no-img-element
                       <img src={preview} alt="" />
                     ) : (
                       <span>{plan.name.slice(0, 2)}</span>

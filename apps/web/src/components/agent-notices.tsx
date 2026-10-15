@@ -14,14 +14,16 @@ export type AgentNoticesSnapshot = {
 export function AgentNotices({ snapshot }: { snapshot: AgentNoticesSnapshot }) {
   const router = useRouter();
 
+  // 按公告 id 判断：router.refresh() 之后 snapshot 是新对象，用对象当依赖会重复标已读。
+  const unreadId = snapshot.unread ? snapshot.current?.id : undefined;
   useEffect(() => {
-    if (!snapshot.current || !snapshot.unread) return;
-    void fetch(`/api/agent/announcements/${snapshot.current.id}/read`, {
+    if (!unreadId) return;
+    void fetch(`/api/agent/announcements/${unreadId}/read`, {
       method: "POST",
     }).then((res) => {
       if (res.ok) router.refresh();
     });
-  }, [snapshot.current, snapshot.unread, router]);
+  }, [unreadId, router]);
 
   const empty = !snapshot.current && snapshot.history.length === 0;
 

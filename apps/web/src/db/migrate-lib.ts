@@ -13,11 +13,16 @@ import {
 import { computeOrderLedger } from "../lib/order-ledger-core";
 import { CONTACT_ENFORCE_SETTING, graceDeadlineFrom } from "../lib/agent-contact-core";
 import bcrypt from "bcryptjs";
+import { runVersionedMigrations } from "./versioned-migrations";
 import {
   FINISHED_GPT_COST_CENTS,
   FINISHED_GPT_PLAN_KEY,
   LOCAL_ACCOUNT_FULFILLMENT,
 } from "../lib/finished-account-core";
+import { isUniqueViolation } from "../lib/db-errors";
+
+// 这个文件每次启动都整份跑一遍，所以只放幂等的 DDL（建表、补列、建索引）和开库必需的默认数据。
+// 回填、转换存量数据这类一次性迁移不要加在这里，写到 versioned-migrations.ts 按版本号只跑一次。
 
 const DDL = `
 CREATE TABLE IF NOT EXISTS settings (
@@ -1097,6 +1102,16 @@ export async function ensureSchema() {
   await addColumn(
     "ALTER TABLE agent_plan_prices ADD COLUMN cover_url TEXT NOT NULL DEFAULT ''",
   );
+  // 旧库存卡密改成密文 + 查找键，数据由 versioned-migrations 的 v1 搬过去。
+  await addColumn(
+    "ALTER TABLE cdk_pool ADD COLUMN code_hash TEXT NOT NULL DEFAULT ''",
+  );
+  await addColumn(
+    "ALTER TABLE cdk_pool ADD COLUMN code_encrypted TEXT NOT NULL DEFAULT ''",
+  );
+  await client.execute(
+    "CREATE INDEX IF NOT EXISTS cdk_pool_code_hash_idx ON cdk_pool(code_hash)",
+  );
   // 新列必须在第一次查询 platform_plans 之前加上，否则老库会报 no such column。
   await ensureOrderLedgerSchema();
   await ensurePaymentRegionSchema();
@@ -1248,14 +1263,12 @@ export async function ensureSchema() {
       await db.insert(settings).values({ key, value });
     } catch (err) {
       // 并发 boot 可能同时插入同一 key
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!/UNIQUE|unique/i.test(msg)) throw err;
+      if (!isUniqueViolation(err)) throw err;
     }
   };
   await ensureSetting("site_theme", "snow");
   await ensureSetting("site_name", "Kaimi");
   await ensureSetting("sync_interval_minutes", "15");
-  await ensureSetting("shop_enabled", "0");
   await ensureSetting("payment_mode", "manual");
   await ensureSetting("notify_webhook_url", "");
   await ensureSetting("telegram_bot_token", "");
@@ -1283,6 +1296,9 @@ export async function ensureSchema() {
       .set({ value: "Kaimi", updatedAt: new Date().toISOString() })
       .where(eq(settings.key, "site_name"));
   }
+
+  // 表结构都齐了再跑一次性的数据迁移。
+  await runVersionedMigrations();
 }
 
 /**

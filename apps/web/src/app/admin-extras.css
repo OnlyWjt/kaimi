@@ -1,0 +1,197 @@
+/*
+ * 后台零散组件：提卡保留数、总览提示条、表格操作列、运营状态、「更多」菜单、对账、折叠设置。
+ * 从 globals.css 拆出来，按原来的先后顺序在 layout.tsx 里引入，层叠结果不变。
+ */
+
+/* —— 后台提卡账本：成品号保留数设置条 —— */
+.km-draw-reserve {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+  padding: 0.9rem 1.1rem;
+  border: 1px solid var(--km-border);
+  border-radius: 1rem;
+  background: var(--km-bg-elevated);
+}
+
+.km-draw-reserve p {
+  margin: 0;
+}
+
+.km-draw-reserve .km-btn,
+.km-draw-reserve span {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* —— 后台总览：待处理订单提示条 —— */
+.km-ov-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  width: 100%;
+  padding: 0.85rem 1.1rem;
+  border: 1px solid color-mix(in oklab, var(--km-danger) 35%, var(--km-border));
+  border-radius: 1rem;
+  background: color-mix(in oklab, var(--km-danger) 8%, var(--km-bg-elevated));
+  color: var(--km-fg);
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.km-ov-alert span {
+  color: var(--km-fg-muted);
+  font-size: 0.82rem;
+}
+
+/* —— 后台表格操作列：按钮横排、紧凑，不把行撑高 —— */
+.km-row-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.km-admin .km-row-actions .km-btn {
+  padding: 0.28rem 0.7rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+/* —— 运营状态的问题列表 —— */
+.km-health-issues {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.km-health-issues li {
+  position: relative;
+  padding-left: 1rem;
+  font-size: 0.85rem;
+  color: var(--km-danger);
+}
+
+.km-health-issues li::before {
+  content: "";
+  position: absolute;
+  left: 0.2rem;
+  top: 0.55em;
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* —— 表格行的「更多」菜单 —— */
+.km-more {
+  position: relative;
+}
+
+.km-more > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.km-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.km-more-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.3rem);
+  z-index: 20;
+  display: grid;
+  min-width: 9.5rem;
+  padding: 0.3rem;
+  border: 1px solid var(--km-border);
+  border-radius: 0.8rem;
+  background: var(--km-bg-elevated);
+  box-shadow: 0 16px 40px -20px rgb(0 0 0 / 35%);
+}
+
+.km-more-menu button {
+  padding: 0.5rem 0.7rem;
+  border: 0;
+  border-radius: 0.55rem;
+  background: none;
+  color: var(--km-fg);
+  font-size: 0.8rem;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.km-more-menu button:hover {
+  background: var(--km-bg-muted);
+}
+
+/* —— 对账：不进这次的单，默认收起，表格可滚动 —— */
+.km-skipped > summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--km-fg-muted);
+}
+
+.km-skipped-list {
+  max-height: 20rem;
+  margin-top: 0.5rem;
+  overflow-y: auto;
+}
+
+/* —— 一次设好就少动的设置：折叠起来 —— */
+.km-fold > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--km-fg-muted);
+}
+
+.km-fold > summary:hover {
+  color: var(--km-fg);
+}
+
+.km-badge-muted {
+  color: var(--km-fg-muted);
+  background: var(--km-bg-muted);
+}
+
+.km-health-thresholds {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--km-border);
+}
+
+.km-health-thresholds label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--km-fg-muted);
+}
+
+.km-health-thresholds .km-input {
+  width: 8rem;
+}
+
+.km-health-unit {
+  padding-bottom: 0.6rem;
+  font-size: 0.85rem;
+  color: var(--km-fg-muted);
+}
+
+.km-health-thresholds p {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--km-fg-muted);
+}

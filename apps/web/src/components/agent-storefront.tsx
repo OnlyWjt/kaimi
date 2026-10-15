@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ApplyTheme } from "@/components/apply-theme";
 import { readApiJson } from "@/lib/http-error";
 import { contactHref } from "@/lib/agent-contact-core";
@@ -8,13 +8,11 @@ import { RegionBadge } from "@/components/region-badge";
 import { regionDisplay } from "@/lib/cardplatform/regions";
 import { invoiceSurchargeCents } from "@/lib/invoice-core";
 import { yuanTextFromCents } from "@/lib/money";
-import { publicStatusLabel } from "@/lib/status-labels";
 import { THEME_CHOICES } from "@/lib/themes";
 import {
   PLATFORM_HERO,
   PLATFORM_SLOGAN,
   pickText,
-  type ContactItem,
   type Lang,
   type StorefrontConfig,
   type StorefrontProduct,
@@ -24,20 +22,24 @@ import {
   isExternalRedeemUrl,
 } from "@/lib/agent-redeem-core";
 import { isThemeId, type ThemeId } from "@kaimi/themes";
+import { StorefrontEmailLookup } from "@/components/storefront-email-lookup";
+import { I18N } from "@/components/storefront-i18n";
+import {
+  ContactIcon,
+  CoverPhoto,
+  IconArrow,
+  IconBack,
+  IconBolt,
+  IconGlobe,
+  IconLock,
+  IconMegaphone,
+  IconSearch,
+  ProductBanner,
+  ProductIcon,
+  contactFallbackLabel,
+} from "@/components/storefront-visuals";
 
 type Channel = "alipay" | "wxpay";
-
-type EmailOrder = {
-  /** 打码的订单号。完整订单号是取卡凭证，只凭邮箱拿不到。 */
-  orderRef: string;
-  productName: string;
-  quantity?: number;
-  amountCents: number;
-  payStatus: string;
-  fulfillStatus: string;
-  paymentCountry?: string | null;
-  regionLabel?: string | null;
-};
 
 function productAvailable(product: StorefrontProduct) {
   return product.available !== false;
@@ -57,524 +59,10 @@ function productAvailabilityLabel(
   return product.stock === null ? t.inStockShort : t.stock(product.stock);
 }
 
-const QUERY_PREVIEW = 5;
-const PAID_PAY = new Set(["paid", "success"]);
-const ISSUED_FULFILL = new Set(["delivered", "fulfilled", "success", "issued"]);
-const BAD_PAY = new Set(["refunded", "refunding", "chargeback", "closed"]);
-const BAD_FULFILL = new Set(["failed", "expired", "cancelled"]);
-
-function isPaidOrder(order: EmailOrder) {
-  return PAID_PAY.has(order.payStatus);
-}
-
-function isIssuedOrder(order: EmailOrder) {
-  return ISSUED_FULFILL.has(order.fulfillStatus);
-}
-
-function orderTone(order: EmailOrder): "ok" | "wait" | "bad" {
-  if (BAD_PAY.has(order.payStatus) || BAD_FULFILL.has(order.fulfillStatus)) return "bad";
-  if (isPaidOrder(order) && isIssuedOrder(order)) return "ok";
-  return "wait";
-}
-
-function orderRank(order: EmailOrder) {
-  const tone = orderTone(order);
-  if (tone === "ok") return 0;
-  if (isPaidOrder(order)) return 1;
-  if (tone === "bad") return 3;
-  return 2;
-}
-
-function orderStatusText(order: EmailOrder) {
-  const pay = publicStatusLabel(order.payStatus, "pay");
-  if (!isPaidOrder(order)) return pay;
-  const fulfill = publicStatusLabel(order.fulfillStatus, "fulfill");
-  return fulfill && fulfill !== pay ? `${pay} · ${fulfill}` : pay;
-}
-
-const DEMO_EMAIL_ORDERS: EmailOrder[] = [
-  { orderRef: "RS2026…PLUS", productName: "Plus", amountCents: 15000, payStatus: "paid", fulfillStatus: "delivered" },
-  { orderRef: "RS2026…2PRO", productName: "Pro", amountCents: 115500, payStatus: "paid", fulfillStatus: "delivered" },
-  { orderRef: "RS2026…C500", productName: "Codex 点数 500", amountCents: 22200, payStatus: "paid", fulfillStatus: "issuing" },
-  { orderRef: "RS2026…PLUS", productName: "Plus", amountCents: 15000, payStatus: "unpaid", fulfillStatus: "pending" },
-  { orderRef: "RS2026…5PRO", productName: "Pro", amountCents: 115500, payStatus: "unpaid", fulfillStatus: "pending" },
-  { orderRef: "RS2026…PLUS", productName: "Plus", amountCents: 13000, payStatus: "unpaid", fulfillStatus: "pending" },
-  { orderRef: "RS2026…C250", productName: "Codex 点数 250", amountCents: 11100, payStatus: "unpaid", fulfillStatus: "pending" },
-  { orderRef: "RS2026…PLUS", productName: "Plus", amountCents: 15000, payStatus: "refunded", fulfillStatus: "cancelled" },
-];
-
 const CHANNEL_LABEL: Record<Channel, { zh: string; en: string }> = {
   alipay: { zh: "支付宝", en: "Alipay" },
   wxpay: { zh: "微信支付", en: "WeChat Pay" },
 };
-
-/* ———————————————————————————— 界面文案（平台内置，不开放代理修改） ———————————————————————————— */
-
-const I18N = {
-  zh: {
-    nav: { home: "首页", products: "商品中心", query: "订单查询", contact: "联系客服", redeem: "去兑换" },
-    redeemTitle: "已有卡密？",
-    redeemSub: "买完后来这里校验卡密，填写 Session 就能开通。",
-    redeemCta: "去兑换开通",
-    searchPlaceholder: "搜索商品名称…",
-    queryTitle: "邮箱查单",
-    queryDesc: "输入下单时填写的邮箱，查看该邮箱在本店的订单和发货状态。",
-    queryPlaceholder: "you@example.com",
-    queryButton: "查询订单",
-    queryBusy: "正在查询…",
-    queryNote: "无需注册账号。看卡密需要完整订单号，在付款记录（商户单号）或发货邮件里",
-    verifyTitle: "查看卡密",
-    verifyDesc: "输入完整订单号，在支付宝/微信付款记录的「商户单号」或发货邮件里。",
-    verifyPlaceholder: "完整订单号，例如 KS2026…",
-    verifyButton: "查看",
-    verifyBusy: "正在核对…",
-    mailLinks: "把查单链接发到这个邮箱",
-    mailLinksBusy: "正在发送…",
-    queryEmpty: "这个邮箱在本店还没有订单",
-    queryScope: "只显示这个邮箱在本店的订单，和其他买家互不影响。",
-    queryCount: (n: number) => `共 ${n} 单`,
-    queryMore: (n: number) => `展开其余 ${n} 单`,
-    queryLess: "收起订单",
-    productsSub: "浏览当前可售套餐，付款后即时发卡",
-    priceFrom: (n: string) => `¥${n} 起`,
-    stock: (n: number) => `库存 ${n} 件`,
-    inStockShort: "现货",
-    inStockAccount: "有货",
-    restocking: "补货中",
-    buyNow: "立即购买",
-    empty: "当前暂无可售套餐",
-    allCategory: "全部",
-    allRegions: "全部地区",
-    regionEmpty: "这个地区暂时没有在售商品",
-    seeAllRegions: "看全部地区",
-    allProducts: "全部商品",
-    stepsLabel: "购买流程",
-    steps: [
-      { title: "选商品付款", desc: "支付宝或微信" },
-      { title: "立刻拿到卡密", desc: "页面直接显示，也发到邮箱" },
-      { title: "去兑换开通", desc: "校验卡密，填 Session 就开" },
-    ],
-    stepsAccount: [
-      { title: "选商品付款", desc: "支付宝或微信" },
-      { title: "立刻拿到账号", desc: "页面直接显示，也发到邮箱" },
-      { title: "直接登录使用", desc: "不用兑换" },
-    ],
-    ticketLabel: "示意：付款后卡密显示的样子",
-    ticketBadge: "示例",
-    ticketCover: "付款后显示",
-    ticketNote: "付款后卡密直接出现在页面上，同时发到你的下单邮箱。",
-    groups: {
-      cdk: { title: "会员卡密", desc: "付款后出卡密，再去兑换页开通到你的账号" },
-      account: { title: "成品账号", desc: "付款后直接发能登录的账号，不用兑换" },
-    },
-    faqTitle: "买之前常问",
-    faq: {
-      noCode: {
-        q: "付完款没看到卡密怎么办？",
-        a: "先别重复付款。页面写着还在生成就等一下，买多张时会先出一部分。几分钟后还没有，用「邮箱查单」看状态，或把订单号发给店主。",
-      },
-      kinds: {
-        q: "会员卡密和成品账号有什么区别？",
-        a: "卡密要拿去兑换页，开通到你自己的账号上；成品账号是付款后直接给你一个能登录的账号，不用兑换。",
-      },
-      regions: {
-        q: "不同地区怎么选？",
-        a: "地区是开通时使用的付款地区，价格不同。不确定选哪个，先问店主再下单。",
-      },
-    },
-    detail: {
-      crumbHome: "首页",
-      crumbProducts: "商品中心",
-      category: "分类",
-      priceLabel: "价格",
-      chooseSpec: "选择规格",
-      auto: "自动发货",
-      inStock: "有库存",
-      restocking: "补货中",
-      qty: "购买数量",
-      qtyMax: (n: number) => `一次最多 ${n} 张`,
-      qtyMaxAccount: (n: number) => `一次最多 ${n} 个`,
-      stock: (n: number) => `库存 ${n} 件`,
-      email: "接收邮箱",
-      emailHint: "用于付款后查回订单与卡密，请填常用邮箱",
-      emailHintAccount: "用于付款后查回订单与账号，请填常用邮箱",
-      restockingHint: "这个套餐正在补货中，暂时无法下单。",
-      emailRequired: "请先填写接收邮箱",
-      channel: "支付方式",
-      channelEmpty: "支付方式暂未开放",
-      total: "应付金额",
-      coupon: "优惠券",
-      couponPh: "选填券码",
-      couponChecking: "正在核对优惠券…",
-      couponOff: (amount: string) => `已减 ¥${amount}`,
-      couponWas: (amount: string) => `原价 ¥${amount}`,
-      referralBy: "由好友邀请",
-      referralAsk: "有好友邀请码？",
-      referralPh: "好友给你的邀请码",
-      referralInvalid: "邀请码不对，可以不填",
-      referralCouponOff: (amount: string) => `邀请券 立减 ¥${amount}`,
-      pay: "立即购买",
-      chooseRegion: "选择付款地区",
-      regionWarn: (region: string) =>
-        `你选的是【${region}】卡密。付款地区在出卡时写进卡密，兑换时按该地区结账，买错不能换区。不确定选哪个，先问店主。`,
-      regionConfirmLabel: (region: string) =>
-        `我已确认购买的是【${region}】卡密，买错不能换区`,
-      regionConfirmRequired: "请先确认付款地区",
-      regionBanner: (region: string) => `兑换时按${region}结账，付款后不能换区、不能退换`,
-      regionSwitched: (from: string, to: string) => `${from}暂停销售，已为你切到${to}`,
-      payBusy: "正在创建订单…",
-      previewNote: "预览模式不会真的下单",
-      infoTitle: "详细资讯",
-      back: "返回商品列表",
-      secure: "自动发货 · 即买即用",
-      invoiceAskTitle: "需要开具发票吗？",
-      invoiceAskSub: "只开增值税普通发票。勾选后实付金额上浮 10%（开票服务费）。",
-      invoiceNeed: "需要开具发票",
-      invoiceCancel: "返回",
-      invoiceContinue: "去支付",
-      invoiceWarn: "仅支持增值税普通发票。勾选后实付金额上浮 10%（开票服务费）。",
-      invoiceTitle: "发票抬头（必填）",
-      invoiceTitlePh: "公司或个人名称",
-      invoiceTitleRequired: "请填写发票抬头",
-      invoiceTaxNo: "纳税人识别号（必填）",
-      invoiceTaxNoPh: "15–20 位字母或数字",
-      invoiceTaxNoRequired: "请填写纳税人识别号",
-      invoiceTaxNoInvalid: "纳税人识别号须为 15–20 位字母或数字",
-      invoiceNote: "发票备注",
-      invoiceNotePh: "如：项目名称、订单用途",
-      invoiceNoteRequired: "请填写发票备注",
-      invoiceAmount: "开票金额",
-      invoiceAmountHint: (goods: string, fee: string) => `商品 ¥${goods} + 开票服务费 10% ¥${fee}`,
-      invoiceEmail: "收票邮箱（必填）",
-      invoiceEmailHint: "发票发到这个邮箱，默认使用下单邮箱",
-      invoiceEmailRequired: "请填写收票邮箱",
-    },
-    footerContact: "联系客服",
-    rights: "版权所有",
-    previewTip: "静态预览 · 点色板看各套主题",
-    langLabel: "EN",
-  },
-  en: {
-    nav: { home: "Home", products: "Products", query: "Track Order", contact: "Support", redeem: "Redeem" },
-    redeemTitle: "Already have a code?",
-    redeemSub: "Validate it here, add your Session, and the plan will be activated.",
-    redeemCta: "Go redeem",
-    searchPlaceholder: "Search products…",
-    queryTitle: "Track by email",
-    queryDesc: "Enter the email you used at checkout to see your orders and delivery status in this shop.",
-    queryPlaceholder: "you@example.com",
-    queryButton: "Look up orders",
-    queryBusy: "Looking up…",
-    queryNote: "No account needed. To see codes, enter the full order number from your payment record or delivery email",
-    verifyTitle: "View codes",
-    verifyDesc: "Enter the full order number. It is the merchant order number in your payment record, or in the delivery email.",
-    verifyPlaceholder: "Full order number, e.g. KS2026…",
-    verifyButton: "View",
-    verifyBusy: "Checking…",
-    mailLinks: "Email me the order links",
-    mailLinksBusy: "Sending…",
-    queryEmpty: "No orders found for this email in this shop",
-    queryScope: "Only orders placed with this email in this shop are shown.",
-    queryCount: (n: number) => `${n} orders`,
-    queryMore: (n: number) => `Show ${n} more`,
-    queryLess: "Show less",
-    productsSub: "Browse available plans, codes delivered instantly after payment",
-    priceFrom: (n: string) => `From ¥${n}`,
-    stock: (n: number) => `${n} in stock`,
-    inStockShort: "In stock",
-    inStockAccount: "In stock",
-    restocking: "Restocking",
-    buyNow: "Buy now",
-    empty: "No plans available right now",
-    allCategory: "All",
-    allRegions: "All regions",
-    regionEmpty: "Nothing on sale in this region right now",
-    seeAllRegions: "See all regions",
-    allProducts: "All products",
-    stepsLabel: "How buying works",
-    steps: [
-      { title: "Pick and pay", desc: "Alipay or WeChat Pay" },
-      { title: "Get your code", desc: "Shown on the page and emailed to you" },
-      { title: "Redeem it", desc: "Validate the code and add your Session" },
-    ],
-    stepsAccount: [
-      { title: "Pick and pay", desc: "Alipay or WeChat Pay" },
-      { title: "Get your account", desc: "Shown on the page and emailed to you" },
-      { title: "Sign in", desc: "No redeem step" },
-    ],
-    ticketLabel: "Example: where your code appears after payment",
-    ticketBadge: "Example",
-    ticketCover: "Revealed after payment",
-    ticketNote: "Your code shows up right on the page after payment, and is emailed to your order address.",
-    groups: {
-      cdk: { title: "Membership codes", desc: "Get a code after payment, then redeem it onto your account" },
-      account: { title: "Ready-made accounts", desc: "Get a working account after payment. No redeem step" },
-    },
-    faqTitle: "Before you buy",
-    faq: {
-      noCode: {
-        q: "I paid but don't see a code",
-        a: "Don't pay again. If the page says it is still issuing, wait a moment; multi-code orders may arrive in parts. If nothing shows after a few minutes, check “Track by email” or send your order number to the shop owner.",
-      },
-      kinds: {
-        q: "Codes vs. ready-made accounts?",
-        a: "A code is redeemed onto your own account on the redeem page. A ready-made account is a working login delivered after payment, with no redeem step.",
-      },
-      regions: {
-        q: "Which region should I pick?",
-        a: "The region is the billing region used to activate the plan, and prices differ by region. If you're not sure, ask the shop owner before ordering.",
-      },
-    },
-    detail: {
-      crumbHome: "Home",
-      crumbProducts: "Products",
-      category: "Category",
-      priceLabel: "Price",
-      chooseSpec: "Choose a plan",
-      auto: "Auto delivery",
-      inStock: "In stock",
-      restocking: "Restocking",
-      qty: "Quantity",
-      qtyMax: (n: number) => `Up to ${n} per order`,
-      qtyMaxAccount: (n: number) => `Up to ${n} per order`,
-      stock: (n: number) => `${n} in stock`,
-      email: "Delivery email",
-      emailHint: "Used to retrieve your order and codes after payment",
-      emailHintAccount: "Used to retrieve your order and account after payment",
-      restockingHint: "This plan is restocking and cannot be purchased right now.",
-      emailRequired: "Please enter your email first",
-      channel: "Payment method",
-      channelEmpty: "No payment method available",
-      total: "Total",
-      coupon: "Coupon",
-      couponPh: "Optional code",
-      couponChecking: "Checking coupon…",
-      couponOff: (amount: string) => `−¥${amount}`,
-      couponWas: (amount: string) => `Was ¥${amount}`,
-      referralBy: "Invited by a friend",
-      referralAsk: "Have an invite code?",
-      referralPh: "Invite code from your friend",
-      referralInvalid: "Invite code not found. You can leave it empty",
-      referralCouponOff: (amount: string) => `Invite coupon −¥${amount}`,
-      pay: "Buy now",
-      chooseRegion: "Choose payment region",
-      regionWarn: (region: string) =>
-        `This is a ${region} code. The payment region is fixed when the code is issued and used at redemption. It can't be changed after purchase.`,
-      regionConfirmLabel: (region: string) =>
-        `I confirm this is a ${region} code and the region can't be changed`,
-      regionConfirmRequired: "Please confirm the payment region first",
-      regionBanner: (region: string) =>
-        `Redeemed as ${region}. Region can't be changed or refunded after payment.`,
-      regionSwitched: (from: string, to: string) => `${from} is paused. Switched to ${to}.`,
-      payBusy: "Creating order…",
-      previewNote: "Preview mode does not place real orders",
-      infoTitle: "Details",
-      back: "Back to products",
-      secure: "Auto delivery · ready to use",
-      invoiceAskTitle: "Need an invoice?",
-      invoiceAskSub: "VAT regular invoice only. Checking this adds 10% to the amount you pay (invoice service fee).",
-      invoiceNeed: "I need an invoice",
-      invoiceCancel: "Back",
-      invoiceContinue: "Pay now",
-      invoiceWarn: "VAT regular invoice only. Checking this adds 10% to the amount you pay (invoice service fee).",
-      invoiceTitle: "Invoice title (required)",
-      invoiceTitlePh: "Company or personal name",
-      invoiceTitleRequired: "Please enter the invoice title",
-      invoiceTaxNo: "Taxpayer ID (required)",
-      invoiceTaxNoPh: "15–20 letters or digits",
-      invoiceTaxNoRequired: "Please enter the taxpayer ID",
-      invoiceTaxNoInvalid: "Taxpayer ID must be 15–20 letters or digits",
-      invoiceNote: "Invoice note",
-      invoiceNotePh: "e.g. project name or purpose",
-      invoiceNoteRequired: "Please enter an invoice note",
-      invoiceAmount: "Invoice amount",
-      invoiceAmountHint: (goods: string, fee: string) => `Goods ¥${goods} + 10% invoice fee ¥${fee}`,
-      invoiceEmail: "Invoice email (required)",
-      invoiceEmailHint: "The invoice will be sent here. Defaults to your order email.",
-      invoiceEmailRequired: "Please enter an invoice email",
-    },
-    footerContact: "Contact",
-    rights: "All rights reserved",
-    previewTip: "Static preview · click swatches to try themes",
-    langLabel: "中",
-  },
-} as const;
-
-/* ———————————————————————————— 图标 ———————————————————————————— */
-
-function IconSearch() {
-  return (
-    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <circle cx="11" cy="11" r="6.2" />
-      <path d="M16.2 16.2 20 20" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconGlobe() {
-  return (
-    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <circle cx="12" cy="12" r="7.2" />
-      <path d="M5 12h14M12 5c2.2 2.1 3.3 4.5 3.3 7s-1.1 4.9-3.3 7c-2.2-2.1-3.3-4.5-3.3-7s1.1-4.9 3.3-7Z" />
-    </svg>
-  );
-}
-
-function IconArrow() {
-  return (
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.9">
-      <path d="M7 17 17 7M9.5 7H17v7.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function IconBack() {
-  return (
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.9">
-      <path d="M11 6.5 5.5 12l5.5 5.5M5.5 12H19" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function IconMail() {
-  return (
-    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <rect x="3.5" y="5.5" width="17" height="13" rx="2.2" />
-      <path d="m4.5 7.5 7.5 5.6 7.5-5.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function IconLock() {
-  return (
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <rect x="5.5" y="10.5" width="13" height="9" rx="2.2" />
-      <path d="M8.5 10.5V8.2a3.5 3.5 0 0 1 7 0v2.3" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconBolt() {
-  return (
-    <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden>
-      <path d="M13 2 4.5 13.5H11L9.8 22 19 10h-6.5L13 2Z" />
-    </svg>
-  );
-}
-
-function IconMegaphone() {
-  return (
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M4 10v4a1.5 1.5 0 0 0 1.5 1.5H8L18 20V4L8 8.5H5.5A1.5 1.5 0 0 0 4 10Z" strokeLinejoin="round" />
-      <path d="M18 9.5a3.5 3.5 0 0 1 0 5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconSend() {
-  return (
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M21 3.5 10.2 13.8M21 3.5 14 21l-3.8-7.2L3 10l18-6.5Z" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function IconChat() {
-  return (
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M4.5 6.5a3 3 0 0 1 3-3h9a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3H10l-4.2 3.4a.6.6 0 0 1-1-.5V6.5Z" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ContactIcon({ type }: { type: ContactItem["type"] }) {
-  if (type === "telegram") return <IconSend />;
-  if (type === "email") return <IconMail />;
-  if (type === "link") return <IconGlobe />;
-  return <IconChat />;
-}
-
-function contactFallbackLabel(type: ContactItem["type"]): { zh: string; en: string } {
-  if (type === "telegram") return { zh: "Telegram", en: "Telegram" };
-  if (type === "email") return { zh: "售后邮箱", en: "Support email" };
-  if (type === "wechat") return { zh: "微信客服", en: "WeChat" };
-  if (type === "qq") return { zh: "QQ 客服", en: "QQ" };
-  return { zh: "联系我们", en: "Contact" };
-}
-
-function ProductIcon({ product }: { product: StorefrontProduct }) {
-  return (
-    <span
-      className="km-sf-p-icon"
-      style={{
-        color: `hsl(${product.hue} 28% 34%)`,
-        borderColor: `hsl(${product.hue} 18% 78%)`,
-        background: `hsl(${product.hue} 22% 96%)`,
-      }}
-      aria-hidden
-    >
-      {product.mark}
-    </span>
-  );
-}
-
-function CoverPhoto({
-  src,
-  fallback,
-}: {
-  src?: string;
-  fallback: ReactNode;
-}) {
-  const [broken, setBroken] = useState(false);
-  if (!src || broken) return fallback;
-  return <img src={src} alt="" onError={() => setBroken(true)} />;
-}
-
-/** 详情页左侧商品主图：有封面用图，裂了或没图就退回短标识 */
-function ProductBanner({ product, lang }: { product: StorefrontProduct; lang: Lang }) {
-  const photo = (
-    <CoverPhoto
-      src={product.cover}
-      fallback={
-        <span
-          className="km-sf-banner-icon"
-          style={{
-            color: `hsl(${product.hue} 28% 34%)`,
-            borderColor: `hsl(${product.hue} 18% 78%)`,
-            background: `hsl(${product.hue} 22% 96%)`,
-          }}
-          aria-hidden
-        >
-          {product.mark}
-        </span>
-      }
-    />
-  );
-  if (product.cover) {
-    return <div className="km-sf-banner km-sf-banner-photo">{photo}</div>;
-  }
-  return (
-    <div
-      className="km-sf-banner"
-      style={{
-        background: `linear-gradient(180deg, hsl(${product.hue} 16% 97%), color-mix(in oklab, var(--km-bg-muted) 55%, var(--km-bg-elevated)))`,
-      }}
-    >
-      <span
-        className="km-sf-banner-icon"
-        style={{
-          color: `hsl(${product.hue} 28% 34%)`,
-          borderColor: `hsl(${product.hue} 18% 78%)`,
-          background: `hsl(${product.hue} 22% 96%)`,
-        }}
-        aria-hidden
-      >
-        {product.mark}
-      </span>
-      <span className="km-sf-banner-cap">{pickText(product.subtitle, lang)}</span>
-    </div>
-  );
-}
 
 /* ———————————————————————————— 主组件 ———————————————————————————— */
 
@@ -603,17 +91,6 @@ export function AgentStorefront({
   const [regionFilter, setRegionFilter] = useState("");
   const [regionSwitchNote, setRegionSwitchNote] = useState("");
   const [keyword, setKeyword] = useState("");
-
-  const [queryEmail, setQueryEmail] = useState("");
-  const [queryBusy, setQueryBusy] = useState(false);
-  const [queryError, setQueryError] = useState("");
-  const [myOrders, setMyOrders] = useState<EmailOrder[] | null>(null);
-  const [ordersOpen, setOrdersOpen] = useState(false);
-  const [canMailLinks, setCanMailLinks] = useState(false);
-  const [verifyOrderNo, setVerifyOrderNo] = useState("");
-  const [verifyBusy, setVerifyBusy] = useState(false);
-  const [mailBusy, setMailBusy] = useState(false);
-  const [verifyMessage, setVerifyMessage] = useState("");
 
   const [active, setActive] = useState<StorefrontProduct | null>(null);
   const [specId, setSpecId] = useState("");
@@ -719,20 +196,10 @@ export function AgentStorefront({
   const totalCents = goodsCents + surchargeCents;
   const specMaxQty = Math.min(maxQty, activeSpec?.stock ?? maxQty);
 
-  const rankedOrders = useMemo(() => {
-    if (!myOrders?.length) return [];
-    return [...myOrders].sort((a, b) => orderRank(a) - orderRank(b));
-  }, [myOrders]);
-  const hiddenOrderCount = Math.max(0, rankedOrders.length - QUERY_PREVIEW);
-  const visibleOrders = ordersOpen ? rankedOrders : rankedOrders.slice(0, QUERY_PREVIEW);
-
   useEffect(() => {
     try {
       const saved = window.sessionStorage.getItem("kaimi-store-email") || "";
-      if (saved) {
-        setQueryEmail(saved);
-        setBuyerEmail(saved);
-      }
+      if (saved) setBuyerEmail(saved);
     } catch {
       /* sessionStorage 不可用时忽略 */
     }
@@ -942,84 +409,6 @@ export function AgentStorefront({
     setInvoiceEmailTouched(false);
     setInvoiceEmail(buyerEmail);
     window.scrollTo({ top: 0, behavior: "auto" });
-  }
-
-  async function lookupOrders() {
-    const email = queryEmail.trim();
-    if (!email) {
-      setQueryError(t.queryDesc);
-      return;
-    }
-    if (!live) {
-      setMyOrders(DEMO_EMAIL_ORDERS);
-      setOrdersOpen(false);
-      setQueryError("");
-      return;
-    }
-    setQueryBusy(true);
-    setQueryError("");
-    try {
-      window.sessionStorage.setItem("kaimi-store-email", email);
-      const data = await readApiJson<{ list?: EmailOrder[]; canMailLinks?: boolean }>(
-        await fetch(
-          `/api/public/store-orders?slug=${encodeURIComponent(slug)}&email=${encodeURIComponent(email)}`,
-          { cache: "no-store" },
-        ),
-      );
-      const list = data.list || [];
-      setMyOrders(list);
-      setCanMailLinks(Boolean(data.canMailLinks));
-      setVerifyMessage("");
-      setOrdersOpen(false);
-      if (!list.length) setQueryError(t.queryEmpty);
-    } catch (reason) {
-      setMyOrders(null);
-      setQueryError(reason instanceof Error ? reason.message : "查单失败");
-    } finally {
-      setQueryBusy(false);
-    }
-  }
-
-  async function openVerifiedOrder() {
-    const orderNo = verifyOrderNo.trim().toUpperCase();
-    if (!orderNo || !live) return;
-    setVerifyBusy(true);
-    setVerifyMessage("");
-    try {
-      const data = await readApiJson<{ orderNo: string; queryToken: string }>(
-        await fetch("/api/public/store-orders/verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ slug, email: queryEmail.trim(), orderNo }),
-        }),
-      );
-      window.sessionStorage.setItem(`kaimi-order-token:${data.orderNo}`, data.queryToken);
-      window.location.href = `/shop/order/${encodeURIComponent(data.orderNo)}?qt=${encodeURIComponent(data.queryToken)}`;
-    } catch (reason) {
-      setVerifyMessage(reason instanceof Error ? reason.message : "核对失败");
-    } finally {
-      setVerifyBusy(false);
-    }
-  }
-
-  async function mailOrderLinks() {
-    if (!live) return;
-    setMailBusy(true);
-    setVerifyMessage("");
-    try {
-      const data = await readApiJson<{ message?: string }>(
-        await fetch("/api/public/store-orders/send-links", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ slug, email: queryEmail.trim() }),
-        }),
-      );
-      setVerifyMessage(data.message || "");
-    } catch (reason) {
-      setVerifyMessage(reason instanceof Error ? reason.message : "发送失败");
-    } finally {
-      setMailBusy(false);
-    }
   }
 
   function openInvoicePrompt() {
@@ -1435,121 +824,7 @@ export function AgentStorefront({
             </section>
 
             <div className="km-sf-help">
-              {config.queryEnabled ? (
-                <section id="km-sf-query" className="km-sf-query">
-                  <div className="km-sf-query-icon" aria-hidden>
-                    <IconMail />
-                  </div>
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <h2 className="km-sf-query-title">{t.queryTitle}</h2>
-                    <p className="km-sf-query-desc">{t.queryDesc}</p>
-                    <div className="km-sf-query-row">
-                      <input
-                        className="km-input"
-                        type="email"
-                        value={queryEmail}
-                        onChange={(event) => setQueryEmail(event.target.value)}
-                        placeholder={t.queryPlaceholder}
-                        aria-label={t.queryTitle}
-                      />
-                      <button
-                        type="button"
-                        className="km-btn km-btn-sm km-sf-query-go"
-                        disabled={queryBusy || !queryEmail.trim()}
-                        onClick={() => void lookupOrders()}
-                      >
-                        {queryBusy ? t.queryBusy : t.queryButton}
-                      </button>
-                    </div>
-                    <p className="km-sf-query-note">{queryError || t.queryNote}</p>
-                    {myOrders?.length ? (
-                      <div className="km-sf-orders">
-                        <div className="km-sf-orders-head">
-                          <p className="km-sf-query-note">{t.queryScope}</p>
-                          <p className="km-sf-orders-count">{t.queryCount(myOrders.length)}</p>
-                        </div>
-                        {visibleOrders.map((order, index) => (
-                          <div
-                            key={`${order.orderRef}-${index}`}
-                            className={`km-sf-order-row km-sf-order-${orderTone(order)}`}
-                          >
-                            <span className="min-w-0">
-                              <strong>{order.productName}</strong>
-                              <span className="km-sf-order-status font-mono">{order.orderRef}</span>
-                              {order.paymentCountry !== null && order.paymentCountry !== undefined ? (
-                                <RegionBadge
-                                  country={order.paymentCountry}
-                                  regionLabel={order.regionLabel || ""}
-                                />
-                              ) : null}
-                              <span className="km-sf-order-status">
-                                {orderStatusText(order)}
-                                {(order.quantity || 1) > 1 ? ` · ${order.quantity} 张` : ""}
-                              </span>
-                            </span>
-                            <span className="km-sf-order-amount">
-                              ¥{yuanTextFromCents(order.amountCents)}
-                            </span>
-                          </div>
-                        ))}
-                        {hiddenOrderCount > 0 ? (
-                          <button
-                            type="button"
-                            className="km-sf-orders-more"
-                            onClick={() => {
-                              setOrdersOpen((open) => {
-                                if (open) {
-                                  requestAnimationFrame(() => {
-                                    document.getElementById("km-sf-query")?.scrollIntoView({
-                                      behavior: "smooth",
-                                      block: "start",
-                                    });
-                                  });
-                                }
-                                return !open;
-                              });
-                            }}
-                          >
-                            {ordersOpen ? t.queryLess : t.queryMore(hiddenOrderCount)}
-                          </button>
-                        ) : null}
-                        <div className="space-y-1 pt-2">
-                          <p className="km-sf-query-title text-sm">{t.verifyTitle}</p>
-                          <p className="km-sf-query-note">{t.verifyDesc}</p>
-                          <div className="km-sf-query-row">
-                            <input
-                              className="km-input font-mono"
-                              value={verifyOrderNo}
-                              onChange={(event) => setVerifyOrderNo(event.target.value)}
-                              placeholder={t.verifyPlaceholder}
-                              aria-label={t.verifyTitle}
-                            />
-                            <button
-                              type="button"
-                              className="km-btn km-btn-sm km-sf-query-go"
-                              disabled={verifyBusy || !verifyOrderNo.trim()}
-                              onClick={() => void openVerifiedOrder()}
-                            >
-                              {verifyBusy ? t.verifyBusy : t.verifyButton}
-                            </button>
-                          </div>
-                          {canMailLinks ? (
-                            <button
-                              type="button"
-                              className="km-sf-orders-more"
-                              disabled={mailBusy}
-                              onClick={() => void mailOrderLinks()}
-                            >
-                              {mailBusy ? t.mailLinksBusy : t.mailLinks}
-                            </button>
-                          ) : null}
-                          {verifyMessage ? <p className="km-sf-query-note">{verifyMessage}</p> : null}
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                </section>
-              ) : null}
+              {config.queryEnabled ? <StorefrontEmailLookup slug={slug} live={live} t={t} /> : null}
               <a
                 href={redeemUrl}
                 className="km-sf-redeem"

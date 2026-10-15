@@ -13,6 +13,8 @@ export type AgentConsoleProfile = {
   unreadAnnouncement: UnreadAnnouncement | null;
   /** 售后联系方式状态：没填时宽限期内提醒，过期后店铺停止接单。 */
   contactGate: ContactGate;
+  /** 平台整体停售（手动关店或卡台/支付异常自动停售）。代理改不了，但得知道买家现在下不了单。 */
+  salesPaused: boolean;
 };
 
 export type AgentRangeKey = "today" | "7d" | "month" | "all";
@@ -210,7 +212,7 @@ export function beijingPeriodBounds(startValue: string, endValue: string) {
 }
 
 export function couponFaceLabel(item: Pick<AgentCouponItem, "kind" | "percentZhe" | "amountCents">) {
-  if (item.kind === "percent") return `${item.percentZhe} 折`;
+  if (item.kind === "percent") return `${String(Math.round(item.percentZhe) / 10)} 折`;
   return `−¥${yuanTextFromCents(item.amountCents)}`;
 }
 

@@ -63,37 +63,6 @@ export function SessionGuide() {
   );
 }
 
-/** 凭证方式切换：Session / 邮箱密码。 */
-export function CredentialSwitch({
-  value,
-  onChange,
-}: {
-  value: "session" | "mailbox";
-  onChange: (mode: "session" | "mailbox") => void;
-}) {
-  return (
-    <div className="km-rx-seg km-rx-seg-sm" role="tablist" aria-label="开通方式">
-      {(
-        [
-          ["session", "Session"],
-          ["mailbox", "邮箱密码"],
-        ] as const
-      ).map(([mode, label]) => (
-        <button
-          key={mode}
-          type="button"
-          role="tab"
-          aria-selected={value === mode}
-          className={`km-rx-seg-item${value === mode ? " km-rx-seg-item-active" : ""}`}
-          onClick={() => onChange(mode)}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 /** Session 输入框加获取步骤。 */
 export function SessionField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
@@ -110,46 +79,6 @@ export function SessionField({ value, onChange }: { value: string; onChange: (va
       </label>
       <SessionGuide />
     </>
-  );
-}
-
-/** 邮箱密码方式的两个输入框。 */
-export function MailboxFields({
-  email,
-  password,
-  onEmail,
-  onPassword,
-}: {
-  email: string;
-  password: string;
-  onEmail: (value: string) => void;
-  onPassword: (value: string) => void;
-}) {
-  return (
-    <div className="km-rx-fields">
-      <label className="km-rx-field">
-        <span className="km-rx-field-label">账号邮箱</span>
-        <input
-          className="km-input"
-          type="email"
-          autoComplete="off"
-          placeholder="you@example.com"
-          value={email}
-          onChange={(event) => onEmail(event.target.value)}
-        />
-      </label>
-      <label className="km-rx-field">
-        <span className="km-rx-field-label">登录密码</span>
-        <input
-          className="km-input"
-          type="password"
-          autoComplete="new-password"
-          placeholder="这个邮箱登录 ChatGPT 的密码"
-          value={password}
-          onChange={(event) => onPassword(event.target.value)}
-        />
-      </label>
-    </div>
   );
 }
 

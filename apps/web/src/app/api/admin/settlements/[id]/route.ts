@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
+import { clientIp } from "@/lib/rate-limit";
 import {
   BAD_STATE_MESSAGE,
   MIRROR_MESSAGE,
@@ -75,7 +76,7 @@ export async function PATCH(
           }
         : {}),
     },
-    ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
+    ip: clientIp(req),
   });
   return NextResponse.json({ ok: true, earnings: outcome.earnings, adjustments: outcome.adjustments });
 }

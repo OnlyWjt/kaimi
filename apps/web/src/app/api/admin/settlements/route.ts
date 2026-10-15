@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { and, desc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { agents, agentSettlements, users } from "@/db/schema";
 import { agentIdentityLabel } from "@/lib/agent-identity-core";
@@ -79,7 +79,7 @@ export async function GET() {
   });
 }
 
-export async function POST(_req: Request) {
+export async function POST() {
   let session;
   try {
     session = await requireAdmin();

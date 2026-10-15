@@ -5,13 +5,13 @@ import {
   issuedCdks,
   orderStatusHistory,
   orders,
-  products,
 } from "@/db/schema";
-import { bootDb, getAppConfig, getSetting, setSetting } from "@/lib/config";
+import { bootDb, getSetting, setSetting } from "@/lib/config";
 import { newOrderNo } from "@/lib/ids";
 import {
   findCdkByCode,
   markCodeUsed,
+  poolCode,
   releaseLockedCode,
 } from "@/lib/inventory";
 import { RedeemRejectedError } from "@/lib/redeem-guard-core";
@@ -108,111 +108,6 @@ async function notifyIfTerminal(order: {
   );
 }
 
-export async function createCodeOrder(input: {
-  productId: number;
-  email: string;
-  quantity?: number;
-}) {
-  await bootDb();
-  const product = await db.query.products.findFirst({
-    where: eq(products.id, input.productId),
-  });
-  if (!product || !product.enabled || product.kind !== "code") {
-    throw new Error("商品不存在或未上架");
-  }
-
-  const quantity = Math.max(1, Math.min(10, input.quantity ?? 1));
-  const cfg = await getAppConfig();
-  const orderNo = newOrderNo("SC");
-  const amount = product.priceCents * quantity;
-
-  const [created] = await db
-    .insert(orders)
-    .values({
-      orderNo,
-      kind: "code",
-      productId: product.id,
-      email: input.email.trim().toLowerCase(),
-      quantity,
-      amountCents: amount,
-      currency: product.currency,
-      payStatus: cfg.paymentMode === "manual" ? "manual" : "unpaid",
-      fulfillStatus: "pending",
-      paymentChannel: cfg.paymentMode,
-      upstreamPlan: product.upstreamPlan,
-      clientReference: orderNo,
-    })
-    .returning();
-
-  if (cfg.paymentMode === "manual") {
-    return fulfillCodeOrder(created.id);
-  }
-
-  return created;
-}
-
-class AlreadyFulfilledError extends Error {}
-
-export async function fulfillCodeOrder(orderId: number) {
-  await bootDb();
-  const order = await db.query.orders.findFirst({
-    where: eq(orders.id, orderId),
-  });
-  if (!order) throw new Error("订单不存在");
-  if (order.kind !== "code") throw new Error("非售码订单");
-  if (order.fulfillStatus === "fulfilled") return order;
-
-  // 抢码、标记售出、订单置 fulfilled 放在同一个写事务（libsql 默认 BEGIN IMMEDIATE）。
-  // 订单以「尚未 fulfilled」为条件更新：并发的第二个调用影响 0 行，整体回滚，
-  // 抢到的码随之释放，不会出现一单两次扣库存或卡停在 locked。
-  const result = await db.transaction(async (tx) => {
-    const rows = await tx
-      .select()
-      .from(cdkPool)
-      .where(and(eq(cdkPool.status, "unused"), eq(cdkPool.planKey, order.upstreamPlan)))
-      .orderBy(asc(cdkPool.id))
-      .limit(order.quantity);
-    if (rows.length < order.quantity) {
-      throw new Error(`库存不足：需要 ${order.quantity}，可用 ${rows.length}`);
-    }
-    const now = new Date().toISOString();
-    for (const row of rows) {
-      const sold = await tx
-        .update(cdkPool)
-        .set({ status: "sold", orderId: order.id, lockedAt: now, soldAt: now, updatedAt: now })
-        .where(and(eq(cdkPool.id, row.id), eq(cdkPool.status, "unused")))
-        .returning({ id: cdkPool.id });
-      if (!sold.length) throw new Error("库存抢占失败，请重试");
-    }
-    const [updated] = await tx
-      .update(orders)
-      .set({
-        payStatus: order.payStatus === "unpaid" ? "paid" : order.payStatus,
-        fulfillStatus: "fulfilled",
-        deliveredCodesJson: JSON.stringify(rows.map((r) => r.code)),
-        paidAt: order.paidAt || now,
-        updatedAt: now,
-        message: "已发码",
-      })
-      .where(and(eq(orders.id, order.id), sql`${orders.fulfillStatus} <> 'fulfilled'`))
-      .returning();
-    // 0 行：另一路已发码。抛哨兵让事务回滚，释放本次抢到的码。
-    if (!updated) throw new AlreadyFulfilledError();
-    return updated;
-  }).catch((error) => {
-    if (error instanceof AlreadyFulfilledError) return null;
-    throw error;
-  });
-
-  if (!result) {
-    const current = await db.query.orders.findFirst({ where: eq(orders.id, order.id) });
-    if (!current) throw new Error("订单不存在");
-    return current;
-  }
-  await appendStatusHistory(order.id, "fulfilled", "已发码", "shop");
-  return result;
-}
-
 export type OpenedRechargeOrder = {
   order: typeof orders.$inferSelect;
   issuedId: number | null;
@@ -283,7 +178,6 @@ export async function openRechargeOrder(input: {
     if (!pooled && !allowUnknown) throw new RedeemRejectedError("unknown_code");
   }
 
-  const now = new Date().toISOString();
   const plain = (issued?.code || input.code).trim();
   const planKey = input.planKey || issued?.planKey || "";
   const orderNo = newOrderNo("RC");
@@ -585,7 +479,7 @@ export async function applyUpstreamStatus(opts: {
       const row = await db.query.cdkPool.findFirst({
         where: eq(cdkPool.orderId, order.id),
       });
-      if (row) await markCodeUsed(row.code);
+      if (row) await markCodeUsed(poolCode(row));
       else if (opts.cdkCode) await markCodeUsed(opts.cdkCode);
     }
 
@@ -616,7 +510,7 @@ export async function releaseCodesForOrder(orderId: number) {
     where: and(eq(cdkPool.orderId, orderId), eq(cdkPool.status, "locked")),
   });
   for (const row of rows) {
-    await releaseLockedCode(row.code);
+    await releaseLockedCode(poolCode(row));
   }
 }
 
@@ -708,18 +602,18 @@ export async function reconcileStuckLocks() {
   let used = 0;
   for (const row of locked) {
     if (!row.orderId) {
-      await releaseLockedCode(row.code);
+      await releaseLockedCode(poolCode(row));
       released += 1;
       continue;
     }
     const order = await db.query.orders.findFirst({ where: eq(orders.id, row.orderId) });
     if (!order) {
-      await releaseLockedCode(row.code);
+      await releaseLockedCode(poolCode(row));
       released += 1;
       continue;
     }
     if (order.fulfillStatus === "success" || order.fulfillStatus === "skipped") {
-      await markCodeUsed(row.code);
+      await markCodeUsed(poolCode(row));
       used += 1;
     } else if (
       order.fulfillStatus === "failed" ||
@@ -727,7 +621,7 @@ export async function reconcileStuckLocks() {
       // 创建接口误把批次 running 当进行中但实际已无 request：保守不在此释放 running/pending
       false
     ) {
-      await releaseLockedCode(row.code);
+      await releaseLockedCode(poolCode(row));
       released += 1;
     }
   }

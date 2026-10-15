@@ -8,6 +8,7 @@ import {
   evaluateCardFailVerdict,
   type CardHealthPolicy,
 } from "./health-logic";
+import { isUniqueViolation } from "@/lib/db-errors";
 
 export {
   CARD_FAIL_VERDICTS,
@@ -161,8 +162,7 @@ export async function observeCardOrderOutcome(input: {
     });
     inserted = true;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!/UNIQUE|unique/i.test(message)) throw error;
+    if (!isUniqueViolation(error)) throw error;
   }
 
   const stats = await cardFailStats(input.accountId, input.cardId);

@@ -1133,11 +1133,17 @@ export const plansCache = sqliteTable("plans_cache", {
     .default(sql`(datetime('now'))`),
 });
 
+/**
+ * 旧的内部发卡库存，已经不再写入，只留着让存量卡密还能被认出来、兑换后能标记已用。
+ * 卡密存在 code_encrypted（密文）和 code_hash（查找键）；code 列只剩 `enc:{id}` 占位。
+ */
 export const cdkPool = sqliteTable(
   "cdk_pool",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
     code: text("code").notNull(),
+    codeHash: text("code_hash").notNull().default(""),
+    codeEncrypted: text("code_encrypted").notNull().default(""),
     planKey: text("plan_key").notNull(),
     status: text("status").notNull().default("unused"), // unused | locked | sold | used | disabled
     orderId: integer("order_id"),
@@ -1155,6 +1161,7 @@ export const cdkPool = sqliteTable(
   (t) => ({
     codeIdx: uniqueIndex("cdk_pool_code_uq").on(t.code),
     statusPlanIdx: index("cdk_pool_status_plan_idx").on(t.status, t.planKey),
+    codeHashIdx: index("cdk_pool_code_hash_idx").on(t.codeHash),
   }),
 );
 

@@ -98,12 +98,19 @@ export async function POST(req: Request) {
   return NextResponse.json({ plan }, { status: existing ? 200 : 201 });
 }
 
+/** 批量改价时没传的字段一律不动：代理管理那张表只改名称、成本和上限，不能顺手把分类清空。 */
+const batchCategorySchema = z
+  .string()
+  .max(MAX_CATEGORY_LENGTH * 2)
+  .transform(normalizeCategory)
+  .optional();
+
 const batchSchema = z.object({
   plans: z.array(
     z.object({
       planKey: z.string().trim().min(1),
       name: z.string().trim().min(1).max(100).optional(),
-      category: categorySchema,
+      category: batchCategorySchema,
       regionLabel: z.string().trim().max(20).optional(),
       regionNote: z.string().trim().max(40).optional(),
       globalCostPriceCents: z.number().int().min(0),
@@ -168,7 +175,7 @@ export async function PUT(req: Request) {
         .update(platformPlans)
         .set({
           name: item.name || existing.name,
-          category: item.category,
+          ...(item.category !== undefined ? { category: item.category } : {}),
           ...(item.regionLabel !== undefined ? { regionLabel: item.regionLabel } : {}),
           ...(item.regionNote !== undefined ? { regionNote: item.regionNote } : {}),
           globalCostPriceCents: item.globalCostPriceCents,

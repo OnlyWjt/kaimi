@@ -486,7 +486,7 @@ export function CardIntegration({ publicBaseUrl = "" }: { publicBaseUrl?: string
           <div className="space-y-3 border-t border-[var(--km-border)] pt-3">
             {/loca\.lt/i.test(form.webhookUrl) ? (
               <p className="text-sm text-[var(--km-danger)]">
-                当前 Webhook 用的是 loca.lt 临时隧道，很容易断。请到「即时发卡」把支付回调地址填成正式域名，再回来保存一次 URL。
+                当前 Webhook 用的是 loca.lt 临时隧道，很容易断。请到「卖卡 › 售卖设置」把支付回调地址填成正式域名，再回来保存一次 URL。
               </p>
             ) : null}
             <label className="block space-y-1 text-sm">

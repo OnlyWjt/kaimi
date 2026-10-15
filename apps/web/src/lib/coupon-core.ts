@@ -12,6 +12,10 @@ export const COUPON_MAX_USES_CAP = 1_000_000;
 
 export type CouponSpec = {
   kind: CouponKind;
+  /**
+   * 折扣券：买家实付占原价的百分比，80 = 8 折、95 = 9.5 折，取 1–99。
+   * 字段名是历史遗留；早期存的是「几折」（8 = 8 折），由 versioned-migrations v2 换算过了。
+   */
   percentZhe: number;
   thresholdCents: number;
   amountCents: number;
@@ -72,9 +76,9 @@ export function applyCoupon(
       spec.percentZhe < 1 ||
       spec.percentZhe > 99
     ) {
-      return { ok: false, error: "折扣须为 1–99 折" };
+      return { ok: false, error: "折扣须在 0.1–9.9 折之间" };
     }
-    const goodsCents = Math.round((listGoodsCents * spec.percentZhe) / 10);
+    const goodsCents = Math.round((listGoodsCents * spec.percentZhe) / 100);
     return {
       ok: true,
       goodsCents,
@@ -221,7 +225,7 @@ export function parseCouponDraft(input: Record<string, unknown>): CouponDraft {
   }
   if (kindRaw === "percent") {
     const percentZhe = asInt(input.percentZhe, "折扣");
-    if (percentZhe < 1 || percentZhe > 99) throw new Error("折扣须为 1–99 折");
+    if (percentZhe < 1 || percentZhe > 99) throw new Error("折扣须在 0.1–9.9 折之间");
     return {
       name,
       code,
@@ -279,8 +283,13 @@ export function couponUsesLeft(maxUses: number, usedCount: number) {
   return usedCount < maxUses;
 }
 
+/** 实付百分比 → 几折的文字：80 → "8"，95 → "9.5"。 */
+export function zheText(payPercent: number) {
+  return String(Math.round(payPercent) / 10);
+}
+
 export function describeCoupon(spec: CouponSpec) {
-  if (spec.kind === "percent") return `${spec.percentZhe} 折`;
+  if (spec.kind === "percent") return `${zheText(spec.percentZhe)} 折`;
   return `满 ¥${yuanTextFromCents(spec.thresholdCents)} 减 ¥${yuanTextFromCents(spec.amountCents)}`;
 }
 

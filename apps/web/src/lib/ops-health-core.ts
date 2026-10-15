@@ -213,7 +213,7 @@ export function jobsFailedNotify(failed: number): OpsNotifyBody {
     kind: "warn",
     what: `有 ${failed} 个后台任务失败。`,
     impact: "店铺购买还开着，发卡或对账可能卡住。",
-    action: "打开管理后台「即时发卡」，看失败任务并重试。",
+    action: "打开管理后台「卖卡 › 售卖设置」，看失败任务并重试。",
   };
 }
 

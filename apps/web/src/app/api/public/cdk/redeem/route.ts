@@ -11,13 +11,13 @@ import { recordRedeemFailure, redeemBlockResponse } from "@/lib/redeem-guard";
 import { checkChatGPTSessionLocal } from "@/lib/session-check";
 import { publicErrorMessage } from "@/lib/public-error";
 import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
+import { MAILBOX_REDEEM_REMOVED, type AgentCredential } from "@/lib/recharge-types";
 
 const schema = z.object({
   code: z.string().min(REDEEM_CODE_MIN_LENGTH),
   email: z.string().optional().default(""),
   session: z.string().optional().default(""),
-  password: z.string().optional().default(""),
-  mode: z.enum(["session", "mailbox"]).optional().default("session"),
+  mode: z.string().optional().default("session"),
 });
 
 export async function POST(req: Request) {
@@ -29,35 +29,24 @@ export async function POST(req: Request) {
   let contactEmail = "";
   try {
     const body = schema.parse(await req.json());
-    const mailbox = body.mode === "mailbox";
+    if (body.mode !== "session") {
+      return NextResponse.json({ error: MAILBOX_REDEEM_REMOVED }, { status: 400 });
+    }
     const code = body.code.trim();
-    let email = body.email.trim();
-    if (mailbox && !email) {
-      return NextResponse.json({ error: "请填写账号邮箱" }, { status: 400 });
+    const local = checkChatGPTSessionLocal(body.session);
+    if (!local.ok) {
+      return NextResponse.json(
+        { error: local.errors[0] || "Session 无效" },
+        { status: 400 },
+      );
     }
-    if (!mailbox) {
-      const local = checkChatGPTSessionLocal(body.session);
-      if (!local.ok) {
-        return NextResponse.json(
-          { error: local.errors[0] || "Session 无效" },
-          { status: 400 },
-        );
-      }
-      email = (local.email || email).trim();
-    }
+    const email = (local.email || body.email).trim();
     contactEmail = email;
-    const account = mailbox
-      ? {
-          mode: "mailbox" as const,
-          email,
-          password: body.password,
-          email_password: body.password,
-        }
-      : {
-          mode: "session" as const,
-          session: body.session,
-          email,
-        };
+    const account: AgentCredential = {
+      mode: "session",
+      session: body.session,
+      email,
+    };
 
     try {
       const opened = await beginRechargeOrder({

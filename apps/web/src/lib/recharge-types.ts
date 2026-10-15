@@ -9,14 +9,13 @@ export type ItemStatus =
   | "skipped"
   | "unknown";
 
-export type CredMode = "session" | "mailbox";
+/** 兑换只收 Session；邮箱密码方式已下线，老客户端还传 mailbox 时回这句。 */
+export const MAILBOX_REDEEM_REMOVED = "已不支持邮箱密码兑换，请改用 Session 兑换";
 
 export type AgentCredential = {
-  mode: CredMode;
+  mode: "session";
   session?: string;
   email?: string;
-  password?: string;
-  email_password?: string;
 };
 
 export function isTerminalStatus(status?: string) {

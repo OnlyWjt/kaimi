@@ -7,6 +7,7 @@ import { agents, apiKeys, users } from "@/db/schema";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
+import { clientIp } from "@/lib/rate-limit";
 
 const updateSchema = z
   .object({
@@ -94,7 +95,7 @@ export async function PATCH(
       action: "admin.agent.password_reset",
       targetType: "agent",
       targetId: id,
-      ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
+      ip: clientIp(req),
     });
   }
 

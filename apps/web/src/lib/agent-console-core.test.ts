@@ -10,7 +10,7 @@ import {
 describe("coupon face", () => {
   it("折扣显示几折，满减显示减免和门槛", () => {
     expect(
-      couponFaceLabel({ kind: "percent", percentZhe: 8, amountCents: 0 }),
+      couponFaceLabel({ kind: "percent", percentZhe: 80, amountCents: 0 }),
     ).toBe("8 折");
     expect(
       couponFaceLabel({ kind: "threshold", percentZhe: 0, amountCents: 2000 }),

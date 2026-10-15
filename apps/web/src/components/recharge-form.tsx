@@ -9,8 +9,6 @@ import {
 } from "@/components/order-progress-panel";
 import { RegionBadge } from "@/components/region-badge";
 import {
-  CredentialSwitch,
-  MailboxFields,
   RedeemSteps,
   SessionCheckResult,
   SessionField,
@@ -51,9 +49,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
   const [code, setCode] = useState(initialCode);
   const [validated, setValidated] = useState<Validated | null>(null);
   const [email, setEmail] = useState("");
-  const [credMode, setCredMode] = useState<"session" | "mailbox">("session");
   const [session, setSession] = useState("");
-  const [mailboxPassword, setMailboxPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
@@ -193,32 +189,19 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
 
   async function submit() {
     if (!validated) return;
-    if (credMode === "mailbox") {
-      if (!email.trim()) {
-        setError("请填写账号邮箱");
-        return;
-      }
-      if (!mailboxPassword.trim()) {
-        setError("请填写邮箱密码");
-        return;
-      }
-    } else {
-      if (!session.trim()) {
-        setError("请填写 Session");
-        return;
-      }
-      if (!sessionOk) {
-        setError("请先点击「预检 Session」，通过卡台校验后再兑换");
-        return;
-      }
+    if (!session.trim()) {
+      setError("请填写 Session");
+      return;
+    }
+    if (!sessionOk) {
+      setError("请先点击「预检 Session」，通过卡台校验后再兑换");
+      return;
     }
     setBusy(true);
     setError("");
     try {
       // 预检已经在点提交前做过。这里不再打 session-check，否则按钮还要再等一轮卡台。
-      const accountEmail = (
-        credMode === "session" ? preview?.email || email : email
-      ).trim();
+      const accountEmail = (preview?.email || email).trim();
 
       const res = await fetch("/api/recharge/submit", {
         method: "POST",
@@ -226,9 +209,8 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
         body: JSON.stringify({
           code: code.trim(),
           email: accountEmail,
-          mode: credMode,
-          session: credMode === "session" ? session.trim() : undefined,
-          password: credMode === "mailbox" ? mailboxPassword.trim() : undefined,
+          mode: "session",
+          session: session.trim(),
           productId: validated.productId ?? undefined,
           planKey: validated.planKey || undefined,
         }),
@@ -263,7 +245,6 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
     setStep("code");
     setValidated(null);
     setSession("");
-    setMailboxPassword("");
     setEmail("");
     setError("");
     setProgress(null);
@@ -386,41 +367,20 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
             </>
           ) : (
             <section className="km-rx-card km-form-stack">
-              <div className="km-rx-card-head km-rx-card-head-row">
-                <div>
-                  <h2 className="km-rx-card-title">开通账号</h2>
-                  <p className="km-rx-card-desc">
-                    {credMode === "session" ? "粘贴 ChatGPT Session，先预检账号再提交" : "填写要开通的账号邮箱和登录密码"}
-                  </p>
-                </div>
-                <CredentialSwitch
-                  value={credMode}
-                  onChange={(mode) => {
-                    setCredMode(mode);
-                    if (mode === "mailbox") setPreview(null);
-                    setError("");
-                  }}
-                />
+              <div className="km-rx-card-head">
+                <h2 className="km-rx-card-title">开通账号</h2>
+                <p className="km-rx-card-desc">粘贴 ChatGPT Session，先预检账号再提交</p>
               </div>
 
-              {credMode === "session" ? (
-                <SessionField
-                  value={session}
-                  onChange={(value) => {
-                    setSession(value);
-                    setPreview(null);
-                  }}
-                />
-              ) : (
-                <MailboxFields
-                  email={email}
-                  password={mailboxPassword}
-                  onEmail={setEmail}
-                  onPassword={setMailboxPassword}
-                />
-              )}
+              <SessionField
+                value={session}
+                onChange={(value) => {
+                  setSession(value);
+                  setPreview(null);
+                }}
+              />
 
-              {preview && credMode === "session" ? <SessionCheckResult preview={preview} /> : null}
+              {preview ? <SessionCheckResult preview={preview} /> : null}
 
               {error ? (
                 <p className="km-rx-error" role="alert">
@@ -428,38 +388,28 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
                 </p>
               ) : null}
 
-              {credMode === "session" ? (
-                sessionOk ? (
-                  <div className="km-rx-actions km-submit-reveal">
-                    <button className="km-btn km-rx-primary" disabled={busy || checking} onClick={() => void submit()}>
-                      {busy ? "提交中…" : "提交兑换"}
-                    </button>
-                    <button
-                      type="button"
-                      className="km-rx-link"
-                      disabled={busy || checking || !session.trim()}
-                      onClick={() => void precheckSession()}
-                    >
-                      {checking ? "预检中…" : "改了 Session？重新预检"}
-                    </button>
-                  </div>
-                ) : (
+              {sessionOk ? (
+                <div className="km-rx-actions km-submit-reveal">
+                  <button className="km-btn km-rx-primary" disabled={busy || checking} onClick={() => void submit()}>
+                    {busy ? "提交中…" : "提交兑换"}
+                  </button>
                   <button
                     type="button"
-                    className="km-btn km-rx-primary"
-                    disabled={!session.trim() || busy || checking}
+                    className="km-rx-link"
+                    disabled={busy || checking || !session.trim()}
                     onClick={() => void precheckSession()}
                   >
-                    {checking ? "预检中…" : session.trim() ? "预检 Session" : "先粘贴 Session"}
+                    {checking ? "预检中…" : "改了 Session？重新预检"}
                   </button>
-                )
+                </div>
               ) : (
                 <button
+                  type="button"
                   className="km-btn km-rx-primary"
-                  disabled={!email.trim() || !mailboxPassword.trim() || busy}
-                  onClick={() => void submit()}
+                  disabled={!session.trim() || busy || checking}
+                  onClick={() => void precheckSession()}
                 >
-                  {busy ? "提交中…" : "提交兑换"}
+                  {checking ? "预检中…" : session.trim() ? "预检 Session" : "先粘贴 Session"}
                 </button>
               )}
             </section>

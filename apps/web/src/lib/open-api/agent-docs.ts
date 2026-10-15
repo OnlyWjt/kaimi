@@ -215,10 +215,8 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
           headers: ["字段", "必填", "说明"],
           rows: [
             ["code", "是", "卡密"],
-            ["mode", "否", "session 或 mailbox，默认 session"],
-            ["session", "session 时必填", "ChatGPT Session"],
-            ["email", "mailbox 时必填", "账号邮箱"],
-            ["password", "mailbox 时必填", "邮箱密码"],
+            ["mode", "否", "只支持 session，可不传；邮箱密码方式已下线"],
+            ["session", "是", "ChatGPT Session"],
           ],
         },
         {

@@ -6,6 +6,7 @@ import {
 } from "@/lib/announcements-core";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
+import { clientIp } from "@/lib/rate-limit";
 
 export async function POST(
   req: Request,
@@ -27,7 +28,7 @@ export async function POST(
     await publishAnnouncement({
       id,
       actor: session,
-      ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
+      ip: clientIp(req),
     });
     return NextResponse.json({
       ok: true,

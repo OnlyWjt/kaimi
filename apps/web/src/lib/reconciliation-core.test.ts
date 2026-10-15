@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
 import ts from "typescript";
+import { reconciliationSource } from "./reconciliation-source.test-helper";
 
 // Execute the production pure helper without initializing DB/auth/Next dependencies.
-const source = readFileSync(new URL("./reconciliation.ts", import.meta.url), "utf8");
+const source = reconciliationSource();
 const helper = source.slice(source.indexOf("export function effectiveAdjustmentCents("), source.indexOf("export async function effectiveEarningCents("));
 const effectiveAdjustmentCents = new Function(ts.transpile(helper.replace("export function", "function")) + "\nreturn effectiveAdjustmentCents;")() as (
   earning: number, rows: Array<{ amountCents: number; status: string }>,
