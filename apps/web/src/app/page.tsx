@@ -37,9 +37,9 @@ export default async function HomePage() {
 
       <section className="km-shell py-16 text-center md:py-20">
         <div className="km-rise mx-auto max-w-2xl space-y-6">
-          <p className="km-eyebrow">卡密兑换</p>
+          <p className="km-eyebrow">{siteName}</p>
           <h1 className="km-page-title" style={{ fontFamily: "var(--font-sora)" }}>
-            {siteName}
+            卡密兑换开通
           </h1>
           <p className="mx-auto max-w-xl text-base leading-relaxed text-[var(--km-fg-muted)]">
             {recharge.announcement || "使用卡密完成账户开通，或查询订单与卡密状态"}
@@ -48,7 +48,13 @@ export default async function HomePage() {
             <Link href="/recharge" className="km-btn km-btn-pair">
               开始兑换
             </Link>
+            <Link href="/lookup" className="km-btn km-btn-ghost km-btn-pair">
+              查兑换进度
+            </Link>
           </div>
+          <p className="mx-auto max-w-md text-sm leading-relaxed text-[var(--km-fg-muted)]">
+            还没有卡密？卡密在各家代理店铺出售，请回到你购买的店铺下单；付款后的订单页和邮件里都有兑换入口。
+          </p>
         </div>
       </section>
 
