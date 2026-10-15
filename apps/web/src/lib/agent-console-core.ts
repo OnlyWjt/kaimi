@@ -212,7 +212,7 @@ export function beijingPeriodBounds(startValue: string, endValue: string) {
 }
 
 export function couponFaceLabel(item: Pick<AgentCouponItem, "kind" | "percentZhe" | "amountCents">) {
-  if (item.kind === "percent") return `${item.percentZhe} 折`;
+  if (item.kind === "percent") return `${String(Math.round(item.percentZhe) / 10)} 折`;
   return `−¥${yuanTextFromCents(item.amountCents)}`;
 }
 

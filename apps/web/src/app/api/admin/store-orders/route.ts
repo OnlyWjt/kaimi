@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { and, desc, eq, like, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
-import { agents, storeOrders } from "@/db/schema";
+import { agents, storeOrders, users } from "@/db/schema";
+import { agentIdentityLabel } from "@/lib/agent-identity-core";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { normalizePage, normalizePageSize } from "@/lib/pagination-core";
@@ -38,6 +39,8 @@ export async function GET(req: Request) {
       like(storeOrders.invoiceTaxNo, pattern),
       like(storeOrders.invoiceEmail, pattern),
       like(agents.displayName, pattern),
+      like(agents.shopName, pattern),
+      like(agents.realName, pattern),
     );
     if (textMatch) conditions.push(textMatch);
   }
@@ -65,7 +68,11 @@ export async function GET(req: Request) {
       id: storeOrders.id,
       orderNo: storeOrders.orderNo,
       agentId: storeOrders.agentId,
-      agentName: agents.displayName,
+      agentDisplayName: agents.displayName,
+      agentShopName: agents.shopName,
+      agentRealName: agents.realName,
+      agentSettlementName: agents.settlementName,
+      agentUsername: users.username,
       productName: storeOrders.productNameSnapshot,
       quantity: storeOrders.quantity,
       retailPriceCents: storeOrders.retailPriceCents,
@@ -103,9 +110,25 @@ export async function GET(req: Request) {
     })
     .from(storeOrders)
     .innerJoin(agents, eq(agents.id, storeOrders.agentId))
+    .leftJoin(users, eq(users.agentId, agents.id))
     .where(where)
     .orderBy(desc(storeOrders.id))
     .limit(pageSize)
     .offset((page - 1) * pageSize);
-  return NextResponse.json({ list, page, pageSize, total: Number(total) || 0 });
+  // 和订单页、收益统计同一套身份标签：「真实姓名 · @登录名 · 店铺 店名」，
+  // 不然同一个代理在总览叫店名、在这里叫登录名，对不上。
+  const rows = list.map(
+    ({ agentDisplayName, agentShopName, agentRealName, agentSettlementName, agentUsername, ...row }) => ({
+      ...row,
+      agentName: agentIdentityLabel({
+        agentId: row.agentId,
+        displayName: agentDisplayName,
+        shopName: agentShopName,
+        realName: agentRealName,
+        settlementName: agentSettlementName,
+        username: agentUsername,
+      }),
+    }),
+  );
+  return NextResponse.json({ list: rows, page, pageSize, total: Number(total) || 0 });
 }

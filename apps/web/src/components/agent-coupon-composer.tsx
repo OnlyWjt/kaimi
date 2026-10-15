@@ -46,7 +46,8 @@ function draftFromCoupon(item: AgentCouponItem): Draft {
     name: item.name,
     code: item.code,
     kind: item.kind,
-    percentZhe: item.kind === "percent" ? String(item.percentZhe) : "8",
+    // 存的是实付百分比（80），表单里按「几折」（8）填
+    percentZhe: item.kind === "percent" ? String(item.percentZhe / 10) : "8",
     thresholdYuan: item.kind === "threshold" ? yuanTextFromCents(item.thresholdCents) : "",
     amountYuan: item.kind === "threshold" ? yuanTextFromCents(item.amountCents) : "",
     unlimited: item.maxUses === 0,
@@ -54,6 +55,15 @@ function draftFromCoupon(item: AgentCouponItem): Draft {
     planKeys: item.planKeys,
     enabled: item.enabled,
   };
+}
+
+/** 「几折」→ 实付百分比：8 → 80，9.5 → 95。只认 0.1–9.9 折、最多一位小数。 */
+function zheToPayPercent(raw: string) {
+  const text = raw.trim();
+  if (!/^\d(\.\d)?$/.test(text) || Number(text) <= 0) {
+    throw new Error("折扣请填 0.1–9.9，比如 8 或 9.5");
+  }
+  return Math.round(Number(text) * 10);
 }
 
 function draftPayload(draft: Draft) {
@@ -71,7 +81,7 @@ function draftPayload(draft: Draft) {
     name: draft.name,
     code: draft.code,
     kind: draft.kind,
-    percentZhe: draft.kind === "percent" ? Number(draft.percentZhe) : undefined,
+    percentZhe: draft.kind === "percent" ? zheToPayPercent(draft.percentZhe) : undefined,
     thresholdCents: draft.kind === "threshold" ? thresholdCents : undefined,
     amountCents: draft.kind === "threshold" ? amountCents : undefined,
     maxUses: draft.unlimited ? 0 : Number(draft.maxUses),
@@ -232,7 +242,7 @@ export function AgentCouponComposer({ couponId }: { couponId?: number }) {
               onClick={() => setDraft((current) => ({ ...current, kind: "percent" }))}
             >
               <b>折扣</b>
-              <span>按几折卖。8 就是买家付原价的 80%。</span>
+              <span>按几折卖。8 就是买家付原价的 80%，可以填 9.5。</span>
             </button>
             <button
               type="button"

@@ -19,6 +19,7 @@ import {
   FINISHED_GPT_PLAN_KEY,
   LOCAL_ACCOUNT_FULFILLMENT,
 } from "../lib/finished-account-core";
+import { isUniqueViolation } from "../lib/db-errors";
 
 // 这个文件每次启动都整份跑一遍，所以只放幂等的 DDL（建表、补列、建索引）和开库必需的默认数据。
 // 回填、转换存量数据这类一次性迁移不要加在这里，写到 versioned-migrations.ts 按版本号只跑一次。
@@ -1262,8 +1263,7 @@ export async function ensureSchema() {
       await db.insert(settings).values({ key, value });
     } catch (err) {
       // 并发 boot 可能同时插入同一 key
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!/UNIQUE|unique/i.test(msg)) throw err;
+      if (!isUniqueViolation(err)) throw err;
     }
   };
   await ensureSetting("site_theme", "snow");

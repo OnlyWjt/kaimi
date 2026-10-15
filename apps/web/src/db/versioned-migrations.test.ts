@@ -99,6 +99,26 @@ describe("runVersionedMigrations", () => {
   });
 });
 
+describe("v2 coupon_percent_to_pay_percent", () => {
+  it("老写法 1–9 折乘 10，已经按百分比填的不动", async () => {
+    const { sql } = m.orm;
+    const agentId = 4242;
+    await m.db.run(sql`INSERT INTO agent_store_coupons (agent_id, name, code, kind, percent_zhe, created_at, updated_at)
+      VALUES (${agentId}, '八折', 'OLD8', 'percent', 8, 'x', 'x'), (${agentId}, '九六', 'PCT96', 'percent', 96, 'x', 'x'),
+             (${agentId}, '满减', 'TH1', 'threshold', 0, 'x', 'x')`);
+    await m.db.run(sql`DELETE FROM schema_migrations WHERE version = 2`);
+    expect(await m.migrations.runVersionedMigrations()).toEqual(["coupon_percent_to_pay_percent"]);
+    const rows = await m.db.all<{ code: string; percent_zhe: number }>(
+      sql`SELECT code, percent_zhe FROM agent_store_coupons WHERE agent_id = ${agentId} ORDER BY code`,
+    );
+    expect(rows).toEqual([
+      { code: "OLD8", percent_zhe: 80 },
+      { code: "PCT96", percent_zhe: 96 },
+      { code: "TH1", percent_zhe: 0 },
+    ]);
+  });
+});
+
 describe("v1 encrypt_legacy_pool_codes", () => {
   it("把 cdk_pool 和售码订单里的明文卡密改成密文，按卡密还能查到", async () => {
     const { sql } = m.orm;

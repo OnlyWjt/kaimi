@@ -8,6 +8,7 @@ import { validateAgentSlug } from "@/lib/agent-slug";
 import { bootDb } from "@/lib/config";
 import { resolveThemeId } from "@/lib/storefront";
 import { isThemeId } from "@kaimi/themes";
+import { isUniqueViolation } from "@/lib/db-errors";
 
 const updateSchema = z.object({
   slug: z.string().trim().optional(),
@@ -113,7 +114,7 @@ export async function PATCH(req: Request) {
         .where(eq(agents.id, session.agentId));
     });
   } catch (error) {
-    if (/UNIQUE|unique/i.test(error instanceof Error ? error.message : String(error))) {
+    if (isUniqueViolation(error)) {
       return NextResponse.json({ error: "该店铺标识已被占用" }, { status: 409 });
     }
     throw error;

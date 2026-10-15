@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import { and, desc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
 import { isThemeId } from "@kaimi/themes";
 import { db } from "@/db";
-import { agents, issuedCdks, orders, storefronts, storeOrders } from "@/db/schema";
+import { agents, issuedCdks, orders, storefronts, storeOrders, users } from "@/db/schema";
+import { agentIdentityLabel } from "@/lib/agent-identity-core";
 import { beijingDayStartIso } from "@/lib/agent-draw-core";
 import { ATTENTION_FULFILL_STATUSES } from "@/lib/agent-orders-core";
-import { publicShopName } from "@/lib/agent-names";
 import { getAgentRedeemUrl, normalizeAgentRedeemUrl } from "@/lib/agent-redeem";
 import {
   BATCH_REDEEM_LIMIT_SETTING,
@@ -132,11 +132,16 @@ export async function GET(req: Request) {
           payStatus: storeOrders.payStatus,
           fulfillStatus: storeOrders.fulfillStatus,
           createdAt: storeOrders.createdAt,
+          agentId: storeOrders.agentId,
           agentDisplayName: agents.displayName,
           agentShopName: agents.shopName,
+          agentRealName: agents.realName,
+          agentSettlementName: agents.settlementName,
+          agentUsername: users.username,
         })
         .from(storeOrders)
         .innerJoin(agents, eq(agents.id, storeOrders.agentId))
+        .leftJoin(users, eq(users.agentId, agents.id))
         .orderBy(desc(storeOrders.id))
         .limit(8),
     ]);
@@ -151,7 +156,14 @@ export async function GET(req: Request) {
         payStatus: row.payStatus,
         fulfillStatus: row.fulfillStatus,
         createdAt: row.createdAt,
-        agentName: publicShopName({ displayName: row.agentDisplayName, shopName: row.agentShopName }),
+        agentName: agentIdentityLabel({
+          agentId: row.agentId,
+          displayName: row.agentDisplayName,
+          shopName: row.agentShopName,
+          realName: row.agentRealName,
+          settlementName: row.agentSettlementName,
+          username: row.agentUsername,
+        }),
       })),
       setupCompleted: cfg.setupCompleted,
       paymentMode: cfg.paymentMode,

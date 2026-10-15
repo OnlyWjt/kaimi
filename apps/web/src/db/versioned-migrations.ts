@@ -28,6 +28,11 @@ export const MIGRATIONS: VersionedMigration[] = [
     name: "encrypt_legacy_pool_codes",
     up: encryptLegacyPoolCodes,
   },
+  {
+    version: 2,
+    name: "coupon_percent_to_pay_percent",
+    up: couponPercentToPayPercent,
+  },
 ];
 
 const CREATE_TABLE = sql`
@@ -106,6 +111,23 @@ async function encryptLegacyPoolCodes(tx: Tx) {
       UPDATE orders SET delivered_codes_json = ${JSON.stringify(sealed)} WHERE id = ${row.id}
     `);
   }
+}
+
+/**
+ * v2：折扣券 percent_zhe 原来存「几折」（8 = 8 折），算价时却按 原价 × 值 ÷ 10，
+ * 校验又放到 1–99：填 96 想打 9.6 折的券实际把价格乘成 9.6 倍。
+ * 改成存实付百分比（80 = 8 折）。1–9 是老写法，乘 10；10 及以上在老算法下都会涨价，
+ * 只可能是按百分比填的，原样保留。订单上的快照一起换算，只看折扣券那几单。
+ */
+async function couponPercentToPayPercent(tx: Tx) {
+  await tx.run(sql`
+    UPDATE agent_store_coupons SET percent_zhe = percent_zhe * 10
+    WHERE kind = 'percent' AND percent_zhe BETWEEN 1 AND 9
+  `);
+  await tx.run(sql`
+    UPDATE store_orders SET coupon_percent_snapshot = coupon_percent_snapshot * 10
+    WHERE coupon_kind_snapshot = 'percent' AND coupon_percent_snapshot BETWEEN 1 AND 9
+  `);
 }
 
 /** cdk_pool.code 加密后留下的占位值，按 id 保证唯一。 */

@@ -15,6 +15,7 @@ import {
   webhookTimestamps,
   webhookTimestampSkewOk,
 } from "./webhook-verify";
+import { isUniqueViolation } from "@/lib/db-errors";
 
 export {
   webhookSignatureCandidates,
@@ -157,12 +158,7 @@ export async function ingestCardplatformWebhook(input: {
       payloadJson: input.raw,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const cause =
-      error instanceof Error && error.cause instanceof Error
-        ? error.cause.message
-        : "";
-    if (!/UNIQUE|unique/i.test(`${message} ${cause}`)) throw error;
+    if (!isUniqueViolation(error)) throw error;
     // 同一事件已经处理过：直接 200，别再重复 apply / observe。
     return { status: 200 as const, duplicate: true as const };
   }
