@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 export const metadata: Metadata = {
-  title: "代理控制台设计稿",
-  description: "静态预览，不连真实数据",
+  title: "店铺预览",
+  description: "用示例数据渲染真实店铺组件，不连真实数据",
 };
 
 export default function PreviewLayout({ children }: { children: React.ReactNode }) {
