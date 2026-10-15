@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { reconciliationSource } from "./reconciliation-source.test-helper";
 import { createClient } from "@libsql/client";
 import { describe, expect, it } from "vitest";
 import {
@@ -12,7 +13,7 @@ import {
 } from "./reconciliation-core";
 
 const draw = readFileSync(new URL("./agent-draw.ts", import.meta.url), "utf8");
-const reconciliation = readFileSync(new URL("./reconciliation.ts", import.meta.url), "utf8");
+const reconciliation = reconciliationSource();
 const migrate = readFileSync(new URL("../db/migrate-lib.ts", import.meta.url), "utf8");
 
 function fnBody(source: string, signature: string) {

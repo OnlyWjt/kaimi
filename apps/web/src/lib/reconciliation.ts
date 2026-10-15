@@ -1,8 +1,7 @@
-import { and, desc, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   agentDrawItems,
-  agentDrawOrders,
   agentEarningAdjustments,
   agentEarnings,
   agentReconciliationBatches,
@@ -10,14 +9,13 @@ import {
   agentReconciliationCorrections,
   agentReconciliationItems,
   agentSettlements,
-  agents,
   auditLogs,
   reconciliationIdempotency,
   storeOrders,
 } from "@/db/schema";
-import type { AuthSession } from "@/lib/auth";
+
 import { newOrderNo } from "@/lib/ids";
-import { verifyLedger } from "@/lib/order-ledger-core";
+
 import {
   adjustmentFingerprint,
   adjustmentTypeForCorrection,
@@ -34,389 +32,35 @@ import {
   netCents,
   payloadHash,
   snapshotHash,
-  splitLocked,
-  totalsOf,
   checkNoRevive,
   validateClear,
   validateMarkPaid,
   type CorrectionApiType,
-  type ReconciliationDirection,
   type ReconciliationSourceType,
-  type SnapshotLine,
 } from "@/lib/reconciliation-core";
 
-export class ReconciliationError extends Error {
-  constructor(
-    readonly code: string,
-    message: string,
-    readonly status = 409,
-    readonly retryable = false,
-  ) {
-    super(message);
-  }
-}
+import {
+  type Actor,
+  type Line,
+  type Tx,
+  ReconciliationError,
+  lineDirection,
+  lineFace,
+  loadLines,
+  partition,
+} from "@/lib/reconciliation-lines";
 
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-type Actor = Pick<AuthSession, "id" | "role">;
-
-type Line = SnapshotLine & {
-  bucket: "open" | "locked" | "skipped";
-  /** locked 行：占用它的 active claim 所在批次。没有则是旧周结单占用。 */
-  claimBatchId?: number | null;
-  /** locked 且无 claim：旧周结单号（settlementId 为空时没有）。 */
-  legacySettlementNo?: string | null;
-  orderNo: string;
-  occurredAt: string;
-  skipCode?: string;
-  skipMessage?: string;
-  snapshot: Record<string, unknown>;
-  amountKnown: boolean;
-};
+export { ReconciliationError } from "@/lib/reconciliation-lines";
+export {
+  agentBatchView,
+  getReconciliation,
+  itemsCsv,
+  listAgentBatches,
+  listReconciliationAgents,
+  listReconciliationItems,
+} from "@/lib/reconciliation-queries";
 
 const PAYMENT_FIELDS = ["paymentMethod", "paymentReference", "actualPaymentAt", "note", "amountCents", "currency"] as const;
-
-function skipMessage(code: string) {
-  if (code === "MANUAL_REVIEW_REQUIRED") return "核对渠道凭证后重算";
-  if (code === "LEDGER_MISMATCH") return "订单和收益行对不上，先按快照核对";
-  return "缺收益行或来源数据，先补齐再纳入";
-}
-
-function snapText(snapshot: Record<string, unknown>, key: string) {
-  return typeof snapshot[key] === "string" ? snapshot[key] : "";
-}
-
-function snapCents(snapshot: Record<string, unknown>, key: string) {
-  return typeof snapshot[key] === "number" ? snapshot[key] : null;
-}
-
-/** 给对账表用的展示字段。不参与快照哈希。 */
-function lineFace(line: Pick<Line, "occurredAt" | "snapshot">) {
-  const snapshot = line.snapshot;
-  return {
-    occurredAt: line.occurredAt,
-    title: snapText(snapshot, "productName") || snapText(snapshot, "planName") || snapText(snapshot, "reason") || snapText(snapshot, "type"),
-    goodsCents: snapCents(snapshot, "goodsCents"),
-    feeCents: snapCents(snapshot, "agentFeeCents"),
-  };
-}
-
-function lineDirection(type: ReconciliationSourceType, amount: number): ReconciliationDirection {
-  if (type === "draw_item") return "agent_pays_platform";
-  return directionOf(amount);
-}
-
-async function loadLines(tx: Tx | typeof db, agentId: number, cutoffAt: string): Promise<Line[]> {
-  const tagged = await collectLines(tx, agentId, cutoffAt);
-  return tagged.map((row) => row.line);
-}
-
-/** agentId 为空时一次捞出全部代理的未结行，名单接口不用按人循环查。 */
-async function collectLines(tx: Tx | typeof db, agentId: number | null, cutoffAt: string) {
-  const earnings = await tx
-    .select({
-      agentId: agentEarnings.agentId,
-      earningId: agentEarnings.id,
-      earningCents: agentEarnings.earningCents,
-      earningStatus: agentEarnings.status,
-      earningSettlementId: agentEarnings.settlementId,
-      confirmedAt: agentEarnings.confirmedAt,
-      rowGross: agentEarnings.grossCents,
-      rowCost: agentEarnings.costCents,
-      rowFee: agentEarnings.agentFeeCents,
-      orderId: storeOrders.id,
-      orderNo: storeOrders.orderNo,
-      productName: storeOrders.productNameSnapshot,
-      grossCents: storeOrders.grossCents,
-      listGoodsCents: storeOrders.listGoodsCents,
-      couponDiscountCents: storeOrders.couponDiscountCents,
-      invoiceSurchargeCents: storeOrders.invoiceSurchargeCents,
-      agentCostTotalCents: storeOrders.agentCostTotalCents,
-      upstreamCostTotalCents: storeOrders.upstreamCostTotalCents,
-      feeRatePpm: storeOrders.feeRatePpm,
-      fixedFeeCents: storeOrders.fixedFeeCents,
-      finalPaymentFeeCents: storeOrders.finalPaymentFeeCents,
-      agentFeeCents: storeOrders.agentFeeCents,
-      platformFeeCents: storeOrders.platformFeeCents,
-      orderEarningCents: storeOrders.agentEarningCents,
-      platformProfitCents: storeOrders.platformProfitCents,
-      feeReconcileStatus: storeOrders.feeReconcileStatus,
-    })
-    .from(agentEarnings)
-    .innerJoin(storeOrders, eq(storeOrders.id, agentEarnings.orderId))
-    .where(
-      and(
-        ...(agentId == null ? [] : [eq(agentEarnings.agentId, agentId)]),
-        inArray(agentEarnings.status, ["pending", "settling"]),
-        lte(agentEarnings.confirmedAt, cutoffAt),
-        eq(storeOrders.payStatus, "paid"),
-        eq(storeOrders.fulfillStatus, "delivered"),
-      ),
-    );
-
-  const missing = await tx
-    .select({
-      agentId: storeOrders.agentId,
-      orderNo: storeOrders.orderNo,
-      occurredAt: storeOrders.deliveredAt,
-      paidAt: storeOrders.paidAt,
-    })
-    .from(storeOrders)
-    .leftJoin(agentEarnings, eq(agentEarnings.orderId, storeOrders.id))
-    .where(
-      and(
-        ...(agentId == null ? [] : [eq(storeOrders.agentId, agentId)]),
-        eq(storeOrders.payStatus, "paid"),
-        eq(storeOrders.fulfillStatus, "delivered"),
-        sql`${agentEarnings.id} is null`,
-        sql`coalesce(${storeOrders.deliveredAt}, ${storeOrders.paidAt}, ${storeOrders.createdAt}) <= ${cutoffAt}`,
-      ),
-    );
-
-  const adjustments = await tx
-    .select()
-    .from(agentEarningAdjustments)
-    .where(
-      and(
-        ...(agentId == null ? [] : [eq(agentEarningAdjustments.agentId, agentId)]),
-        inArray(agentEarningAdjustments.status, ["pending", "settling"]),
-        lte(agentEarningAdjustments.createdAt, cutoffAt),
-        sql`EXISTS (
-          SELECT 1 FROM store_orders
-          WHERE store_orders.id = ${agentEarningAdjustments.orderId}
-            AND store_orders.pay_status != 'refunding'
-        )`,
-      ),
-    );
-
-  const draws = await tx
-    .select({
-      agentId: agentDrawItems.agentId,
-      id: agentDrawItems.id,
-      amountCents: agentDrawItems.amountCents,
-      drawOrderId: agentDrawItems.drawOrderId,
-      createdAt: agentDrawItems.createdAt,
-      planKey: agentDrawItems.planKey,
-      drawNo: agentDrawOrders.drawNo,
-      planName: agentDrawOrders.planNameSnapshot,
-    })
-    .from(agentDrawItems)
-    .innerJoin(agentDrawOrders, eq(agentDrawOrders.id, agentDrawItems.drawOrderId))
-    .where(
-      and(
-        ...(agentId == null ? [] : [eq(agentDrawItems.agentId, agentId)]),
-        eq(agentDrawItems.status, "unsettled"),
-        lte(agentDrawItems.createdAt, cutoffAt),
-      ),
-    );
-
-  const claims = await tx
-    .select({
-      sourceType: agentReconciliationClaims.sourceType,
-      sourceId: agentReconciliationClaims.sourceId,
-      batchId: agentReconciliationClaims.batchId,
-    })
-    .from(agentReconciliationClaims)
-    .where(eq(agentReconciliationClaims.claimState, "active"));
-  const claimed = new Map(claims.map((row) => [`${row.sourceType}:${row.sourceId}`, row.batchId]));
-
-  // 旧周结单号：只给 settling 且没有 claim 的收益/调整查，用 settlementId 关联。
-  const legacyIds = new Set<number>();
-  for (const row of earnings) {
-    if (row.earningStatus === "settling" && !claimed.has(`earning:${row.earningId}`) && row.earningSettlementId) {
-      legacyIds.add(row.earningSettlementId);
-    }
-  }
-  for (const row of adjustments) {
-    if (row.status === "settling" && !claimed.has(`adjustment:${row.id}`) && row.settlementId) {
-      legacyIds.add(row.settlementId);
-    }
-  }
-  const legacyNos = new Map<number, string>();
-  if (legacyIds.size) {
-    const found = await tx
-      .select({ id: agentSettlements.id, settlementNo: agentSettlements.settlementNo })
-      .from(agentSettlements)
-      .where(inArray(agentSettlements.id, [...legacyIds]));
-    for (const row of found) legacyNos.set(row.id, row.settlementNo);
-  }
-
-  const tagged: Array<{ agentId: number; line: Line }> = [];
-  for (const row of earnings) {
-    const goods = row.grossCents - row.invoiceSurchargeCents;
-    const snapshot = {
-      productName: row.productName,
-      occurredAt: row.confirmedAt,
-      orderNo: row.orderNo,
-      listGoodsCents: row.listGoodsCents,
-      couponDiscountCents: row.couponDiscountCents,
-      goodsCents: goods,
-      agentCostCents: row.agentCostTotalCents,
-      agentFeeCents: row.agentFeeCents,
-      platformFeeCents: row.platformFeeCents,
-      channelFeeCents: row.finalPaymentFeeCents,
-      invoiceSurchargeCents: row.invoiceSurchargeCents,
-      upstreamCostCents: row.upstreamCostTotalCents,
-      earningCents: row.earningCents,
-      orderId: row.orderId,
-    };
-    const base = {
-      sourceType: "earning" as const,
-      sourceId: row.earningId,
-      sourceVersion: earningFingerprint({
-        earningCents: row.earningCents,
-        grossCents: row.rowGross,
-        costCents: row.rowCost,
-        agentFeeCents: row.rowFee,
-        orderId: row.orderId,
-      }),
-      amountCents: row.earningCents,
-      orderNo: row.orderNo,
-      occurredAt: row.confirmedAt,
-      snapshot,
-      amountKnown: true,
-    };
-    if (row.earningStatus === "settling" || claimed.has(`earning:${row.earningId}`)) {
-      tagged.push({ agentId: row.agentId, line: {
-        ...base,
-        bucket: "locked",
-        claimBatchId: claimed.get(`earning:${row.earningId}`) ?? null,
-        legacySettlementNo: row.earningSettlementId ? legacyNos.get(row.earningSettlementId) ?? null : null,
-      } });
-      continue;
-    }
-    if (row.feeReconcileStatus === "manual_review") {
-      tagged.push({ agentId: row.agentId, line: {
-        ...base,
-        bucket: "skipped",
-        skipCode: "MANUAL_REVIEW_REQUIRED",
-        skipMessage: skipMessage("MANUAL_REVIEW_REQUIRED"),
-      } });
-      continue;
-    }
-    const issues = verifyLedger(
-      {
-        grossCents: row.grossCents,
-        invoiceSurchargeCents: row.invoiceSurchargeCents,
-        agentCostTotalCents: row.agentCostTotalCents,
-        upstreamCostTotalCents: row.upstreamCostTotalCents,
-        feeRatePpm: row.feeRatePpm,
-        fixedFeeCents: row.fixedFeeCents,
-        finalPaymentFeeCents: row.finalPaymentFeeCents,
-        agentFeeCents: row.agentFeeCents,
-        platformFeeCents: row.platformFeeCents,
-        agentEarningCents: row.orderEarningCents,
-        platformProfitCents: row.platformProfitCents,
-      },
-      {
-        grossCents: row.rowGross,
-        costCents: row.rowCost,
-        agentFeeCents: row.rowFee,
-        earningCents: row.earningCents,
-      },
-    );
-    if (issues.length) {
-      tagged.push({ agentId: row.agentId, line: {
-        ...base,
-        bucket: "skipped",
-        skipCode: "LEDGER_MISMATCH",
-        skipMessage: skipMessage("LEDGER_MISMATCH"),
-      } });
-      continue;
-    }
-    tagged.push({ agentId: row.agentId, line: { ...base, bucket: "open" } });
-  }
-  for (const row of missing) {
-    if (!row.agentId) continue;
-    tagged.push({ agentId: row.agentId, line: {
-      sourceType: "earning",
-      sourceId: 0,
-      sourceVersion: "",
-      amountCents: 0,
-      bucket: "skipped",
-      orderNo: row.orderNo,
-      occurredAt: row.occurredAt || row.paidAt || cutoffAt,
-      skipCode: "MISSING_SOURCE",
-      skipMessage: skipMessage("MISSING_SOURCE"),
-      snapshot: { orderNo: row.orderNo },
-      amountKnown: false,
-    } });
-  }
-  for (const row of adjustments) {
-    const base = {
-      sourceType: "adjustment" as const,
-      sourceId: row.id,
-      sourceVersion: adjustmentFingerprint(row),
-      amountCents: row.amountCents,
-      orderNo: row.reference || String(row.orderId),
-      occurredAt: row.createdAt,
-      snapshot: {
-        orderId: row.orderId,
-        sourceEarningId: row.sourceEarningId,
-        type: row.type,
-        sequence: row.sequence,
-        reason: row.reason,
-        originalBatchId: row.originalBatchId,
-        amountCents: row.amountCents,
-        occurredAt: row.createdAt,
-      },
-      amountKnown: true,
-    };
-    const locked = row.status === "settling" || claimed.has(`adjustment:${row.id}`);
-    tagged.push({ agentId: row.agentId, line: {
-      ...base,
-      bucket: locked ? "locked" : "open",
-      ...(locked
-        ? {
-            claimBatchId: claimed.get(`adjustment:${row.id}`) ?? null,
-            legacySettlementNo: row.settlementId ? legacyNos.get(row.settlementId) ?? null : null,
-          }
-        : {}),
-    } });
-  }
-  for (const row of draws) {
-    const base = {
-      sourceType: "draw_item" as const,
-      sourceId: row.id,
-      sourceVersion: drawItemFingerprint(row),
-      amountCents: row.amountCents,
-      orderNo: row.drawNo,
-      occurredAt: row.createdAt,
-      snapshot: {
-        drawNo: row.drawNo,
-        planKey: row.planKey,
-        planName: row.planName,
-        occurredAt: row.createdAt,
-        amountCents: row.amountCents,
-      },
-      amountKnown: true,
-    };
-    tagged.push({ agentId: row.agentId, line: {
-      ...base,
-      bucket: claimed.has(`draw_item:${row.id}`) ? "locked" : "open",
-      claimBatchId: claimed.get(`draw_item:${row.id}`) ?? null,
-    } });
-  }
-  return tagged;
-}
-
-function partition(lines: Line[]) {
-  const open = lines.filter((line) => line.bucket === "open");
-  const locked = lines.filter((line) => line.bucket === "locked");
-  const skipped = lines.filter((line) => line.bucket === "skipped");
-  const sum = (rows: Line[], knownOnly = true) =>
-    rows.reduce((total, row) => total + (knownOnly && !row.amountKnown ? 0 : row.amountCents), 0);
-  return {
-    open,
-    locked,
-    skipped,
-    openTotals: totalsOf(open),
-    lockedTotals: totalsOf(locked),
-    ...splitLocked(locked),
-    skippedKnownCents: sum(skipped),
-    skippedUnknownCount: skipped.filter((row) => !row.amountKnown).length,
-    previewVersion: snapshotHash(open),
-  };
-}
 
 function sameSelection(
   open: Line[],
@@ -1242,217 +886,9 @@ export async function addCorrection(input: {
   }
 }
 
-export async function listReconciliationAgents(query: {
-  search: string;
-  status: string;
-  sort: string;
-  cursor: string;
-  limit: number;
-  cutoffAt: string;
-}) {
-  const rows = await db
-    .select({ id: agents.id, name: agents.displayName, shopName: agents.shopName })
-    .from(agents)
-    .orderBy(agents.displayName);
-  const taggedLines = await collectLines(db, null, query.cutoffAt);
-  const batchRows = await db.select().from(agentReconciliationBatches).orderBy(desc(agentReconciliationBatches.id));
-  const claimRows = await db
-    .select({ agentId: agentReconciliationBatches.agentId })
-    .from(agentReconciliationClaims)
-    .innerJoin(agentReconciliationBatches, eq(agentReconciliationBatches.id, agentReconciliationClaims.batchId))
-    .where(eq(agentReconciliationClaims.claimState, "active"));
-  const linesByAgent = new Map<number, Line[]>();
-  for (const row of taggedLines) {
-    const bucket = linesByAgent.get(row.agentId);
-    if (bucket) bucket.push(row.line);
-    else linesByAgent.set(row.agentId, [row.line]);
-  }
-  const batchesByAgent = new Map<number, typeof batchRows>();
-  for (const batch of batchRows) {
-    const bucket = batchesByAgent.get(batch.agentId);
-    if (bucket) bucket.push(batch);
-    else batchesByAgent.set(batch.agentId, [batch]);
-  }
-  const claimedAgents = new Set(claimRows.map((row) => row.agentId));
-  const listed = [];
-  for (const agent of rows) {
-    const name = agent.shopName || agent.name;
-    if (query.search && !name.toLowerCase().includes(query.search.toLowerCase()) && !agent.name.includes(query.search)) {
-      continue;
-    }
-    const view = partition(linesByAgent.get(agent.id) || []);
-    const batches = batchesByAgent.get(agent.id) || [];
-    const latest = batches[0];
-    const activeClaims = claimedAgents.has(agent.id) ? [agent.id] : [];
-    const open = view.openTotals.itemCount > 0;
-    const pending = batches.some(
-      (batch) => batch.status === "draft" || batch.status === "pending_payment" || batch.status === "correction_pending",
-    );
-    // A group is cleared only when every batch is terminal and no source remains
-    // open, skipped, or actively claimed/locked by an unsettled batch.
-    const cleared = !open && !view.lockedTotals.itemCount && !activeClaims.length && !view.skipped.length && !pending;
-    const review = view.skipped.length > 0;
-    if (query.status === "balance" && !open) continue;
-    if (query.status === "pending_payment" && !pending) continue;
-    if (query.status === "cleared" && !cleared) continue;
-    if (query.status === "review" && !review) continue;
-    if (!open && !pending && !review && !latest) continue;
-    listed.push({
-      agentId: agent.id,
-      name,
-      storeEarningCents: view.openTotals.storeEarningCents,
-      adjustmentCents: view.openTotals.adjustmentCents,
-      drawDebtCents: view.openTotals.drawDebtCents,
-      netCents: view.openTotals.netCents,
-      direction: view.openTotals.direction,
-      itemCount: view.openTotals.itemCount,
-      skippedCount: view.skipped.length,
-      lockedNetCents: view.lockedTotals.netCents,
-      latestBatch: latest
-        ? {
-            id: latest.id,
-            batchNo: latest.batchNo,
-            status: latest.status,
-            netCents: latest.netCents,
-            storeEarningCents: latest.storeEarningCents,
-            adjustmentCents: latest.adjustmentCents,
-            drawDebtCents: latest.drawDebtCents,
-            storeCount: latest.storeCount,
-            adjustmentCount: latest.adjustmentCount,
-            drawCount: latest.drawCount,
-            version: latest.version,
-            snapshotHash: latest.snapshotHash,
-          }
-        : null,
-      updatedAt: view.open[0]?.occurredAt || latest?.createdAt || "",
-    });
-  }
-  listed.sort((a, b) => {
-    if (query.sort === "name") return a.name.localeCompare(b.name, "zh");
-    if (query.sort === "updated") return b.updatedAt.localeCompare(a.updatedAt);
-    return Math.abs(b.netCents) - Math.abs(a.netCents);
-  });
-  const offset = query.cursor ? Number(query.cursor) || 0 : 0;
-  const page = listed.slice(offset, offset + query.limit);
-  const payable = listed
-    .filter((row) => row.netCents > 0)
-    .reduce((sum, row) => sum + row.netCents, 0);
-  const receivable = listed
-    .filter((row) => row.netCents < 0)
-    .reduce((sum, row) => sum + row.netCents, 0);
-  return {
-    cutoffAt: query.cutoffAt,
-    currency: "CNY" as const,
-    summary: {
-      openAgents: listed.filter((row) => row.itemCount > 0).length,
-      platformPaysCents: payable,
-      agentPaysCents: receivable,
-      reviewOrders: listed.reduce((sum, row) => sum + row.skippedCount, 0),
-    },
-    list: page,
-    nextCursor: offset + query.limit < listed.length ? String(offset + query.limit) : null,
-  };
-}
-
-export async function getReconciliation(id: number, agentId?: number) {
-  const batch = await db.query.agentReconciliationBatches.findFirst({
-    where: eq(agentReconciliationBatches.id, id),
-  });
-  if (!batch || (agentId && batch.agentId !== agentId)) return null;
-  const audits = await db
-    .select()
-    .from(auditLogs)
-    .where(and(eq(auditLogs.targetType, "agent_reconciliation_batch"), eq(auditLogs.targetId, String(id))))
-    .orderBy(desc(auditLogs.id));
-  return { batch, audits };
-}
-
-export async function listReconciliationItems(id: number, agentId: number | undefined, cursor: number, limit: number, type: string) {
-  const batch = await db.query.agentReconciliationBatches.findFirst({
-    where: eq(agentReconciliationBatches.id, id),
-  });
-  if (!batch || (agentId && batch.agentId !== agentId)) return null;
-  const conditions = [eq(agentReconciliationItems.batchId, id)];
-  if (type) conditions.push(eq(agentReconciliationItems.sourceType, type));
-  const rows = await db
-    .select()
-    .from(agentReconciliationItems)
-    .where(and(...conditions))
-    .orderBy(agentReconciliationItems.id)
-    .offset(cursor)
-    .limit(limit + 1);
-  const page = rows.slice(0, limit);
-  return {
-    batchNo: batch.batchNo,
-    snapshotHash: batch.snapshotHash,
-    items: page.map((row) => ({
-      ...row,
-      snapshot: JSON.parse(row.snapshotJson) as Record<string, unknown>,
-    })),
-    nextCursor: rows.length > limit ? cursor + limit : null,
-  };
-}
-
-export function itemsCsv(batchNo: string, hash: string, items: Array<{ sourceOrderNo: string; sourceType: string; amountCents: number; snapshotJson: string }>) {
-  const header = ["batchNo", "snapshotHash", "orderNo", "type", "amountCents", "snapshot"].join(",");
-  const lines = items.map((item) =>
-    [batchNo, hash, item.sourceOrderNo, item.sourceType, item.amountCents, item.snapshotJson]
-      .map((value) => {
-        const text = String(value);
-        const guarded = /^[=+\-@]/.test(text) ? `'${text}` : text;
-        return /[",\n\r]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded;
-      })
-      .join(","),
-  );
-  return `\uFEFF${header}\n${lines.join("\n")}\n`;
-}
-
 export async function agentLedger(agentId: number, cutoffAt: string) {
   const preview = await previewReconciliation(agentId, cutoffAt);
   return preview;
-}
-
-/**
- * 代理端批次视图：只给前端要展示的字段。
- * 不含 agentId、periodLabel、snapshotHash、createdBy、paymentNote 这些内部字段。
- */
-export function agentBatchView(batch: typeof agentReconciliationBatches.$inferSelect) {
-  return {
-    id: batch.id,
-    batchNo: batch.batchNo,
-    status: batch.status,
-    cutoffAt: batch.cutoffAt,
-    currency: batch.currency,
-    direction: batch.direction,
-    netCents: batch.netCents,
-    storeEarningCents: batch.storeEarningCents,
-    adjustmentCents: batch.adjustmentCents,
-    drawDebtCents: batch.drawDebtCents,
-    storeCount: batch.storeCount,
-    adjustmentCount: batch.adjustmentCount,
-    drawCount: batch.drawCount,
-    version: batch.version,
-    createdAt: batch.createdAt,
-    paidAt: batch.paidAt,
-    cancelledAt: batch.cancelledAt,
-    paymentMethod: batch.paymentMethod,
-    paymentReference: batch.paymentReference,
-    actualPaymentAt: batch.actualPaymentAt,
-  };
-}
-
-export async function listAgentBatches(agentId: number, cursor: number, limit: number) {
-  const rows = await db
-    .select()
-    .from(agentReconciliationBatches)
-    .where(eq(agentReconciliationBatches.agentId, agentId))
-    .orderBy(desc(agentReconciliationBatches.id))
-    .offset(cursor)
-    .limit(limit + 1);
-  return {
-    list: rows.slice(0, limit),
-    nextCursor: rows.length > limit ? cursor + limit : null,
-  };
 }
 
 export function batchNet(store: number, adjustment: number, draw: number) {

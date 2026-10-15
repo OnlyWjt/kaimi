@@ -16,6 +16,7 @@ import {
   NO_LOCKED_EARNING_SQL,
 } from "./fee-lock-core";
 import { writeOrderFee } from "./fee-lock-db";
+import { reconciliationSource } from "../reconciliation-source.test-helper";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 const reconcile = read("./reconcile.ts");
@@ -23,7 +24,7 @@ const recalculate = read("./recalculate.ts");
 const feeReview = read("../../app/api/admin/store-orders/[orderNo]/fee-review/route.ts");
 const audit = read("../../app/api/admin/earnings/audit/route.ts");
 const exportRoute = read("../../app/api/agent/earnings/export.xlsx/route.ts");
-const reconciliation = read("../reconciliation.ts");
+const reconciliation = reconciliationSource();
 
 // reconciliation.ts 依赖 @/db，测试里不能直接 import；取出纯函数源码按同样规则验证。
 function effectiveAdjustmentCents(earningCents: number, adjustments: Array<{ amountCents: number; status: string }>) {

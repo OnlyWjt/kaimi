@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { createClient } from "@libsql/client";
 import { describe, expect, it } from "vitest";
+import { reconciliationSource } from "./reconciliation-source.test-helper";
 
-const reconciliation = readFileSync(new URL("./reconciliation.ts", import.meta.url), "utf8");
+const reconciliation = reconciliationSource();
 const legacy = readFileSync(new URL("./agent-settlement.ts", import.meta.url), "utf8");
 const predicates = (source: string) => [...source.matchAll(/sql`(EXISTS \([\s\S]*?\))`/g)]
   .map(([, predicate]) => predicate.replace(/\$\{agentEarningAdjustments.orderId\}/g, "agent_earning_adjustments.order_id"))
