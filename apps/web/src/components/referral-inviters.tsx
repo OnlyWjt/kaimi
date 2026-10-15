@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
 import { formatDateTime } from "@/lib/datetime";
 import { readApiJson } from "@/lib/http-error";
@@ -92,6 +93,7 @@ export function ReferralInviters({
   revokeUrl: (couponId: number) => string;
   refreshKey?: number;
 }) {
+  const { ask, dialog } = useAskDialog();
   const [list, setList] = useState<Inviter[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -134,8 +136,15 @@ export function ReferralInviters({
   }
 
   async function revoke(couponId: number, code: string) {
-    const reason = window.prompt(`停用券 ${code}，买家就不能再用了。请填写原因：`);
-    if (!reason?.trim()) return;
+    const answer = await ask({
+      title: `停用券 ${code}`,
+      message: "停用后买家就不能再用这张券了。",
+      fields: [{ name: "reason", label: "停用原因", required: true }],
+      confirmLabel: "停用",
+      danger: true,
+    });
+    if (!answer) return;
+    const reason = answer.reason;
     try {
       await readApiJson(
         await fetch(revokeUrl(couponId), {
@@ -162,6 +171,7 @@ export function ReferralInviters({
 
   return (
     <div className="space-y-3">
+      {dialog}
       <form className="flex flex-wrap items-center gap-2" onSubmit={search}>
         <input
           className="km-input max-w-xs"

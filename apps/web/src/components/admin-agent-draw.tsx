@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
 import { yuanTextFromCents, centsFromYuanText } from "@/lib/money";
 import { DrawCodePeek } from "@/components/draw-code-peek";
@@ -16,7 +17,10 @@ import { hasNextPage, pageLabel } from "@/lib/pagination-core";
 
 type LedgerAgent = {
   agentId: number;
+  /** 店铺名。 */
   name: string;
+  realName?: string;
+  username?: string;
   drawStatus: string;
   creditLimitCents: number;
   unsettledCount: number;
@@ -175,9 +179,22 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
+/** 店铺名之外的「这是谁」：真实姓名 · @登录名。姓名在「代理管理」里填，没填就标出来。 */
+function agentWho(agent: Pick<LedgerAgent, "realName" | "username">) {
+  return [agent.realName || "未填姓名", agent.username ? `@${agent.username}` : ""].filter(Boolean).join(" · ");
+}
+
+function matchesAgent(agent: LedgerAgent, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return [agent.name, agent.realName, agent.username].some((value) => (value || "").toLowerCase().includes(q));
+}
+
 export function AdminAgentDraw() {
+  const { ask, dialog } = useAskDialog();
   const [overview, setOverview] = useState<Overview | null>(null);
   const [agents, setAgents] = useState<LedgerAgent[]>([]);
+  const [agentQuery, setAgentQuery] = useState("");
   const [applications, setApplications] = useState<Application[]>([]);
   const [bills, setBills] = useState<BillRow[]>([]);
   const [allAgents, setAllAgents] = useState<Array<{ id: number; displayName: string }>>([]);
@@ -332,6 +349,7 @@ export function AdminAgentDraw() {
 
   return (
     <div className="space-y-4">
+      {dialog}
       {reconcileError ? (
         <div className="km-panel flex flex-wrap items-center justify-between gap-3 border-amber-300 text-sm">
           <p>{reconcileError}</p>
@@ -470,10 +488,15 @@ export function AdminAgentDraw() {
                             type="button"
                             className="km-btn km-btn-ghost"
                             disabled={Boolean(busy)}
-                            onClick={() => {
-                              const reason = window.prompt("拒绝原因，代理能看到") || "";
-                              if (!reason.trim()) return;
-                              void post({ action: "reject", applicationId: item.id, reason }, "已拒绝");
+                            onClick={async () => {
+                              const answer = await ask({
+                                title: `拒绝 ${item.name} 的提卡申请`,
+                                fields: [{ name: "reason", label: "拒绝原因", hint: "代理能看到", required: true }],
+                                confirmLabel: "拒绝",
+                                danger: true,
+                              });
+                              if (!answer) return;
+                              void post({ action: "reject", applicationId: item.id, reason: answer.reason }, "已拒绝");
                             }}
                           >
                             拒绝
@@ -498,7 +521,10 @@ export function AdminAgentDraw() {
                 placeholder="全部"
                 options={[
                   { value: "", label: "全部" },
-                  ...agents.map((agent) => ({ value: String(agent.agentId), label: agent.name })),
+                  ...agents.map((agent) => {
+                    const who = [agent.realName, agent.username ? `@${agent.username}` : ""].filter(Boolean).join(" · ");
+                    return { value: String(agent.agentId), label: who ? `${agent.name}（${who}）` : agent.name };
+                  }),
                 ]}
                 onChange={(value) => setBillDraft((current) => ({ ...current, agentId: Number(value) }))}
               />
@@ -633,10 +659,16 @@ export function AdminAgentDraw() {
                           type="button"
                           className="km-btn km-btn-ghost km-btn-sm"
                           disabled={Boolean(busy)}
-                          onClick={() => {
-                            const reason = window.prompt("撤销原因（撤销后这些卡回到未结，会进入新的对账）") || "";
-                            if (!reason.trim()) return;
-                            void post({ action: "revert-bill", billId: bill.id, reason }, "已撤销，这些卡回到未结，会进入新的对账");
+                          onClick={async () => {
+                            const answer = await ask({
+                              title: "撤销这张结算单",
+                              message: "撤销后这些卡回到未结，会进入新的对账。",
+                              fields: [{ name: "reason", label: "撤销原因", required: true }],
+                              confirmLabel: "撤销",
+                              danger: true,
+                            });
+                            if (!answer) return;
+                            void post({ action: "revert-bill", billId: bill.id, reason: answer.reason }, "已撤销，这些卡回到未结，会进入新的对账");
                           }}
                         >
                           撤销
@@ -700,10 +732,21 @@ export function AdminAgentDraw() {
         <section className="grid items-start gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
           <div className="km-panel space-y-1">
             <h2 className="mb-2 font-semibold">代理</h2>
+            {agents.length > 0 ? (
+              <input
+                className="km-input mb-2 w-full"
+                placeholder="店铺、姓名或登录名"
+                value={agentQuery}
+                onChange={(event) => setAgentQuery(event.target.value)}
+                aria-label="搜索代理"
+              />
+            ) : null}
             {agents.length === 0 ? (
               <p className="text-sm text-[var(--km-fg-muted)]">还没有开通提卡的代理。到「申请」里开通。</p>
+            ) : !agents.some((agent) => matchesAgent(agent, agentQuery)) ? (
+              <p className="px-3 py-2 text-sm text-[var(--km-fg-muted)]">没有匹配的代理。</p>
             ) : (
-              agents.map((agent) => (
+              agents.filter((agent) => matchesAgent(agent, agentQuery)).map((agent) => (
                 <button
                   key={agent.agentId}
                   type="button"
@@ -716,7 +759,8 @@ export function AdminAgentDraw() {
                       {STATUS[agent.drawStatus] || agent.drawStatus}
                     </span>
                   </span>
-                  <span className={`mt-1 block text-xs ${heatClass(agent.unsettledCents, agent.creditLimitCents)}`}>
+                  <span className="mt-0.5 block truncate text-xs text-[var(--km-fg-muted)]">{agentWho(agent)}</span>
+                  <span className={`mt-1.5 block text-xs ${heatClass(agent.unsettledCents, agent.creditLimitCents)}`}>
                     未结 {yuan(agent.unsettledCents)} · {agent.unsettledCount} 张
                   </span>
                   <span className="block text-xs text-[var(--km-fg-muted)]">
@@ -737,6 +781,7 @@ export function AdminAgentDraw() {
                         {STATUS[selected.drawStatus] || selected.drawStatus}
                       </span>
                     </div>
+                    <p className="mt-1 text-sm text-[var(--km-fg-muted)]">{agentWho(selected)}</p>
                     <div className="mt-3 grid grid-cols-3 gap-2">
                       <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-2">
                         <p className="text-[11px] text-[var(--km-fg-muted)]">未结</p>

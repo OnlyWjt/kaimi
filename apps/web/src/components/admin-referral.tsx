@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ReferralInviters } from "@/components/referral-inviters";
+import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
 import { readApiJson } from "@/lib/http-error";
 import { yuanTextFromCents } from "@/lib/money";
@@ -43,6 +44,7 @@ const yuan = (cents: number) => `¥${yuanTextFromCents(cents)}`;
 
 /** 管理端「邀请返券」：全站汇总、按代理看、关活动、停券。不能改代理的面额。 */
 export function AdminReferral() {
+  const { ask, dialog } = useAskDialog();
   const [data, setData] = useState<Overview | null>(null);
   const [agentId, setAgentId] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -56,9 +58,13 @@ export function AdminReferral() {
   }, []);
 
   async function disable(id: number, name: string) {
-    if (!window.confirm(`关闭「${name}」的邀请有礼？之后不再记新邀请；已发的券到期前照常能用，代理不能自己再打开。`)) {
-      return;
-    }
+    const answer = await ask({
+      title: `关闭「${name}」的邀请有礼`,
+      message: "之后不再记新邀请；已发的券到期前照常能用，代理不能自己再打开。",
+      confirmLabel: "关闭",
+      danger: true,
+    });
+    if (!answer) return;
     setBusy(true);
     try {
       await readApiJson(await fetch(`/api/admin/referral/agents/${id}/disable`, { method: "POST" }));
@@ -72,9 +78,12 @@ export function AdminReferral() {
   }
 
   async function restore(id: number, name: string) {
-    if (!window.confirm(`解除对「${name}」的关闭？代理可以在自己后台重新开启邀请有礼，平台不会替他开。`)) {
-      return;
-    }
+    const answer = await ask({
+      title: `解除对「${name}」的关闭`,
+      message: "代理可以在自己后台重新开启邀请有礼，平台不会替他开。",
+      confirmLabel: "解除",
+    });
+    if (!answer) return;
     setBusy(true);
     try {
       await readApiJson(await fetch(`/api/admin/referral/agents/${id}/restore`, { method: "POST" }));
@@ -92,6 +101,7 @@ export function AdminReferral() {
 
   return (
     <div className="space-y-4">
+      {dialog}
       <section className="grid gap-3 sm:grid-cols-4">
         {[
           ["开启的代理", String(data.agents.filter((row) => row.enabled).length), `开过 ${data.agents.length} 个`],

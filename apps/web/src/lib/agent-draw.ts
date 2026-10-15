@@ -12,6 +12,7 @@ import {
   finishedAccounts,
   issuedCdks,
   platformPlans,
+  users,
 } from "@/db/schema";
 import {
   DRAW_DEFAULT_CREDIT_CENTS,
@@ -177,9 +178,13 @@ export async function listDrawLedgerAgents() {
       id: agents.id,
       displayName: agents.displayName,
       shopName: agents.shopName,
+      realName: agents.realName,
+      settlementName: agents.settlementName,
+      username: users.username,
       status: agents.status,
     })
     .from(agents)
+    .leftJoin(users, eq(users.agentId, agents.id))
     .where(inArray(agents.id, agentIds));
   const accessByAgent = new Map(accessRows.map((row) => [row.agentId, row]));
   return agentRows
@@ -190,6 +195,9 @@ export async function listDrawLedgerAgents() {
       return {
         agentId: agent.id,
         name: publicShopName(agent),
+        // 超管对账时按人找：真实姓名（没有就用结算名）和登录名。
+        realName: (agent.realName || agent.settlementName || "").trim(),
+        username: agent.username || "",
         agentStatus: agent.status,
         drawStatus: access?.status || "none",
         creditLimitCents: access?.creditLimitCents || 0,

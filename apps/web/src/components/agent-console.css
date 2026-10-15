@@ -360,7 +360,7 @@ button.km-acp-row {
 
 .km-acp-orders .no {
   display: block;
-  font-family: var(--km-font-mono, ui-monospace, monospace);
+  font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   font-size: 0.78rem;
   letter-spacing: 0.01em;
   white-space: nowrap;
@@ -428,7 +428,7 @@ button.km-acp-row {
 }
 
 .km-acp-orders tr.is-muted .no {
-  opacity: 0.75;
+  color: var(--km-fg-muted);
 }
 
 .km-acp-status {
@@ -476,6 +476,85 @@ button.km-acp-row {
 
 .km-acp-status.mute::before {
   background: color-mix(in oklab, var(--km-fg-muted) 55%, transparent);
+}
+
+/* —— 订单页：筛选 + 搜索一行，表格收窄，手机上变卡片 —— */
+.km-acp-order-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.km-acp-order-bar .km-acp-chips {
+  margin-top: 0;
+  gap: 0.25rem;
+  padding: 0.2rem;
+  border-radius: 999px;
+  background: var(--km-bg-muted);
+}
+
+.km-acp-order-bar .km-acp-chip {
+  border: 0;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.8rem;
+  color: var(--km-fg-muted);
+  transition: background 0.15s, color 0.15s;
+}
+
+.km-acp-order-bar .km-acp-chip:hover {
+  color: var(--km-fg);
+}
+
+.km-acp-order-bar .km-acp-chip.is-on {
+  background: var(--km-bg-elevated, var(--km-bg));
+  color: var(--km-fg);
+  font-weight: 600;
+  box-shadow: 0 1px 2px color-mix(in oklab, var(--km-fg) 12%, transparent);
+}
+
+.km-acp-order-search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 1 20rem;
+}
+
+.km-acp-order-search .km-input {
+  min-width: 0;
+  flex: 1;
+}
+
+.km-acp-order-wrap {
+  overflow-x: auto;
+}
+
+.km-acp-order-table {
+  min-width: 680px;
+}
+
+.km-acp-order-table .c-prod .product {
+  display: block;
+  font-weight: 550;
+}
+
+.km-acp-order-table .c-prod .email {
+  display: block;
+  max-width: 15rem;
+  margin-top: 0.15rem;
+}
+
+.km-acp-order-table tr.is-muted .c-prod .product {
+  font-weight: 450;
+}
+
+.km-acp-order-table th.act {
+  text-align: right;
+}
+
+.km-acp-order-table td.act {
+  width: 1%;
 }
 
 .km-acp-link {
@@ -1191,6 +1270,75 @@ button.km-acp-row {
 }
 
 @media (max-width: 767px) {
+  .km-acp-order-search {
+    flex-basis: 100%;
+  }
+
+  .km-acp-order-bar .km-acp-chips {
+    flex-wrap: nowrap;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .km-acp-order-bar .km-acp-chip {
+    flex-shrink: 0;
+  }
+
+  .km-acp-order-table {
+    min-width: 0;
+  }
+
+  .km-acp-order-table thead {
+    display: none;
+  }
+
+  .km-acp-order-table tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "prod status"
+      "order pay"
+      "order earn"
+      "act act";
+    gap: 0.3rem 0.75rem;
+    padding: 0.9rem 0.15rem;
+    border-bottom: 1px solid var(--km-border);
+  }
+
+  .km-acp-order-table td {
+    padding: 0;
+    border: 0;
+  }
+
+  .km-acp-order-table .c-prod { grid-area: prod; }
+  .km-acp-order-table .c-order { grid-area: order; align-self: end; }
+  .km-acp-order-table .c-pay { grid-area: pay; }
+  .km-acp-order-table .c-earn { grid-area: earn; }
+  .km-acp-order-table .c-status { grid-area: status; text-align: right; }
+
+  .km-acp-order-table .c-pay::before,
+  .km-acp-order-table .c-earn::before {
+    content: attr(data-label) " ";
+    color: var(--km-fg-muted);
+    font-size: 0.72rem;
+    font-weight: 400;
+  }
+
+  .km-acp-order-table .c-prod .email {
+    max-width: none;
+  }
+
+  .km-acp-order-table td.act {
+    grid-area: act;
+    width: auto;
+    text-align: left;
+  }
+
+  .km-acp-order-table td.act:empty {
+    display: none;
+  }
+
   .km-books-period-head {
     flex-direction: column;
     align-items: stretch;
