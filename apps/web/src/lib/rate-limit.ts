@@ -61,9 +61,27 @@ export function clientIp(req: Request) {
   });
 }
 
+const SWEEP_EVERY_MS = 60_000;
+let nextSweepAt = 0;
+
+/** 桶按「接口 + IP」建，过期的不清掉会一直攒着，公网上换 IP 的扫描能把内存慢慢吃满。 */
+function sweepExpired(now: number) {
+  if (now < nextSweepAt) return;
+  nextSweepAt = now + SWEEP_EVERY_MS;
+  for (const [key, bucket] of buckets) {
+    if (now > bucket.reset) buckets.delete(key);
+  }
+}
+
+/** 测试用。 */
+export function rateLimitBucketCount() {
+  return buckets.size;
+}
+
 /** 进程内滑动窗口限流。返回 ok=false 时应 429。 */
 export function rateLimit(key: string, limit: number, windowMs = 60_000) {
   const now = Date.now();
+  sweepExpired(now);
   const cur = buckets.get(key);
   if (!cur || now > cur.reset) {
     buckets.set(key, { n: 1, reset: now + windowMs });

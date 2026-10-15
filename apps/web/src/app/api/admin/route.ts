@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { and, desc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
 import { isThemeId } from "@kaimi/themes";
 import { db } from "@/db";
-import { agents, cdkPool, issuedCdks, orders, storefronts, storeOrders, users } from "@/db/schema";
-import { agentIdentityLabel } from "@/lib/agent-identity-core";
+import { agents, issuedCdks, orders, storefronts, storeOrders } from "@/db/schema";
 import { beijingDayStartIso } from "@/lib/agent-draw-core";
 import { ATTENTION_FULFILL_STATUSES } from "@/lib/agent-orders-core";
 import { publicShopName } from "@/lib/agent-names";
@@ -35,6 +34,7 @@ import {
 } from "@/lib/orders";
 import { getOrderTimeline, getUpstreamSnapshot } from "@/lib/order-timeline";
 import { getDefaultCardplatformAccount } from "@/lib/cardplatform/config";
+import { getStoreSalesGate } from "@/lib/ops-health";
 import {
   getCallbackBaseUrl,
   getPublicBaseUrl,
@@ -95,15 +95,18 @@ export async function GET(req: Request) {
 
   if (section === "overview") {
     const cfg = await getAppConfig();
-    const stock = await countByStatus();
-    const orderCount = await db
-      .select({ c: sql<number>`count(*)` })
-      .from(orders)
-      .then((r) => Number(r[0]?.c ?? 0));
-    const recentOrders = await db.query.orders.findMany({
-      orderBy: [desc(orders.id)],
-      limit: 12,
-    });
+    // 卡密卡片和「卡密」页同口径：店铺卖出去的 issued_cdks。cdk_pool 是旧的内部发卡库存，
+    // 只在兑换锁卡时还会碰到，这里只拿它的 locked 数并进「卡住的锁」提醒。
+    const legacyPool = await countByStatus();
+    const issuedRows = await db
+      .select({ status: issuedCdks.status, c: sql<number>`count(*)` })
+      .from(issuedCdks)
+      .innerJoin(storeOrders, eq(storeOrders.id, issuedCdks.orderId))
+      .where(ne(issuedCdks.cardplatformAccountId, 0))
+      .groupBy(issuedCdks.status);
+    const stock: Record<string, number> = { unused: 0, locked: 0, used: 0, disabled: 0 };
+    for (const row of issuedRows) stock[row.status] = Number(row.c) || 0;
+    const salesGate = await getStoreSalesGate();
     const inflightCount = await countInFlightRecharges();
     const cardAccount = await getDefaultCardplatformAccount();
     // 店铺订单才是日常要看的：今天卖了多少、哪些付了款还没发齐。
@@ -154,21 +157,12 @@ export async function GET(req: Request) {
       paymentMode: cfg.paymentMode,
       hasCardplatform: Boolean(cardAccount),
       cardplatformSiteBase: cardAccount?.siteBase || "",
-      unusedStock: stock.unused ?? 0,
-      lockedCount: stock.locked ?? 0,
+      salesOpen: salesGate.open,
+      salesClosedReason: salesGate.reason,
+      unusedStock: stock.unused,
+      lockedCount: stock.locked + (legacyPool.locked ?? 0),
       inflightCount,
       stock,
-      orderCount,
-      recentOrders: recentOrders.map((o) => ({
-        orderNo: o.orderNo,
-        kind: o.kind,
-        email: o.email,
-        payStatus: o.payStatus,
-        fulfillStatus: o.fulfillStatus,
-        upstreamPlan: o.upstreamPlan,
-        message: o.message,
-        createdAt: o.createdAt,
-      })),
     });
   }
 

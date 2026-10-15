@@ -12,6 +12,7 @@ import {
 import { getAgentRedeemUrl } from "@/lib/agent-redeem";
 import { getSession } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
+import { getStoreSalesGate } from "@/lib/ops-health";
 import { resolveThemeId } from "@/lib/storefront";
 
 export type { AgentConsoleProfile };
@@ -90,5 +91,6 @@ export const requireAgentConsoleProfile = cache(async (): Promise<AgentConsolePr
     redeemUrl: await getAgentRedeemUrl(profile.currentSlug),
     unreadAnnouncement: await loadUnreadAnnouncement(session.agentId),
     contactGate: await agentContactGate(session.agentId),
+    salesPaused: !(await getStoreSalesGate()).open,
   };
 });

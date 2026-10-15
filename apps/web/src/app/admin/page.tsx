@@ -57,9 +57,9 @@ type Overview = {
   unusedStock: number;
   lockedCount?: number;
   inflightCount?: number;
-  orderCount: number;
   stock: Record<string, number>;
-  recentOrders: Array<Record<string, string>>;
+  salesOpen?: boolean;
+  salesClosedReason?: string;
   todayPaidCount?: number;
   todayPaidCents?: number;
   attentionCount?: number;
@@ -104,10 +104,10 @@ const STATUS_LABEL: Record<string, string> = {
   refunded: "已退款",
   refunding: "退款中",
   pending_pay: "待支付",
-  delivered: "已发货",
-  partially_delivered: "部分发货",
+  delivered: "已发卡",
+  partially_delivered: "部分发卡",
   paid_undelivered: "已付未发",
-  issuing: "发货中",
+  issuing: "发卡中",
   expired: "已过期",
   cancelled: "已取消",
   manual: "免支付",
@@ -165,12 +165,6 @@ function progressLabel(kind: unknown, status: string) {
     if (status === "partially_delivered") return "部分交付";
     if (status === "paid_undelivered") return "待交付";
     if (status === "pending" || status === "unpaid" || status === "pending_pay") return "待支付";
-  }
-  if (kind === "cdk") {
-    if (status === "issuing") return "履约中";
-    if (status === "delivered") return "已履约";
-    if (status === "partially_delivered") return "部分履约";
-    if (status === "paid_undelivered") return "待履约";
   }
   return STATUS_LABEL[status] || status || "—";
 }
@@ -589,6 +583,14 @@ export default function AdminPage() {
       <section className="km-shell-wide space-y-4 py-6 pb-16">
         {tab === "overview" && overview ? (
           <div className="space-y-4">
+            {overview.salesOpen === false ? (
+              <button type="button" className="km-ov-alert" onClick={() => goTab("commerce")}>
+                <strong>所有店铺已停售，买家现在下不了单</strong>
+                <span>
+                  {overview.salesClosedReason ? `${overview.salesClosedReason} · ` : ""}去「即时发卡」看原因 →
+                </span>
+              </button>
+            ) : null}
             {(overview.lockedCount || 0) > 0 || (overview.inflightCount || 0) > 0 ? (
               <div className="km-panel border-[var(--km-danger)]/40 text-sm">
                 {(overview.lockedCount || 0) > 0 ? (
@@ -643,9 +645,9 @@ export default function AdminPage() {
                 hint="已付款、还没发齐"
               />
               <StatCard
-                label="卡密"
+                label="已售卡密未兑换"
                 value={String(overview.unusedStock)}
-                hint={`未使用 · 已核销 ${overview.stock?.used ?? 0} · 已禁用 ${overview.stock?.disabled ?? 0}`}
+                hint={`已核销 ${overview.stock?.used ?? 0} · 已禁用 ${overview.stock?.disabled ?? 0}`}
               />
               <StatCard
                 label="卡台接入"

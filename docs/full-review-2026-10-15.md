@@ -1,0 +1,66 @@
+# 全项目 Review（2026-10-15）
+
+分支：`review/full-audit`（基于本地 `main` cf801ee）
+范围：产品设计、UI、架构、开发四个维度。方法：读关键链路代码（鉴权、支付回调、发卡、开放 API、限流）、跑 `tsc` / `vitest` / `next lint`、本地起服务对前台 / 后台 / 代理后台 / 店铺页在 1440 和 390 宽度下逐页截图。
+
+基线：`tsc` 通过；74 个测试文件、744 个用例全过；lint 0 error，约 20 条 warning（未用变量、hooks 依赖）。
+上一份 `docs/review-and-next-steps.md` 里的 P0（API Key 跟随代理禁用、Key 权限越界、批量额度重复扣、幂等并发、迁移误隐藏）核对过，都已经修掉。
+
+---
+
+## 一、本分支已修（6 项）
+
+| # | 维度 | 问题 | 改法 | 文件 |
+| --- | --- | --- | --- | --- |
+| 1 | 产品 / 开发 | 后台总览「卡密」卡片数的是旧的 `cdk_pool`（内部发卡库存，已不再写入），「卡密」页列的却是 `issued_cdks`。本地库就是总览显示「1 张未使用 / 已核销 3」，点进卡密页一张都没有 | 卡片改成和卡密页同口径（店铺已售 `issued_cdks`），标题改「已售卡密未兑换」；「卡住的锁」提醒把两张表的 locked 加起来，和「修复卡住的锁」按钮处理的范围一致 | `app/api/admin/route.ts`、`app/admin/page.tsx` |
+| 2 | 产品 | 停售（手动关店、卡台 IP 不在白名单、余额不足、易支付没配）只在「卖卡 › 即时发卡」最上面显示。总览照样写「卡台接入：已配置」，代理后台完全看不到，代理只会发现「怎么没单了」 | 总览顶部加红色提醒条（带原因，点了跳即时发卡）；代理后台每页顶部挂一条「平台暂停所有店铺的购买，恢复后自动开放，不用你操作」，不暴露运维原因 | `app/admin/page.tsx`、`lib/agent-console*.ts`、`components/agent-console-shell.tsx` |
+| 3 | 产品 / UI | 店铺停售或关闭时，`/s/{slug}` 只剩店名和一句「请稍后再来」。已经付款、正等着兑换或查进度的买家从店铺链接进来是死路，也看不到店主联系方式 | 停售页加「去兑换卡密」「查兑换进度」两个入口、说明已付款订单不受影响；店铺仍是启用状态时列出售后联系方式 | `app/s/[slug]/page.tsx` |
+| 4 | 开发（并发） | 成品号下单只看 `unused` 数量，号要到发货时才分配。最后 1 个号可以被几个人同时下单并付款，后付的只能等退款 | 下单时扣掉「未付款 + 已付款还没分到号」的订单占用量；事务里再数一次，挡住两次检查之间插进来的单。未付款单 30 分钟自动关闭，占用随之释放 | `lib/finished-accounts.ts`、`lib/store-orders.ts` |
+| 5 | 开发 | 单号里的日期时间取服务器本地时区。Docker 镜像是 UTC，北京时间 0–8 点下的单日期是前一天（`KS20261014…` 实际是 15 号凌晨下的），客服对付款记录找单会对不上 | `newOrderNo` 固定按北京时间生成，补单测 | `lib/ids.ts`、`lib/ids.test.ts` |
+| 6 | 架构 / 安全 | ① 限流桶 `Map` 只增不删，按「接口 + IP」建桶，公网扫描换 IP 能让内存一直涨；② 没有任何安全响应头，后台和登录页可以被别的站 iframe 套住（点击劫持），还会带 `X-Powered-By` | ① 每分钟顺手清一次过期桶，补单测；② 全站 `nosniff` + `Referrer-Policy`，`/admin`、`/agent`、`/login` 禁止被 iframe 嵌入，关掉 `X-Powered-By`。店铺页不加 frame 限制，代理可能自己嵌 | `lib/rate-limit.ts`、`next.config.ts` |
+
+另外：后台订单状态文案统一。原来同一个 `delivered`，总览写「已发货」，订单页写「已履约」，即时发卡写「已发卡」；现在三处都是「已发卡 / 部分发卡 / 发卡中」，和 `lib/status-labels.ts` 一致。顺手删掉 `app/api/admin/route.ts` 里 3 个没用到的 import。
+
+验证：`tsc` 通过、744 + 3 个新用例全过、改动文件 lint 无 warning；总览、代理后台、停售店铺页（桌面 + 手机）重新截图确认。
+
+---
+
+## 二、没改、建议排期（按优先级）
+
+### P1 产品与信息架构
+
+1. **后台有两个「订单」入口，概念重叠。** 「日常 › 订单」（全部 / 店铺订单 / 兑换记录）和「卖卡 › 即时发卡」（店铺订单 + 手续费核对 + 退款）列的是同一批店铺订单，操作却分散在两边。建议：订单相关操作都收进「日常 › 订单」的店铺订单视图，「即时发卡」只留运营状态和配置。
+2. **「即时发卡」页把运营和配置混成一长页。** 运营状态、订单列表、下单规则、易支付商户与费率、卡台账户入口都在一页里，手机上近 3500px 高。顶上还飘着一个跟本页无关的「导出全部收益」按钮（应在「收益统计」）。建议：支付商户 / 费率 / 下单规则搬到「系统」组。
+3. **「默认成本价」放在「代理 › 代理管理」里，**其实是套餐定价，跟「卖卡」更贴近。
+4. **`/shop` 在内部发卡关闭时是死路：**页面写「请先购买卡密，再到本站兑换开通」，但没告诉人去哪买。现在业务都在代理店铺，建议关闭时直接 404 或跳首页，并从导航里去掉。
+5. **首页 `/` 只有平台品牌「Kaimi」和三张入口卡**，对从代理店铺来的买家没有上下文。如果首页只给兑换用，标题和文案可以直接围绕「兑换 / 查进度」，不必再出现「发卡网」字样。
+
+### P1 开发
+
+6. **旧的 `cdk_pool` / 内部发卡链路还在运行时代码里**：`lib/inventory.ts`、`app/api/shop/*`、`lib/orders.ts` 的兑换锁卡、`/api/cdk/lookup`。表里卡密是**明文**存的（`issued_cdks` 是加密 + hash）。确认线上没有存量后：要么迁成加密存储，要么整条链路下线，少一套状态机。
+7. **审计日志里的 IP 可伪造。** 8 处用 `x-forwarded-for` 的第一段写审计（如 `app/api/admin/agents/[id]/route.ts`、`lib/store-orders.ts` 传给易支付的 `clientip`），和限流用的 `clientIp()` 口径不一致。统一改用 `clientIp(req)`。
+8. **`background_jobs` 已完成的行没有清理。** 和 `redeem_guard_events` 一样放进每日清理任务（比如保留 30 天）。
+9. **lint warning 清掉。** 主要是 `lib/agent-draw.ts` 里几个形参没用、`lib/orders.ts:286` 的 `now`、`lib/plan-grant.ts` 的 `platformPlans` 和若干 `useEffect` 依赖。另外 `next lint` 在 Next 16 会移除，提前换成 `eslint` CLI。
+
+### P2 架构
+
+10. **超大文件**：`lib/agent-draw.ts`（2237 行）、`components/agent-storefront.tsx`（2064 行）、`db/migrate-lib.ts`（1946 行）、`components/admin-agents.tsx`（1604 行）、`app/admin/page.tsx`（1400 行）、`app/globals.css`（3121 行）。`app/api/admin/route.ts` 还在用 `section=` 一个入口分发十几种功能。按上一份文档 P2-2 的思路逐个拆。
+11. **迁移仍是每次启动全量跑**，靠吞 `duplicate column` 保幂等，一次性回填靠 `settings` 标记。建议加 `schema_migrations(version)`，新迁移按版本只跑一次。
+12. **进程内状态决定了只能单实例部署**：限流、登录锁定、开放 API 限流、`lastUsedWriteAt` 都在内存里，SQLite 也是本地文件。目前规模够用，但 README 的部署章节应该写明「只能跑一个副本」。
+13. **预览设计稿（`/preview/*`、`admin-desk-rest-preview.tsx`、`admin-agent-desk-preview.tsx`、`agent-console-preview.tsx`，合计约 3500 行）**生产环境已 404，但仍跟着打包和类型检查。定稿后删掉或移出 `src`。
+
+### P2 仓库卫生
+
+14. 根目录 `ref-*.png`、`shot*.png`、`.tmp-*`、`apps/web/kaimi.db`、`apps/web/kaimi-db-backup-*` 都已被 `.gitignore` 和 `.dockerignore` 排除，不会进提交和镜像，只是本地目录很乱，可以清理。
+15. 仓库里混有 CRLF 文件（提交时 git 提示转换），`.gitattributes` 已有，可以跑一次 `git add --renormalize .` 统一。
+
+---
+
+## 三、看过、没发现问题的部分
+
+- 管理员 / 代理接口鉴权：逐个核对 `app/api/admin/**`、`app/api/agent/**` 每个导出的 handler 都先过 `requireAdmin` / `requireAgent`；代理侧带 id 的接口都按 `session.agentId` 过滤，没发现越权。
+- 易支付回调：验签用 `timingSafeEqual`、校验 `pid`、金额按整单总额比对、流水号冲突和异常状态收款都会转人工并告警；同一流水重复通知幂等。
+- 买家查单：只凭邮箱拿不到完整单号和卡密，要交完整单号或走邮件链接；发查单邮件按 IP + 邮箱双重限流，且回复不泄露邮箱是否下过单。
+- 发卡租约：`issuing` 状态用 lease token 防并发，上游已出卡但本地写库失败的情况会保留引用等人工处理。
+- 登录：按 IP 限流 + 按用户名锁定，改密码后旧会话失效。
+- 移动端：截图的前台、后台、代理后台页面在 390 宽度下都没有横向溢出。

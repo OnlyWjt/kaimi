@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { pickClientIp } from "./rate-limit";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { pickClientIp, rateLimit, rateLimitBucketCount } from "./rate-limit";
 
 describe("pickClientIp", () => {
   // 取第一跳的话，客户端自己写一个新值就换一个桶，匿名批量额度等于没有。
@@ -45,5 +45,27 @@ describe("pickClientIp", () => {
   it("本地开发没有任何头，回落到 local", () => {
     expect(pickClientIp({})).toBe("local");
     expect(pickClientIp({ forwardedFor: "  ,  " })).toBe("local");
+  });
+});
+
+describe("rateLimit", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("过期的桶会被清掉，不会一直攒在内存里", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-15T00:00:00Z"));
+    for (let i = 0; i < 50; i += 1) rateLimit(`sweep-test:${i}`, 5, 1_000);
+    expect(rateLimitBucketCount()).toBeGreaterThanOrEqual(50);
+    vi.setSystemTime(new Date("2026-10-15T00:05:00Z"));
+    rateLimit("sweep-test:fresh", 5, 1_000);
+    expect(rateLimitBucketCount()).toBe(1);
+  });
+
+  it("窗口内超过次数就拒绝", () => {
+    expect(rateLimit("limit-test", 2).ok).toBe(true);
+    expect(rateLimit("limit-test", 2).ok).toBe(true);
+    expect(rateLimit("limit-test", 2).ok).toBe(false);
   });
 });

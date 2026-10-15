@@ -37,7 +37,10 @@ import {
   planNameWithRegion,
   regionConfirmationRequired,
 } from "@/lib/cardplatform/regions";
-import { countUnusedFinishedAccounts } from "@/lib/finished-accounts";
+import {
+  countPendingStoreAccountClaims,
+  countUnusedFinishedAccounts,
+} from "@/lib/finished-accounts";
 import {
   applyCheckoutCoupon,
   loadCheckoutCoupon,
@@ -329,12 +332,16 @@ export async function createStoreOrder(input: {
 
   const cardplatform = localAccount ? null : await getDefaultCardplatformAccount();
   if (!localAccount && !cardplatform) unavailable("没有可用的卡台账户");
-  if (localAccount) {
-    const unused = await countUnusedFinishedAccounts(offer.planKey);
-    if (unused < quantity) {
+  const assertAccountsAvailable = async (conn: Parameters<typeof countUnusedFinishedAccounts>[1]) => {
+    const [unused, pending] = await Promise.all([
+      countUnusedFinishedAccounts(offer.planKey, conn),
+      countPendingStoreAccountClaims(offer.planKey, conn),
+    ]);
+    if (unused - pending < quantity) {
       throw new Error("这个套餐正在补货中，请稍后再试。");
     }
-  }
+  };
+  if (localAccount) await assertAccountsAvailable(db);
 
   const epay = await getEpayConfig();
   if (!epayReady(epay)) unavailable("易支付未配置");
@@ -372,6 +379,8 @@ export async function createStoreOrder(input: {
   const fulfillmentIdempotencyKey = `kaimi-order-${orderNo}`;
   const createdAt = new Date().toISOString();
   const order = await db.transaction(async (tx) => {
+    // 事务里再数一次：上面那次和插入之间可能有别人刚下了单。
+    if (localAccount) await assertAccountsAvailable(tx);
     if (coupon) {
       await reserveCoupon(tx, { couponId: coupon.id, agentId: agent.id });
     }

@@ -1,6 +1,6 @@
-import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { finishedAccounts, issuedCdks } from "@/db/schema";
+import { finishedAccounts, issuedCdks, storeOrders } from "@/db/schema";
 import { encryptSecret, hashLookupValue } from "@/lib/crypto";
 import {
   FINISHED_GPT_PLAN_KEY,
@@ -24,6 +24,30 @@ export async function countUnusedFinishedAccounts(
       ),
     );
   return Number(unused || 0);
+}
+
+/**
+ * 已经下单、还没分到号的店铺订单要占掉的成品号数量。
+ * 号要到发货时才分配，下单时只看 unused 的话，最后一个号能被几个人同时买下，
+ * 付了款的后来者只能等退款。未付款的单最多挂 30 分钟就会被关掉，占用随之释放。
+ */
+export async function countPendingStoreAccountClaims(planKey: string, conn: DbLike = db) {
+  const [{ pending }] = await conn
+    .select({ pending: sql<number>`coalesce(sum(${storeOrders.quantity}), 0)` })
+    .from(storeOrders)
+    .where(
+      and(
+        eq(storeOrders.planKeySnapshot, planKey),
+        or(
+          eq(storeOrders.payStatus, "unpaid"),
+          and(
+            inArray(storeOrders.payStatus, ["paid", "manual"]),
+            inArray(storeOrders.fulfillStatus, ["pending", "issuing"]),
+          ),
+        ),
+      ),
+    );
+  return Number(pending || 0);
 }
 
 export async function unusedFinishedAccountCounts(planKeys: string[]) {
