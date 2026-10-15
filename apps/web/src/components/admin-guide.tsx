@@ -70,7 +70,7 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
               在「接入卡台」加主台/备台、填协议和 Key，把出口 IP 加进卡台白名单；再到「选卡配置」设优先级和兑换策略。保存选卡和保存策略都会同步到卡台；兑换会把第一条可用卡作为 preferred 发出去。
             </li>
             <li>
-              到「即时发卡」填本站公网地址（https://你的域名，不要 localhost）、易支付网关/PID/密钥和手续费，并设每个套餐的默认成本和零售价上限。保存后看一眼异步通知地址，应是
+              在「接入卡台」填本站公网地址（https://你的域名，不要 localhost），到「售卖设置」填易支付网关/PID/密钥和手续费，再到「代理管理」设每个套餐的默认成本和零售价上限。保存后看一眼异步通知地址，应是
               公网域名/api/webhooks/epay。
             </li>
             <li>
@@ -127,7 +127,7 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
               看可用库存、卡住的锁、进行中的开通。
             </GuideJump>
             <GuideJump title="订单查询" onClick={() => onGo("orders")}>
-              按订单号、邮箱、卡密后四位筛。未结束的单可「重拉」，也可导出 CSV。结果是「未知 / 核对中」的不要当失败重提。
+              按订单号、邮箱、卡密后四位筛。未结束的单可「重拉」，也可导出 CSV。结果是「未知 / 核对中」的不要当失败重提。切到「店铺订单」可以补发、人工核对、重对手续费、补推开票通知和登记退款。
             </GuideJump>
             <GuideJump title="卡密查询" onClick={() => onGo("cdks")}>
               这里列的是店铺已经售出的卡密，不是旧库存池。默认脱敏，点「显示」后再复制。可核销、禁用、启用。
@@ -138,8 +138,8 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
             <GuideJump title="选卡配置" onClick={() => onGo("selection")}>
               产品在线状态、自动选卡优先级、本站兑换策略和卡健康。保存后会把首选卡、每卡上限和是否换卡推到卡台。
             </GuideJump>
-            <GuideJump title="即时发卡" onClick={() => onGo("commerce")}>
-              公网地址、易支付、套餐成本和零售价上限、店铺订单（分页筛选）、复制查单链接、返佣结算。已发卡订单即可生成结算单。
+            <GuideJump title="售卖设置" onClick={() => onGo("commerce")}>
+              运营状态（停售原因、手动关店、余额线）、下单规则、易支付商户和手续费、失败的后台任务。
             </GuideJump>
             <GuideJump title="代理管理" onClick={() => onGo("agents")}>
               新建代理、勾选套餐、复制开户说明。代理从 /login 登录，上手页在 /start。
@@ -227,7 +227,7 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
                   </tr>
                   <tr>
                     <td>已付未发</td>
-                    <td>卡台发码失败，可在即时发卡里重试发卡</td>
+                    <td>卡台发码失败，可在「订单 › 店铺订单」里重试发卡</td>
                   </tr>
                 </tbody>
               </table>

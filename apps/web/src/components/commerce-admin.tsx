@@ -2,15 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { KmSelect } from "@/components/km-select";
-import { copyText } from "@/lib/copy-text";
-import { hasNextPage, pageLabel } from "@/lib/pagination-core";
 import { adminStatusLabel } from "@/lib/status-labels";
-import {
-  STORE_ORDER_FULFILL_FILTERS,
-  STORE_ORDER_PAY_FILTERS,
-} from "@/lib/store-order-query-core";
-import { useAskDialog } from "@/components/ask-dialog";
 import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
 
 type ChannelRule = {
@@ -19,31 +11,6 @@ type ChannelRule = {
   fixedFeeCents: number;
 };
 
-type AgentOption = { id: number; displayName: string };
-type StoreOrder = {
-  id: number;
-  orderNo: string;
-  agentName: string;
-  productName: string;
-  quantity: number;
-  retailPriceCents: number;
-  grossCents: number;
-  issuedCount: number;
-  payStatus: string;
-  fulfillStatus: string;
-  feeReconcileStatus: string;
-  lastErrorMessage: string;
-  invoiceRequested?: boolean;
-  invoiceTitle?: string;
-  invoiceTaxNo?: string;
-  invoiceNote?: string;
-  invoiceEmail?: string;
-  invoiceAmountCents?: number;
-  invoiceNotifyStatus?: string;
-  invoiceNotifyError?: string;
-  couponCodeSnapshot?: string;
-  couponDiscountCents?: number;
-};
 type BackgroundJob = {
   id: number;
   type: string;
@@ -76,16 +43,8 @@ const emptyRule: ChannelRule = {
   fixedFeeCents: 0,
 };
 
-function invoiceNotifyLabel(status?: string) {
-  if (status === "sent") return "通知已推送";
-  if (status === "failed") return "通知失败";
-  if (status === "unsent") return "未配置通知";
-  return "待推送";
-}
-
 export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
   const [message, setMessage] = useState("");
-  const { ask, dialog } = useAskDialog();
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [payment, setPayment] = useState({
@@ -103,75 +62,28 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
   });
   const [maxOrderQuantity, setMaxOrderQuantity] = useState("5");
   const [batchRedeemLimit, setBatchRedeemLimit] = useState("20");
-  const [agents, setAgents] = useState<AgentOption[]>([]);
-  const [storeOrders, setStoreOrders] = useState<StoreOrder[]>([]);
-  const [orderPage, setOrderPage] = useState(1);
-  const [orderTotal, setOrderTotal] = useState(0);
-  const orderPageSize = 10;
-  const emptyOrderFilters = {
-    q: "",
-    agentId: "",
-    payStatus: "",
-    fulfillStatus: "",
-    invoiceOnly: "",
-  };
-  const [orderDraft, setOrderDraft] = useState(emptyOrderFilters);
-  const [orderFilters, setOrderFilters] = useState(emptyOrderFilters);
   const [backgroundJobs, setBackgroundJobs] = useState<BackgroundJob[]>([]);
   const [health, setHealth] = useState<OpsHealth | null>(null);
   /** 卡台余额的关店线、预警线，按卡台币种填。 */
   const [minSpendable, setMinSpendable] = useState("");
   const [warnSpendable, setWarnSpendable] = useState("");
 
-  function storeOrderQuery(page: number, filters = orderFilters) {
-    const qs = new URLSearchParams({
-      page: String(page),
-      pageSize: String(orderPageSize),
-    });
-    if (filters.q.trim()) qs.set("q", filters.q.trim());
-    if (filters.agentId) qs.set("agentId", filters.agentId);
-    if (filters.payStatus) qs.set("payStatus", filters.payStatus);
-    if (filters.fulfillStatus) qs.set("fulfillStatus", filters.fulfillStatus);
-    if (filters.invoiceOnly) qs.set("invoiceOnly", filters.invoiceOnly);
-    return qs;
-  }
-
-  /** 订单表自己翻页，不能整页重载，否则每次点下一页都会把支付配置一起拉一遍。 */
-  async function loadStoreOrders(page = orderPage, filters = orderFilters) {
-    const response = await fetch(`/api/admin/store-orders?${storeOrderQuery(page, filters)}`, {
-      cache: "no-store",
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "订单加载失败");
-    setStoreOrders(data.list || []);
-    setOrderTotal(Number(data.total) || 0);
-    setOrderPage(Number(data.page) || page);
-  }
-
   async function load() {
     setLoaded(false);
-    const [paymentRes, agentsRes, ordersRes, jobsRes, healthRes, rulesRes] = await Promise.all([
+    const [paymentRes, jobsRes, healthRes, rulesRes] = await Promise.all([
       fetch("/api/admin/payment", { cache: "no-store" }),
-      fetch("/api/admin/agents", { cache: "no-store" }),
-      fetch(`/api/admin/store-orders?${storeOrderQuery(orderPage)}`, {
-        cache: "no-store",
-      }),
       fetch("/api/admin/jobs", { cache: "no-store" }),
       fetch("/api/admin/ops-health", { cache: "no-store" }),
       fetch("/api/admin?section=store_rules", { cache: "no-store" }),
     ]);
-    const [paymentData, agentData, orderData, jobsData, healthData, rulesData] = await Promise.all([
+    const [paymentData, jobsData, healthData, rulesData] = await Promise.all([
       paymentRes.json(),
-      agentsRes.json(),
-      ordersRes.json(),
       jobsRes.json(),
       healthRes.json(),
       rulesRes.json(),
     ]);
     if (
       !paymentRes.ok ||
-      !agentsRes.ok ||
-      !ordersRes.ok ||
       !jobsRes.ok ||
       !healthRes.ok ||
       !rulesRes.ok
@@ -198,11 +110,6 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
           wxpay: byChannel.wxpay || { ...emptyRule },
         },
       }));
-    }
-    if (agentsRes.ok) setAgents(agentData.list || []);
-    if (ordersRes.ok) {
-      setStoreOrders(orderData.list || []);
-      setOrderTotal(Number(orderData.total) || 0);
     }
     if (jobsRes.ok) setBackgroundJobs(jobsData.list || []);
     if (healthRes.ok) applyHealth(healthData.health || null);
@@ -244,33 +151,6 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
-  async function changeOrderPage(page: number) {
-    try {
-      await loadStoreOrders(Math.max(1, page));
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "订单加载失败");
-    }
-  }
-
-  async function applyOrderFilters() {
-    setOrderFilters(orderDraft);
-    try {
-      await loadStoreOrders(1, orderDraft);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "订单加载失败");
-    }
-  }
-
-  async function resetOrderFilters() {
-    setOrderDraft(emptyOrderFilters);
-    setOrderFilters(emptyOrderFilters);
-    try {
-      await loadStoreOrders(1, emptyOrderFilters);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "订单加载失败");
-    }
-  }
-
   async function savePayment() {
     const data = await submit("/api/admin/payment", payment);
     if (data) {
@@ -291,190 +171,6 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
       setMessage(
         `买家一次最多可以买 ${data.maxOrderQuantity} 张，批量兑换一次最多 ${data.batchRedeemLimit} 张`,
       );
-    }
-  }
-
-  async function storeOrderAction(
-    order: StoreOrder,
-    action: "retry" | "fee" | "recovery" | "invoice",
-  ) {
-    const suffix =
-      action === "retry"
-        ? "retry-fulfillment"
-        : action === "fee"
-          ? "reconcile-fee"
-          : action === "invoice"
-            ? "invoice-notify"
-            : "recovery-link";
-    const data = await submit(
-      `/api/admin/store-orders/${encodeURIComponent(order.orderNo)}/${suffix}`,
-    );
-    if (data?.recoveryUrl) {
-      try {
-        await copyText(data.recoveryUrl);
-        setMessage(`已复制 ${order.orderNo} 的查单链接`);
-      } catch (error) {
-        setMessage(error instanceof Error ? error.message : "复制失败，请手动复制");
-      }
-    } else if (data) {
-      if (action === "invoice") {
-        setMessage(
-          data.ok
-            ? "开票通知已推送"
-            : data.invoiceNotifyError || "通知没发出去，订单里仍可查看开票信息",
-        );
-        await loadStoreOrders();
-        return;
-      }
-      await load();
-    }
-  }
-
-  async function resolveUnknown(order: StoreOrder) {
-    const choice = await ask({
-      title: `处理未知状态订单 ${order.orderNo}`,
-      message: "先去卡台核对这笔到底有没有生成卡密，再选对应的处理方式。",
-      actions: [
-        { name: "issued", label: "已生成，补录卡密" },
-        { name: "not_issued", label: "确认未发码", danger: true },
-      ],
-    });
-    if (!choice) return;
-    if (choice.__action === "issued") {
-      const answer = await ask({
-        title: "补录卡密",
-        message: `订单 ${order.orderNo}`,
-        fields: [
-          {
-            name: "code",
-            label: "从卡台核对到的完整卡密",
-            required: true,
-          },
-        ],
-        confirmLabel: "补录",
-      });
-      if (!answer) return;
-      const data = await submit(
-        `/api/admin/store-orders/${encodeURIComponent(order.orderNo)}/resolve`,
-        { action: "confirm_issued", code: answer.code },
-        "PATCH",
-      );
-      if (data) await load();
-      return;
-    }
-    const answer = await ask({
-      title: "确认卡台未发码",
-      message: "确认后这笔会按未发货处理。",
-      fields: [
-        {
-          name: "confirmation",
-          label: "输入完整订单号确认",
-          placeholder: order.orderNo,
-          mustEqual: order.orderNo,
-          required: true,
-        },
-      ],
-      confirmLabel: "确认未发码",
-      danger: true,
-    });
-    if (!answer) return;
-    const data = await submit(
-      `/api/admin/store-orders/${encodeURIComponent(order.orderNo)}/resolve`,
-      { action: "confirm_not_issued", confirmation: answer.confirmation },
-      "PATCH",
-    );
-    if (data) await load();
-  }
-
-  async function recordRefund(order: StoreOrder) {
-    const choice = await ask({
-      title: `登记退款 / 拒付 ${order.orderNo}`,
-      message: "拒付是支付渠道强制扣回，普通退款是你主动退给买家。",
-      actions: [
-        { name: "refund", label: "普通退款" },
-        { name: "chargeback", label: "拒付", danger: true },
-      ],
-    });
-    if (!choice) return;
-    const answer = await ask({
-      title: choice.__action === "chargeback" ? "登记拒付" : "登记退款",
-      message: "会禁用这笔未使用的卡密并冲正代理收益，登记后不能撤销。",
-      fields: [
-        {
-          name: "reference",
-          label: "支付渠道退款/拒付参考号",
-          required: true,
-        },
-        { name: "reason", label: "原因", required: true },
-        {
-          name: "confirmation",
-          label: "输入完整订单号确认",
-          placeholder: order.orderNo,
-          mustEqual: order.orderNo,
-          required: true,
-        },
-      ],
-      confirmLabel: "确认登记",
-      danger: true,
-    });
-    if (!answer) return;
-    const body = {
-      type: choice.__action,
-      reference: answer.reference,
-      reason: answer.reason,
-      confirmation: answer.confirmation,
-    };
-    let result = await sendRefund(order.orderNo, body);
-    if (result.code === "CDK_REDEEMED") {
-      const accepted = await ask({
-        title: "卡密已被兑换",
-        message: `这笔订单有 ${result.redeemedCount ?? 1} 张卡台卡密已被买家兑换，卡台无法退卡。\n继续登记只会把订单标记为${choice.__action === "chargeback" ? "拒付" : "退款"}并冲正代理收益，卡密成本由平台承担。`,
-        acknowledge: "卡台卡密已被兑换，无法退卡，平台承担成本",
-        confirmLabel: "继续登记",
-        danger: true,
-      });
-      if (!accepted) {
-        setMessage("已取消登记");
-        return;
-      }
-      result = await sendRefund(order.orderNo, { ...body, acceptRedeemed: true });
-    }
-    if (!result.ok) {
-      // 顶部提示条离订单表很远，失败原因再弹一次，避免「点了没反应」。
-      await ask({ title: "登记失败", message: result.error, confirmLabel: "知道了" });
-      return;
-    }
-    setMessage(`${order.orderNo} 已登记${choice.__action === "chargeback" ? "拒付" : "退款"}`);
-    await load();
-  }
-
-  async function sendRefund(orderNo: string, body: Record<string, unknown>) {
-    setBusy(true);
-    setMessage("");
-    try {
-      const response = await fetch(
-        `/api/admin/store-orders/${encodeURIComponent(orderNo)}/refund`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        },
-      );
-      const data = await response.json().catch(() => ({}));
-      const error = typeof data.error === "string" ? data.error : "登记失败";
-      if (!response.ok) setMessage(error);
-      return {
-        ok: response.ok,
-        error,
-        code: data.code as string | undefined,
-        redeemedCount: data.redeemedCount as number | undefined,
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "登记失败";
-      setMessage(message);
-      return { ok: false, error: message, code: undefined, redeemedCount: undefined };
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -523,16 +219,19 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
 
   return (
     <div className="space-y-6">
-      {dialog}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-3 text-sm text-[var(--km-fg-muted)]">
         {embedded ? null : (
           <Link href="/admin" className="km-btn km-btn-ghost">
             返回后台
           </Link>
         )}
-        <a href="/api/admin/earnings/export.xlsx" className="km-btn km-btn-ghost">
-          导出全部收益
-        </a>
+        <span>
+          店铺订单（补发、退款、手续费、开票）在
+          <a href="/admin#store-orders" className="mx-1 underline">
+            日常 › 订单 › 店铺订单
+          </a>
+          ；收益导出在「代理 › 收益统计」。
+        </span>
       </div>
       {message ? <div className="km-stat text-sm">{message}</div> : null}
 
@@ -629,299 +328,6 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
       ) : null}
 
       <section className="km-panel space-y-4">
-        <div>
-          <h2 className="text-xl font-semibold">即时发卡订单</h2>
-          <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-            按下单时间倒序，每页 {orderPageSize} 条。开票单能搜抬头和收票邮箱；Telegram 没推到也能在这里看见。
-          </p>
-        </div>
-        <form
-          className="flex flex-wrap items-end gap-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void applyOrderFilters();
-          }}
-        >
-          <label className="block space-y-1 text-sm">
-            <span>关键字</span>
-            <input
-              className="km-input w-56"
-              placeholder="订单号 / 代理 / 套餐 / 抬头 / 邮箱"
-              value={orderDraft.q}
-              onChange={(event) =>
-                setOrderDraft((current) => ({ ...current, q: event.target.value }))
-              }
-            />
-          </label>
-          <label className="block space-y-1 text-sm">
-            <span>代理</span>
-            <KmSelect
-              className="w-40"
-              value={orderDraft.agentId}
-              placeholder="全部代理"
-              options={[
-                { value: "", label: "全部代理" },
-                ...agents.map((agent) => ({ value: String(agent.id), label: agent.displayName })),
-              ]}
-              onChange={(value) =>
-                setOrderDraft((current) => ({
-                  ...current,
-                  agentId: value,
-                }))
-              }
-            />
-          </label>
-          <label className="block space-y-1 text-sm">
-            <span>支付</span>
-            <KmSelect
-              className="w-36"
-              value={orderDraft.payStatus}
-              placeholder="全部支付"
-              options={[
-                { value: "", label: "全部支付" },
-                ...STORE_ORDER_PAY_FILTERS.map((item) => ({
-                  value: item,
-                  label: adminStatusLabel(item, "pay"),
-                })),
-              ]}
-              onChange={(value) =>
-                setOrderDraft((current) => ({
-                  ...current,
-                  payStatus: value,
-                }))
-              }
-            />
-          </label>
-          <label className="block space-y-1 text-sm">
-            <span>发卡</span>
-            <KmSelect
-              className="w-36"
-              value={orderDraft.fulfillStatus}
-              placeholder="全部发卡"
-              options={[
-                { value: "", label: "全部发卡" },
-                ...STORE_ORDER_FULFILL_FILTERS.map((item) => ({
-                  value: item,
-                  label: adminStatusLabel(item, "fulfill"),
-                })),
-              ]}
-              onChange={(value) =>
-                setOrderDraft((current) => ({
-                  ...current,
-                  fulfillStatus: value,
-                }))
-              }
-            />
-          </label>
-          <label className="flex items-end gap-2 pb-2 text-sm">
-            <input
-              type="checkbox"
-              checked={orderDraft.invoiceOnly === "1"}
-              onChange={(event) =>
-                setOrderDraft((current) => ({
-                  ...current,
-                  invoiceOnly: event.target.checked ? "1" : "",
-                }))
-              }
-            />
-            <span>只看开票</span>
-          </label>
-          <button type="submit" className="km-btn" disabled={busy}>
-            筛选
-          </button>
-          <button
-            type="button"
-            className="km-btn km-btn-ghost"
-            disabled={busy}
-            onClick={() => void resetOrderFilters()}
-          >
-            清空
-          </button>
-        </form>
-        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-            <span className="text-[var(--km-fg-muted)]">
-              {pageLabel(orderTotal, orderPage, orderPageSize)}
-            </span>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className="km-btn km-btn-ghost"
-                disabled={busy || orderPage <= 1}
-                onClick={() => void changeOrderPage(orderPage - 1)}
-              >
-                上一页
-              </button>
-              <button
-                type="button"
-                className="km-btn km-btn-ghost"
-                disabled={
-                  busy || !hasNextPage(orderTotal, orderPage, orderPageSize)
-                }
-                onClick={() => void changeOrderPage(orderPage + 1)}
-              >
-                下一页
-              </button>
-            </div>
-          </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[920px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-[var(--km-border)]">
-                <th className="py-2 pr-3">订单</th>
-                <th className="py-2 pr-3">代理/套餐</th>
-                <th className="py-2 pr-3">金额</th>
-                <th className="py-2 pr-3">支付</th>
-                <th className="py-2 pr-3">发卡</th>
-                <th className="py-2 pr-3">手续费</th>
-                <th className="py-2">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {storeOrders.map((order) => (
-                <tr key={order.id} className="border-b border-[var(--km-border)]">
-                  <td className="py-2 pr-3 font-mono">
-                    <div>{order.orderNo}</div>
-                    {order.invoiceRequested ? (
-                      <div className="mt-1 text-xs text-[var(--km-fg-muted)]">
-                        开票 · {invoiceNotifyLabel(order.invoiceNotifyStatus)}
-                        {order.invoiceNotifyError ? `：${order.invoiceNotifyError}` : ""}
-                      </div>
-                    ) : null}
-                  </td>
-                  <td className="py-2 pr-3">
-                    {order.agentName} · {order.productName}
-                  </td>
-                  <td className="py-2 pr-3">
-                    {/* gross_cents 是 NOT NULL DEFAULT 0，?? 永远不触发，
-                        老单回填失败时会渲染成 ¥0.00，所以用 || 兜住 0。 */}
-                    ¥
-                    {(
-                      (order.grossCents ||
-                        order.retailPriceCents * (order.quantity || 1)) / 100
-                    ).toFixed(2)}
-                    {(order.quantity || 1) > 1 ? (
-                      <span className="km-badge ml-2">×{order.quantity}</span>
-                    ) : null}
-                    {order.invoiceRequested ? (
-                      <div className="mt-1 space-y-0.5 text-xs text-[var(--km-fg-muted)]">
-                        <div>
-                          开票 ¥
-                          {((order.invoiceAmountCents || order.grossCents) / 100).toFixed(2)}
-                          {order.invoiceTitle ? ` · ${order.invoiceTitle}` : ""}
-                        </div>
-                        {order.invoiceTaxNo ? <div>税号 {order.invoiceTaxNo}</div> : null}
-                        {order.invoiceNote ? <div>备注 {order.invoiceNote}</div> : null}
-                        {order.invoiceEmail ? <div>邮箱 {order.invoiceEmail}</div> : null}
-                      </div>
-                    ) : null}
-                    {(order.couponDiscountCents || 0) > 0 ? (
-                      <div className="mt-1 text-xs text-[var(--km-fg-muted)]">
-                        券 {order.couponCodeSnapshot || ""} −¥
-                        {((order.couponDiscountCents || 0) / 100).toFixed(2)}
-                      </div>
-                    ) : null}
-                  </td>
-                  <td className="py-2 pr-3">
-                    {adminStatusLabel(order.payStatus, "pay")}
-                  </td>
-                  <td className="py-2 pr-3" title={order.lastErrorMessage}>
-                    {adminStatusLabel(order.fulfillStatus, "fulfill")}
-                    {(order.quantity || 1) > 1 ? (
-                      <span className="ml-2 text-xs text-[var(--km-fg-muted)]">
-                        已出 {order.issuedCount ?? 0}/{order.quantity}
-                      </span>
-                    ) : null}
-                  </td>
-                  <td className="py-2 pr-3">
-                    {adminStatusLabel(order.feeReconcileStatus, "fee")}
-                  </td>
-                  <td className="py-2">
-                    <div className="km-row-actions">
-                      {order.payStatus === "paid" &&
-                      [
-                        "paid_undelivered",
-                        "partially_delivered",
-                        "issuing",
-                      ].includes(order.fulfillStatus) ? (
-                        <button
-                          className="km-btn km-btn-ghost"
-                          disabled={busy}
-                          onClick={() => storeOrderAction(order, "retry")}
-                        >
-                          {order.fulfillStatus === "issuing"
-                            ? "恢复履约"
-                            : order.fulfillStatus === "partially_delivered"
-                              ? "补发剩余"
-                              : "重试发卡"}
-                        </button>
-                      ) : null}
-                      {order.fulfillStatus === "unknown" ? (
-                        <button
-                          className="km-btn km-btn-ghost"
-                          disabled={busy}
-                          onClick={() => resolveUnknown(order)}
-                        >
-                          人工核对
-                        </button>
-                      ) : null}
-                      {order.payStatus === "paid" &&
-                      !["confirmed", "unsupported"].includes(
-                        order.feeReconcileStatus,
-                      ) ? (
-                        <button
-                          className="km-btn km-btn-ghost"
-                          disabled={busy}
-                          onClick={() => storeOrderAction(order, "fee")}
-                        >
-                          重对手续费
-                        </button>
-                      ) : null}
-                      <details className="km-more">
-                        <summary className="km-btn km-btn-ghost">更多</summary>
-                        <div className="km-more-menu">
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => storeOrderAction(order, "recovery")}
-                          >
-                            复制查单链接
-                          </button>
-                          {order.invoiceRequested && order.payStatus === "paid" ? (
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => storeOrderAction(order, "invoice")}
-                            >
-                              {order.invoiceNotifyStatus === "sent" ? "再推开票通知" : "补推开票通知"}
-                            </button>
-                          ) : null}
-                          {order.payStatus === "paid" ? (
-                            <button
-                              type="button"
-                              className="text-[var(--km-danger)]"
-                              disabled={busy}
-                              onClick={() => recordRefund(order)}
-                            >
-                              登记退款 / 拒付
-                            </button>
-                          ) : null}
-                        </div>
-                      </details>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!storeOrders.length ? (
-            <p className="py-8 text-center text-sm text-[var(--km-fg-muted)]">
-              没有符合条件的订单
-            </p>
-          ) : null}
-        </div>
-      </section>
-
-      <section className="km-panel space-y-4">
         <h2 className="text-xl font-semibold">下单规则</h2>
         <label className="block space-y-1 text-sm">
           <span>一次最多买几张</span>
@@ -976,7 +382,7 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
             }
           />
           <span className="block text-xs text-[var(--km-fg-muted)]">
-            给易支付和卡台回调用，可以填一个不经 Cloudflare 的域名。留空就用「即时发卡」里的本站公网地址。买家看到的订单、兑换链接不用这个地址。
+            给易支付和卡台回调用，可以填一个不经 Cloudflare 的域名。留空就用「系统 › 接入卡台」里的本站公网地址。买家看到的订单、兑换链接不用这个地址。
           </span>
         </label>
         <p className="break-all font-mono text-xs text-[var(--km-fg-muted)]">

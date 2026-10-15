@@ -20,6 +20,7 @@ import { AdminUsageStats } from "@/components/admin-usage-stats";
 import { AdminWeeklyEarnings } from "@/components/admin-weekly-earnings";
 import { AdminReconciliation } from "@/components/admin-reconciliation";
 import { AdminMailSettings, AdminTelegramBindings } from "@/components/admin-mail-settings";
+import { AdminStoreOrders } from "@/components/admin-store-orders";
 import { CommerceAdmin } from "@/components/commerce-admin";
 import { FinishedAccountsAdmin } from "@/components/finished-accounts-admin";
 import { toast } from "@/components/toast";
@@ -123,6 +124,9 @@ const KIND_LABEL: Record<string, string> = {
   purchase: "进货",
 };
 
+/** 「订单」页直接停在店铺订单那一栏。 */
+const STORE_ORDERS_HASH = "store-orders";
+
 const HASH_TABS: Tab[] = [
   "overview",
   "orders",
@@ -148,6 +152,7 @@ const HASH_TABS: Tab[] = [
 
 function tabFromHash(hash: string): Tab | null {
   if (hash === "card-selection") return "selection";
+  if (hash === STORE_ORDERS_HASH) return "orders";
   return HASH_TABS.includes(hash as Tab) ? (hash as Tab) : null;
 }
 
@@ -226,6 +231,12 @@ export default function AdminPage() {
     }
   }
 
+  function goStoreOrders() {
+    setOrderKind("store");
+    setTab("orders");
+    window.history.replaceState(null, "", `#${STORE_ORDERS_HASH}`);
+  }
+
   function orderQuery(kind: "" | "store" | "redeem") {
     const qs = new URLSearchParams();
     if (orderQ) qs.set("q", orderQ);
@@ -260,9 +271,9 @@ export default function AdminPage() {
     void refreshBoot();
     function applyLocation() {
       const queryTab = new URLSearchParams(window.location.search).get("tab");
-      const next =
-        tabFromHash(queryTab || "") ||
-        tabFromHash(window.location.hash.replace("#", ""));
+      const hash = window.location.hash.replace("#", "");
+      const next = tabFromHash(queryTab || "") || tabFromHash(hash);
+      if (hash === STORE_ORDERS_HASH) setOrderKind("store");
       if (next) setTab(next);
     }
     applyLocation();
@@ -275,7 +286,7 @@ export default function AdminPage() {
     void (async () => {
       setMsg("");
       if (tab === "overview") setOverview(await loadSection("overview"));
-      if (tab === "orders") {
+      if (tab === "orders" && orderKind !== "store") {
         const qs = new URLSearchParams();
         if (orderQ) qs.set("q", orderQ);
         if (orderStatus) qs.set("status", orderStatus);
@@ -335,7 +346,7 @@ export default function AdminPage() {
           id: "sell",
           name: "卖卡",
           items: [
-            ["commerce", "即时发卡"],
+            ["commerce", "售卖设置"],
             ["finished", "成品号"],
             ["selection", "选卡配置"],
           ],
@@ -587,7 +598,7 @@ export default function AdminPage() {
               <button type="button" className="km-ov-alert" onClick={() => goTab("commerce")}>
                 <strong>所有店铺已停售，买家现在下不了单</strong>
                 <span>
-                  {overview.salesClosedReason ? `${overview.salesClosedReason} · ` : ""}去「即时发卡」看原因 →
+                  {overview.salesClosedReason ? `${overview.salesClosedReason} · ` : ""}去「售卖设置」看原因 →
                 </span>
               </button>
             ) : null}
@@ -628,9 +639,9 @@ export default function AdminPage() {
               </div>
             ) : null}
             {(overview.attentionCount || 0) > 0 ? (
-              <button type="button" className="km-ov-alert" onClick={() => goTab("commerce")}>
+              <button type="button" className="km-ov-alert" onClick={goStoreOrders}>
                 <strong>{overview.attentionCount} 笔店铺订单付了款还没发齐</strong>
-                <span>去「即时发卡」看看 →</span>
+                <span>去「店铺订单」处理 →</span>
               </button>
             ) : null}
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -658,7 +669,7 @@ export default function AdminPage() {
             <div className="km-panel overflow-x-auto">
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="font-semibold">最近店铺订单</h3>
-                <button className="km-btn km-btn-ghost" onClick={() => goTab("commerce")}>
+                <button className="km-btn km-btn-ghost" onClick={goStoreOrders}>
                   全部店铺订单
                 </button>
               </div>
@@ -732,13 +743,18 @@ export default function AdminPage() {
                   className={`km-tab ${orderKind === value ? "km-tab-active" : ""}`}
                   onClick={() => {
                     setOrderKind(value);
-                    void reloadOrders(value);
+                    window.history.replaceState(null, "", value === "store" ? `#${STORE_ORDERS_HASH}` : "#orders");
+                    if (value !== "store") void reloadOrders(value);
                   }}
                 >
                   {label}
                 </button>
               ))}
             </div>
+            {orderKind === "store" ? (
+              <AdminStoreOrders />
+            ) : (
+            <>
             <div className="km-toolbar">
               <input
                 className="km-input max-w-xs"
@@ -939,6 +955,8 @@ export default function AdminPage() {
                 加载更多
               </button>
             ) : null}
+            </>
+            )}
           </div>
         ) : null}
 
@@ -1150,7 +1168,7 @@ export default function AdminPage() {
                   onChange={(e) => setIntegForm((s) => ({ ...s, publicBaseUrl: e.target.value }))}
                 />
                 <span className="text-xs text-[var(--km-fg-muted)]">
-                  买家看到的订单页、兑换链接、查单邮件都用这个地址，填代理店铺的正式域名。不能填 localhost。通知页改的是同一项。易支付和卡台回调可以在「即时发卡」里另配一个回调地址。
+                  买家看到的订单页、兑换链接、查单邮件都用这个地址，填代理店铺的正式域名。不能填 localhost。通知页改的是同一项。易支付和卡台回调可以在「卖卡 › 售卖设置」里另配一个回调地址。
                 </span>
               </label>
               <button className="km-btn" disabled={busy} onClick={() => void saveIntegration()}>
@@ -1181,7 +1199,7 @@ export default function AdminPage() {
                     onChange={(e) => setIntegForm((s) => ({ ...s, publicBaseUrl: e.target.value }))}
                   />
                   <span className="text-xs text-[var(--km-fg-muted)]">
-                    买家看到的订单页、兑换链接、查单邮件都用这个地址，不能填 localhost。卡台页改的是同一项。易支付和卡台回调可以在「即时发卡」里另配一个回调地址。
+                    买家看到的订单页、兑换链接、查单邮件都用这个地址，不能填 localhost。卡台页改的是同一项。易支付和卡台回调可以在「卖卡 › 售卖设置」里另配一个回调地址。
                   </span>
                 </label>
                 <label className="block space-y-1 text-sm">

@@ -18,6 +18,7 @@ import { createEpayPayment } from "@/lib/payments/epay";
 import { epayReady, getEpayConfig } from "@/lib/payments/config";
 import type { PaymentChannel } from "@/lib/payments/fees";
 import { assertStoreSalesOpen } from "@/lib/ops-health";
+import { clientIp } from "@/lib/rate-limit";
 import { buildReturnUrl } from "@/lib/open-api/return-url";
 import { maskOrderNo } from "@/lib/order-no-mask";
 import { storeOrderQueryUrl } from "@/lib/store-order-links";
@@ -443,6 +444,7 @@ export async function createStoreOrder(input: {
   });
 
   let payment: Awaited<ReturnType<typeof createEpayPayment>>;
+  const buyerIp = clientIp(input.request);
   try {
     payment = await createEpayPayment(epay, {
       outTradeNo: orderNo,
@@ -455,9 +457,7 @@ export async function createStoreOrder(input: {
         ? buildReturnUrl(input.returnUrl, orderNo)
         : storeOrderQueryUrl(base, orderNo, queryToken),
       channel: input.channel,
-      clientIp:
-        input.request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-        undefined,
+      clientIp: buyerIp === "local" ? undefined : buyerIp,
     });
   } catch (error) {
     // 支付单都没建成，买家付不了款：关掉订单并归还优惠券次数。

@@ -38,7 +38,7 @@ export async function requirePublicBaseUrl(req?: Request) {
   const base = await getPublicBaseUrl(req);
   if (base) return base;
   throw new Error(
-    "易支付回调不能使用 localhost。请到「即时发卡」填写可被外网访问的本站地址，例如 https://你的域名",
+    "易支付回调不能使用 localhost。请到后台「系统 › 接入卡台」填写可被外网访问的本站地址，例如 https://你的域名",
   );
 }
 
@@ -66,6 +66,6 @@ export async function requireCallbackBaseUrl(req?: Request) {
   const base = await getCallbackBaseUrl(req);
   if (base) return base;
   throw new Error(
-    "易支付回调不能使用 localhost。请到「即时发卡」填写可被外网访问的本站地址，例如 https://你的域名",
+    "易支付回调不能使用 localhost。请到后台「系统 › 接入卡台」填写可被外网访问的本站地址，例如 https://你的域名",
   );
 }

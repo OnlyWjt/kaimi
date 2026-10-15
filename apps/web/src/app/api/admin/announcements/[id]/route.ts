@@ -9,9 +9,10 @@ import {
 } from "@/lib/announcements-core";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
+import { clientIp } from "@/lib/rate-limit";
 
 function requestIp(req: Request) {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return clientIp(req);
 }
 
 async function authorize() {
