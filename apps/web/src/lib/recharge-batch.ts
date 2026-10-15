@@ -127,7 +127,7 @@ export async function previewRedeemCodes(
  * 兑换阶段的批量驱动，跑在 after() 里。
  *
  * 凭证只活在这次请求的内存里。要让批量在服务端可恢复就得把客户的 Session JSON
- * 或邮箱密码落库，那是不可接受的，所以这里不落任何凭证、不建批次表、不排后台任务。
+ * 落库，那是不可接受的，所以这里不落任何凭证、不建批次表、不排后台任务。
  */
 export async function driveRechargeBatch(
   items: Array<{ opened: OpenedRechargeOrder; code: string }>,

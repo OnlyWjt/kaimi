@@ -107,7 +107,7 @@ export function AdminGuide({ onGo }: { onGo: (tab: GuideTab) => void }) {
             <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm">
               <p className="font-medium">开始兑换</p>
               <p className="mt-1 text-[var(--km-fg-muted)]">
-                点兑换链接会带上这一单的卡密。先校验识别套餐；Session 预检通过后才能提交，也可以改用邮箱密码。提交后立刻返回订单号，开通在后台继续跑。多张走批量兑换。
+                点兑换链接会带上这一单的卡密。先校验识别套餐；Session 预检通过后才能提交。提交后立刻返回订单号，开通在后台继续跑。多张走批量兑换。
               </p>
             </div>
             <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm">

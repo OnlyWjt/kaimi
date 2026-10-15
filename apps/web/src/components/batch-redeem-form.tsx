@@ -4,8 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useAskDialog } from "@/components/ask-dialog";
 import {
-  CredentialSwitch,
-  MailboxFields,
   SessionCheckResult,
   SessionField,
   readRedeemJson,
@@ -85,10 +83,8 @@ export function BatchRedeemForm({
   const [codeText, setCodeText] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [checked, setChecked] = useState(false);
-  const [credMode, setCredMode] = useState<"session" | "mailbox">("session");
   const [session, setSession] = useState("");
   const [email, setEmail] = useState("");
-  const [mailboxPassword, setMailboxPassword] = useState("");
   const [preview, setPreview] = useState<SessionPreview | null>(null);
   const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -99,10 +95,7 @@ export function BatchRedeemForm({
   const parsed = useMemo(() => takeRedeemCodes(codeText, limit), [codeText, limit]);
   const sessionOk = Boolean(preview?.ok && preview.source === "cardplatform");
   const readyCodes = rows.filter((row) => row.state === "ready").map((row) => row.code);
-  const credentialReady =
-    credMode === "session"
-      ? Boolean(session.trim()) && sessionOk
-      : Boolean(email.trim()) && Boolean(mailboxPassword.trim());
+  const credentialReady = Boolean(session.trim()) && sessionOk;
 
   const stats = useMemo(() => {
     const out = { total: rows.length, ok: 0, run: 0, bad: 0, wait: 0, unsure: 0 };
@@ -281,13 +274,7 @@ export function BatchRedeemForm({
   }
 
   function credentialBody() {
-    return credMode === "session"
-      ? { mode: "session" as const, session: session.trim(), email: email.trim() }
-      : {
-          mode: "mailbox" as const,
-          email: email.trim(),
-          password: mailboxPassword.trim(),
-        };
+    return { mode: "session" as const, session: session.trim(), email: email.trim() };
   }
 
   /**
@@ -358,11 +345,7 @@ export function BatchRedeemForm({
       return;
     }
     if (!credentialReady) {
-      setError(
-        credMode === "session"
-          ? "请先点击「预检 Session」，通过卡台校验后再兑换"
-          : "请填写账号邮箱和邮箱密码",
-      );
+      setError("请先点击「预检 Session」，通过卡台校验后再兑换");
       return;
     }
     const account = email.trim() || "这个账号";
@@ -404,11 +387,7 @@ export function BatchRedeemForm({
         return;
       }
       if (!credentialReady) {
-        setError(
-          credMode === "session"
-            ? "请先预检 Session 再重试"
-            : "请填写账号邮箱和邮箱密码",
-        );
+        setError("请先预检 Session 再重试");
         return;
       }
       await submitCodes([row.code]);
@@ -445,7 +424,6 @@ export function BatchRedeemForm({
     setChecked(false);
     setCodeText("");
     setSession("");
-    setMailboxPassword("");
     setEmail("");
     setPreview(null);
     setError("");
@@ -497,39 +475,20 @@ export function BatchRedeemForm({
 
       {checked ? (
         <section className="km-rx-card km-form-stack">
-          <div className="km-rx-card-head km-rx-card-head-row">
-            <div>
-              <h2 className="km-rx-card-title">开通账号</h2>
-              <p className="km-rx-card-desc">这一批全部兑换到同一个账号，凭证只填一次。</p>
-            </div>
-            <CredentialSwitch
-              value={credMode}
-              onChange={(mode) => {
-                setCredMode(mode);
-                if (mode === "mailbox") setPreview(null);
-                setError("");
-              }}
-            />
+          <div className="km-rx-card-head">
+            <h2 className="km-rx-card-title">开通账号</h2>
+            <p className="km-rx-card-desc">这一批全部兑换到同一个账号，Session 只填一次。</p>
           </div>
 
-          {credMode === "session" ? (
-            <SessionField
-              value={session}
-              onChange={(value) => {
-                setSession(value);
-                setPreview(null);
-              }}
-            />
-          ) : (
-            <MailboxFields
-              email={email}
-              password={mailboxPassword}
-              onEmail={setEmail}
-              onPassword={setMailboxPassword}
-            />
-          )}
+          <SessionField
+            value={session}
+            onChange={(value) => {
+              setSession(value);
+              setPreview(null);
+            }}
+          />
 
-          {preview && credMode === "session" ? <SessionCheckResult preview={preview} /> : null}
+          {preview ? <SessionCheckResult preview={preview} /> : null}
 
           {error ? (
             <p className="km-rx-error" role="alert">
@@ -537,7 +496,7 @@ export function BatchRedeemForm({
             </p>
           ) : null}
 
-          {credMode === "session" && !sessionOk ? (
+          {!sessionOk ? (
             <button
               type="button"
               className="km-btn km-rx-primary"
@@ -561,16 +520,14 @@ export function BatchRedeemForm({
                       ? "已提交，进度见下方"
                       : "没有可兑换的卡密"}
               </button>
-              {credMode === "session" ? (
-                <button
-                  type="button"
-                  className="km-rx-link"
-                  disabled={!session.trim() || checking || busy}
-                  onClick={() => void precheckSession()}
-                >
-                  {checking ? "预检中…" : "改了 Session？重新预检"}
-                </button>
-              ) : null}
+              <button
+                type="button"
+                className="km-rx-link"
+                disabled={!session.trim() || checking || busy}
+                onClick={() => void precheckSession()}
+              >
+                {checking ? "预检中…" : "改了 Session？重新预检"}
+              </button>
             </div>
           )}
         </section>

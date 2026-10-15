@@ -481,10 +481,9 @@ export const openApiSpec = {
                 type: "object",
                 properties: {
                   code: { type: "string" },
-                  mode: { type: "string", enum: ["session", "mailbox"] },
+                  mode: { type: "string", enum: ["session"] },
                   session: { type: "string" },
                   email: { type: "string" },
-                  password: { type: "string" },
                 },
                 required: ["code"],
               },

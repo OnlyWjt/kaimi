@@ -7,7 +7,7 @@ const features = [
     key: "recharge",
     href: "/recharge",
     title: "开始兑换",
-    desc: "校验卡密后，提交 Session 或邮箱密码开通",
+    desc: "校验卡密后，提交 Session 开通",
     cta: "去兑换",
   },
   {

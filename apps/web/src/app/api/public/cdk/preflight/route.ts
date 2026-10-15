@@ -6,19 +6,18 @@ import { assertRedeemCodeKnown, recordRedeemFailure, redeemBlockResponse } from 
 import { RedeemRejectedError } from "@/lib/redeem-guard-core";
 import { publicErrorMessage } from "@/lib/public-error";
 import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
+import { MAILBOX_REDEEM_REMOVED } from "@/lib/recharge-types";
 
 const schema = z.object({
   code: z.string().min(REDEEM_CODE_MIN_LENGTH),
   session: z.string().optional(),
   email: z.string().optional(),
-  password: z.string().optional(),
-  mode: z.enum(["session", "mailbox"]).optional().default("session"),
+  mode: z.string().optional().default("session"),
   credential: z
     .object({
-      mode: z.enum(["session", "mailbox"]).optional(),
+      mode: z.string().optional(),
       session: z.string().optional(),
       email: z.string().optional(),
-      password: z.string().optional(),
     })
     .optional(),
 });
@@ -31,15 +30,16 @@ export async function POST(req: Request) {
   if (blocked) return blocked;
   try {
     const body = schema.parse(await req.json());
+    if ((body.credential?.mode || body.mode) !== "session") {
+      return NextResponse.json({ error: MAILBOX_REDEEM_REMOVED }, { status: 400 });
+    }
     await assertRedeemCodeKnown(body.code);
-    const mode = body.credential?.mode || body.mode;
     const preflight = await preflightRedeemableCdk({
       code: body.code,
       account: {
-        mode,
+        mode: "session",
         session: body.credential?.session || body.session || "",
         email: body.credential?.email || body.email || "",
-        password: body.credential?.password || body.password || "",
       },
     });
     return NextResponse.json({

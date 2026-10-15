@@ -154,18 +154,6 @@
   outline-offset: 2px;
 }
 
-.km-rx-seg-sm {
-  justify-self: auto;
-  flex-shrink: 0;
-  padding: 0.2rem;
-}
-
-.km-rx-seg-sm .km-rx-seg-item {
-  min-width: 0;
-  padding: 0.35rem 0.8rem;
-  font-size: 0.8rem;
-}
-
 .km-rx-flow {
   display: grid;
   gap: 0.85rem;
@@ -410,11 +398,6 @@
 .km-rx-link:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.km-rx-fields {
-  display: grid;
-  gap: 0.85rem;
 }
 
 .km-rx-field {
