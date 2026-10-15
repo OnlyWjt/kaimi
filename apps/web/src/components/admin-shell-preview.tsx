@@ -300,26 +300,3 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
     </div>
   );
 }
-
-function MiniTable({ heads, rows }: { heads: string[]; rows: string[][] }) {
-  return (
-    <table className="km-table text-sm">
-      <thead>
-        <tr>
-          {heads.map((head) => (
-            <th key={head}>{head}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={row.join("-")}>
-            {row.map((cell) => (
-              <td key={cell}>{cell}</td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}

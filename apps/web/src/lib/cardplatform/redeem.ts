@@ -16,11 +16,7 @@ import {
   findIssuedCdkByCode,
   nestedString,
 } from "./issued-redemption";
-import {
-  mapCardplatformStatus,
-  parseCardplatformRequestId,
-  requestIdForRedeem,
-} from "./status";
+import { mapCardplatformStatus, parseCardplatformRequestId } from "./status";
 import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
 
 export {

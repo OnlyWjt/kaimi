@@ -527,6 +527,8 @@ function CoverPhoto({
 }) {
   const [broken, setBroken] = useState(false);
   if (!src || broken) return fallback;
+  // 封面可能是代理贴的任意外链，next/image 要先配远程域名白名单，这里直接用 img
+  // eslint-disable-next-line @next/next/no-img-element
   return <img src={src} alt="" onError={() => setBroken(true)} />;
 }
 

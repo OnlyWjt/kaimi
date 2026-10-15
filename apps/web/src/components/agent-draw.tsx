@@ -164,6 +164,8 @@ export function AgentDraw() {
 
   useEffect(() => {
     void load().catch((error) => toast(error instanceof Error ? error.message : "加载失败", "err"));
+    // 只在打开页面时拉一次，之后由各个按钮自己重拉
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

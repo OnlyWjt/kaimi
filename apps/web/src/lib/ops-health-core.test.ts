@@ -81,7 +81,6 @@ describe("opsHealthNotifications", () => {
     spendableCents: null,
     error: "The operation was aborted due to timeout",
   }).issue!;
-  const warn = classifyCardplatformHealth({ ...LINES, spendableCents: 8000 }).issue!;
   const recovered = cardplatformRecoveredNotify({
     spendableCents: 20000,
     currency: "USD",

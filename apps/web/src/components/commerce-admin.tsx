@@ -124,6 +124,8 @@ export function CommerceAdmin({ embedded = false }: { embedded?: boolean }) {
     void load().catch((error) => {
       setMessage(error instanceof Error ? error.message : "配置加载失败");
     });
+    // 只在打开页面时拉一次，之后由各个按钮自己重拉
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function submit(

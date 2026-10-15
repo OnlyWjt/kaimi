@@ -95,7 +95,6 @@ export function AdminReconciliation() {
   const [batches, setBatches] = useState<BatchRow[]>([]);
   const [batchesNext, setBatchesNext] = useState<number | null>(null);
   const [batch, setBatch] = useState<BatchDetail | null>(null);
-  const [itemsVersion, setItemsVersion] = useState(0);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -110,6 +109,19 @@ export function AdminReconciliation() {
   useEffect(() => {
     filtersRef.current = { search };
   }, [search]);
+
+  const loadPreview = useCallback(async (agentId: number, nextCutoff: string) => {
+    const params = nextCutoff ? `?cutoffAt=${encodeURIComponent(nextCutoff)}` : "";
+    const result = await apiCall<Preview>(`/api/admin/reconciliations/agents/${agentId}/preview${params}`);
+    if (selectedRef.current !== agentId) return null;
+    if (!result.ok) {
+      const view = viewOf(result, "preview");
+      setNotice({ kind: "err", text: view.text, detail: view.detail, action: view.action });
+      return null;
+    }
+    setPreview(result.data);
+    return result.data;
+  }, []);
 
   const loadList = useCallback(async (nextCutoff: string, append = false, cursor = "") => {
     setListLoading(true);
@@ -134,20 +146,7 @@ export function AdminReconciliation() {
       void loadPreview(first.agentId, result.data.cutoffAt);
     }
     return result.data;
-  }, []);
-
-  const loadPreview = useCallback(async (agentId: number, nextCutoff: string) => {
-    const params = nextCutoff ? `?cutoffAt=${encodeURIComponent(nextCutoff)}` : "";
-    const result = await apiCall<Preview>(`/api/admin/reconciliations/agents/${agentId}/preview${params}`);
-    if (selectedRef.current !== agentId) return null;
-    if (!result.ok) {
-      const view = viewOf(result, "preview");
-      setNotice({ kind: "err", text: view.text, detail: view.detail, action: view.action });
-      return null;
-    }
-    setPreview(result.data);
-    return result.data;
-  }, []);
+  }, [loadPreview]);
 
   const loadBatch = useCallback(async (batchId: number, quiet = false) => {
     const result = await apiCall<BatchDetail>(`/api/admin/reconciliations/${batchId}`);
@@ -161,7 +160,6 @@ export function AdminReconciliation() {
     if (selectedRef.current && result.data.agentId !== selectedRef.current) return null;
     openBatchRef.current[result.data.agentId] = result.data.id;
     setBatch(result.data);
-    setItemsVersion((value) => value + 1);
     return result.data;
   }, []);
 
@@ -220,15 +218,6 @@ export function AdminReconciliation() {
     setAckedKey("");
     setNotice(null);
     await loadPreview(row.agentId, cutoffAt);
-  }
-
-  /** 「刷新到现在」：不带 cutoffAt，让后端用服务器当前时间，避免浏览器时钟偏快触发 INVALID_STATE。 */
-  async function refreshToNow() {
-    setNotice(null);
-    const data = await loadList("");
-    const agentId = selectedRef.current;
-    if (!data || !agentId) return;
-    await Promise.all([loadPreview(agentId, data.cutoffAt), restoreBatch(agentId, true)]);
   }
 
   async function reloadAgent(agentId: number) {

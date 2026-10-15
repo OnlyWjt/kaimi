@@ -35,13 +35,16 @@ export function AgentAnnouncementModal({
     }
   }
 
+  // 按键监听只挂一次，靠 ref 拿到最新的 markRead（里面用到的 item、onRead 可能换过）。
+  const markReadRef = useRef(markRead);
+  markReadRef.current = markRead;
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") void markRead();
+      if (event.key === "Escape") void markReadRef.current();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [item.id]);
+  }, []);
 
   return (
     <div className="km-modal-backdrop" onClick={() => void markRead()}>
