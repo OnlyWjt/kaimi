@@ -7,6 +7,7 @@ import {
   RedeemInFlightError,
 } from "@/lib/orders";
 import { isApiKeyContext, requireApiKey } from "@/lib/open-api/auth";
+import { redemptionRegionFields } from "@/lib/open-api/cdk-region";
 import { claimIdempotent, storeIdempotent } from "@/lib/open-api/idempotency";
 import { openFail, openOk } from "@/lib/open-api/respond";
 import { recordRedeemFailure, redeemBlockResponse } from "@/lib/redeem-guard";
@@ -76,6 +77,8 @@ export async function POST(req: Request) {
     return finish(openOk({
       redemption_no: opened.order.orderNo,
       status: opened.order.fulfillStatus,
+      plan_key: opened.order.upstreamPlan,
+      ...(await redemptionRegionFields(opened.order.issuedCdkId)),
     }));
   } catch (error) {
     if (error instanceof RedeemRejectedError) {

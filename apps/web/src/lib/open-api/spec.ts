@@ -62,6 +62,15 @@ const limitParam = {
   schema: { type: "integer", minimum: 1, maximum: 100, default: 20 },
 };
 const cursorParam = { name: "cursor", in: "query", schema: { type: "string" } };
+/** 卡、兑换单上的付款地区，和 /orders/{orderNo} 同格式。没有地区概念的套餐为 null。 */
+const regionSchema = {
+  type: ["object", "null"],
+  properties: {
+    code: { type: "string", description: "地区短码，如 PH / US / CL" },
+    name: { type: "string", description: "地区中文名，如 菲区 / 美区" },
+    name_en: { type: "string" },
+  },
+};
 
 /** POST /orders 和 /orders/quote 的请求体。询价不需要买家邮箱和跳回地址。 */
 function orderInputSchema(forOrder: boolean) {
@@ -163,6 +172,8 @@ export const openApiSpec = {
                   status: { type: "string", enum: ["success", "failed"] },
                   message: { type: "string" },
                   plan_key: { type: "string" },
+                  payment_country: { type: ["string", "null"], description: "这张卡实际的付款地区两位码。空串 = 菲区或无地区" },
+                  region: regionSchema,
                   created_at: { type: "string" },
                 },
                 required: ["event", "redemption_no", "status"],
@@ -393,18 +404,35 @@ export const openApiSpec = {
     },
     "/cdks": {
       get: {
-        summary: "本店已售卡密",
+        summary: "本店已售卡密和自助提卡提出的卡密",
         parameters: [
           limitParam,
           cursorParam,
           { name: "status", in: "query", schema: { type: "string" } },
-          { name: "order_no", in: "query", schema: { type: "string" } },
+          { name: "order_no", in: "query", schema: { type: "string" }, description: "带上时只返回该销售订单的卡，不含提卡的卡" },
         ],
         responses: {
           "200": ok({
             type: "object",
             properties: {
-              cdks: { type: "array", items: { type: "object" } },
+              cdks: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "integer" },
+                    status: { type: "string" },
+                    source: { type: "string", enum: ["store", "draw"], description: "store = 店铺卖出；draw = 自助提卡" },
+                    plan_key: { type: "string" },
+                    payment_country: { type: "string", description: "这张卡实际的付款地区两位码。空串 = 菲区或无地区" },
+                    region: regionSchema,
+                    order_no: { type: ["string", "null"], description: "提卡的卡为 null" },
+                    code_masked: { type: "string" },
+                    issued_at: { type: "string" },
+                    used_at: { type: ["string", "null"] },
+                  },
+                },
+              },
               page: pageSchema,
             },
           }),
@@ -496,6 +524,9 @@ export const openApiSpec = {
             properties: {
               redemption_no: { type: "string" },
               status: { type: "string" },
+              plan_key: { type: "string" },
+              payment_country: { type: ["string", "null"], description: "这张卡实际的付款地区两位码。空串 = 菲区或无地区" },
+              region: regionSchema,
             },
           }),
           "400": errorResponse,
@@ -516,6 +547,8 @@ export const openApiSpec = {
               status: { type: "string" },
               message: { type: "string" },
               plan_key: { type: "string" },
+              payment_country: { type: ["string", "null"], description: "这张卡实际的付款地区两位码。空串 = 菲区或无地区" },
+              region: regionSchema,
               timeline: { type: "array", items: { type: "object" } },
             },
           }),
