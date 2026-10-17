@@ -8,6 +8,7 @@ import {
   storeOrders,
 } from "@/db/schema";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
+import { redemptionRegionFields } from "./cdk-region";
 import { checkWebhookUrl } from "./webhook-url";
 import {
   isWebhookEvent,
@@ -107,6 +108,7 @@ export async function enqueueRedemptionWebhook(orderNo: string) {
     status: order.fulfillStatus,
     message: order.message,
     plan_key: order.upstreamPlan,
+    ...(await redemptionRegionFields(order.issuedCdkId)),
     created_at: order.createdAt,
   });
 }

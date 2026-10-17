@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { orders } from "@/db/schema";
 import { getOrderTimeline } from "@/lib/order-timeline";
 import { isApiKeyContext, requireApiKey } from "@/lib/open-api/auth";
+import { redemptionRegionFields } from "@/lib/open-api/cdk-region";
 import { openFail, openOk } from "@/lib/open-api/respond";
 
 export async function GET(
@@ -18,12 +19,16 @@ export async function GET(
   }
   const order = await db.query.orders.findFirst({ where: and(...filters) });
   if (!order) return openFail("NOT_FOUND", "兑换单不存在");
-  const timeline = await getOrderTimeline(order.id);
+  const [timeline, region] = await Promise.all([
+    getOrderTimeline(order.id),
+    redemptionRegionFields(order.issuedCdkId),
+  ]);
   return openOk({
     redemption_no: order.orderNo,
     status: order.fulfillStatus,
     message: order.message,
     plan_key: order.upstreamPlan,
+    ...region,
     email: order.accountEmail || order.email,
     created_at: order.createdAt,
     updated_at: order.updatedAt,

@@ -181,7 +181,7 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
       id: "cdks",
       title: "GET /cdks  查卡密",
       blocks: [
-        { kind: "p", text: "权限 cdks:read。本店已售出的卡，默认脱敏。" },
+        { kind: "p", text: "权限 cdks:read。本店已售出的卡和自助提卡提出的卡，默认脱敏。source 为 store 是店铺卖出，为 draw 是提卡提出，提卡的卡 order_no 为 null。payment_country 是卡实际的付款地区，region 格式和 /plans 相同，没有地区概念的套餐为 null。提卡领走的成品号不在这里列。" },
         {
           kind: "table",
           headers: ["参数", "位置", "说明"],
@@ -189,7 +189,7 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
             ["limit", "query", "每页条数，1 到 100，默认 20"],
             ["cursor", "query", "上一页的 next_cursor"],
             ["status", "query", "unused、locked、used、disabled"],
-            ["order_no", "query", "只看某一笔销售订单下的卡"],
+            ["order_no", "query", "只看某一笔销售订单下的卡。带上它时不会返回提卡的卡"],
           ],
         },
         { kind: "code", text: `curl -H "Authorization: Bearer km_live_你的Key" \\\n  "${base}/cdks?status=unused&order_no=KS202609240001"` },
@@ -227,7 +227,8 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
   -H "Idempotency-Key: order-1001" \\
   -d '{"code":"KM....","mode":"session","session":"..."}'`,
         },
-        { kind: "code", text: `{ "data": { "redemption_no": "RC202609240001", "status": "pending" }, "request_id": "req_..." }` },
+        { kind: "p", text: "返回里带这张卡的 plan_key、payment_country 和 region（格式同 /plans），店铺卖的卡和提卡的卡都有。没有地区概念的套餐 region 为 null。" },
+        { kind: "code", text: `{ "data": { "redemption_no": "RC202609240001", "status": "pending", "plan_key": "pro_20x:us", "payment_country": "US", "region": { "code": "US", "name": "美区", "name_en": "United States" } }, "request_id": "req_..." }` },
       ],
     },
     {
@@ -272,7 +273,7 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
       id: "redeem-get",
       title: "GET /redemptions/{no}  查兑换",
       blocks: [
-        { kind: "p", text: "权限 redeem:read。no 是提交接口返回的 redemption_no。status 为 success 或 failed 即终态。timeline 是处理进度。" },
+        { kind: "p", text: "权限 redeem:read。no 是提交接口返回的 redemption_no。status 为 success 或 failed 即终态。timeline 是处理进度。payment_country、region 和提交接口相同。" },
         { kind: "code", text: `curl -H "Authorization: Bearer km_live_你的Key" \\\n  ${base}/redemptions/RC202609240001` },
       ],
     },
@@ -287,7 +288,7 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
           rows: [
             ["order.paid", "销售订单付款到账", "order_no、pay_status、fulfill_status、plan_key、payment_country、product_name、quantity、gross_cents、currency、customer_email、created_at、paid_at、delivered_at"],
             ["order.delivered", "销售订单的卡密或成品号全部发齐", "同 order.paid。负载不带卡密，收到后用 GET /orders/{orderNo}?reveal=1 取"],
-            ["redemption.succeeded", "兑换成功（status=success）", "redemption_no、status、message、plan_key、created_at"],
+            ["redemption.succeeded", "兑换成功（status=success）", "redemption_no、status、message、plan_key、payment_country、region、created_at"],
             ["redemption.failed", "兑换失败（status=failed）", "同上"],
             ["ping", "在「开放 API」页点「发送测试」", "event、message、sent_at。不能订阅，只用来测通"],
           ],
@@ -309,6 +310,8 @@ Content-Type: application/json
   "status": "success",
   "message": "",
   "plan_key": "pro_20x",
+  "payment_country": "",
+  "region": { "code": "PH", "name": "菲区", "name_en": "Philippines" },
   "created_at": "2026-09-24T05:00:00.000Z"
 }`,
         },
