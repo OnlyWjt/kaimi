@@ -7,17 +7,35 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAgent } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { hashLookupValue } from "@/lib/crypto";
+import { checkKeyInput } from "@/lib/open-api/key-input";
 import { AGENT_SCOPES, isDrawScope } from "@/lib/open-api/scopes";
 import { agentCanSeeDrawApi } from "@/lib/open-api/draw-access";
+
+const allowlistSchema = z.array(z.string().max(64)).max(50).default([]);
 
 const createSchema = z.object({
   name: z.string().trim().min(1).max(64),
   scopes: z.array(z.enum(AGENT_SCOPES)).min(1),
   mode: z.enum(["live", "test"]).optional(),
+  ipAllowlist: allowlistSchema,
 });
 
-/** 测试 Key 能勾的权限：套餐、询价、订单，以及看沙箱订单的假卡明文。 */
-const TEST_KEY_SCOPES: readonly string[] = ["plans:read", "orders:read", "orders:write", "cdks:reveal"];
+/** 编辑：名称、权限、白名单。正式/测试不能改，Key 前缀里写着呢。 */
+const updateSchema = z.object({
+  id: z.number().int().positive(),
+  name: z.string().trim().min(1).max(64),
+  scopes: z.array(z.enum(AGENT_SCOPES)).min(1),
+  ipAllowlist: allowlistSchema,
+});
+
+function parseList(raw: string) {
+  try {
+    const value = JSON.parse(raw);
+    return Array.isArray(value) ? value.map(String) : [];
+  } catch {
+    return [];
+  }
+}
 
 function newKey(mode: "live" | "test") {
   const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -42,9 +60,11 @@ export async function GET() {
       name: apiKeys.name,
       keyPrefix: apiKeys.keyPrefix,
       scopes: apiKeys.scopes,
+      ipAllowlist: apiKeys.ipAllowlist,
       mode: apiKeys.mode,
       status: apiKeys.status,
       lastUsedAt: apiKeys.lastUsedAt,
+      lastUsedIp: apiKeys.lastUsedIp,
       createdAt: apiKeys.createdAt,
     })
     .from(apiKeys)
@@ -75,12 +95,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "还没有提卡权限，不能勾提卡接口" }, { status: 400 });
   }
   const mode = parsed.data.mode ?? "live";
-  if (mode === "test" && parsed.data.scopes.some((scope) => !TEST_KEY_SCOPES.includes(scope))) {
-    return NextResponse.json(
-      { error: "测试 Key 只能勾查套餐、查订单、代客下单和看卡密明文" },
-      { status: 400 },
-    );
-  }
+  const checked = checkKeyInput({
+    ownerType: "agent",
+    mode,
+    scopes: parsed.data.scopes,
+    ipAllowlist: parsed.data.ipAllowlist,
+  });
+  if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 });
   const token = newKey(mode);
   const [created] = await db
     .insert(apiKeys)
@@ -90,7 +111,8 @@ export async function POST(req: Request) {
       name: parsed.data.name,
       keyPrefix: token.slice(0, 16),
       keyHash: hashLookupValue(token),
-      scopes: JSON.stringify(parsed.data.scopes),
+      scopes: JSON.stringify(checked.scopes),
+      ipAllowlist: JSON.stringify(checked.ipAllowlist),
       mode,
       createdBy: session.id,
     })
@@ -100,9 +122,64 @@ export async function POST(req: Request) {
     action: "agent_api_key_create",
     targetType: "api_key",
     targetId: created?.id,
-    metadata: { mode },
+    metadata: { mode, scopes: checked.scopes, ipAllowlist: checked.ipAllowlist },
   });
   return NextResponse.json({ id: created?.id, keyPrefix: created?.keyPrefix, token, mode });
+}
+
+export async function PATCH(req: Request) {
+  let session;
+  try {
+    session = await requireAgent();
+  } catch (error) {
+    if (error instanceof Response) return error;
+    throw error;
+  }
+  await bootDb();
+  const parsed = updateSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message || "参数无效" },
+      { status: 400 },
+    );
+  }
+  const row = await db.query.apiKeys.findFirst({
+    where: and(eq(apiKeys.id, parsed.data.id), eq(apiKeys.agentId, session.agentId)),
+  });
+  if (!row) return NextResponse.json({ error: "Key 不存在" }, { status: 404 });
+  if (row.status !== "active") return NextResponse.json({ error: "已吊销的 Key 不能修改" }, { status: 400 });
+  const before = parseList(row.scopes);
+  // 已经有的提卡权限可以留着；新加提卡权限得先开通提卡。
+  const addedDraw = parsed.data.scopes.some((scope) => isDrawScope(scope) && !before.includes(scope));
+  if (addedDraw && !(await agentCanSeeDrawApi(session.agentId))) {
+    return NextResponse.json({ error: "还没有提卡权限，不能勾提卡接口" }, { status: 400 });
+  }
+  const checked = checkKeyInput({
+    ownerType: "agent",
+    mode: row.mode === "test" ? "test" : "live",
+    scopes: parsed.data.scopes,
+    ipAllowlist: parsed.data.ipAllowlist,
+  });
+  if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 });
+  await db
+    .update(apiKeys)
+    .set({
+      name: parsed.data.name,
+      scopes: JSON.stringify(checked.scopes),
+      ipAllowlist: JSON.stringify(checked.ipAllowlist),
+    })
+    .where(and(eq(apiKeys.id, row.id), eq(apiKeys.agentId, session.agentId)));
+  await writeAuditLog({
+    actor: session,
+    action: "agent_api_key_update",
+    targetType: "api_key",
+    targetId: row.id,
+    metadata: {
+      before: { name: row.name, scopes: before, ipAllowlist: parseList(row.ipAllowlist) },
+      after: { name: parsed.data.name, scopes: checked.scopes, ipAllowlist: checked.ipAllowlist },
+    },
+  });
+  return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(req: Request) {

@@ -9,6 +9,7 @@ const errorSchema = {
           enum: [
             "UNAUTHORIZED",
             "FORBIDDEN_SCOPE",
+            "IP_NOT_ALLOWED",
             "RATE_LIMITED",
             "VALIDATION_FAILED",
             "NOT_FOUND",

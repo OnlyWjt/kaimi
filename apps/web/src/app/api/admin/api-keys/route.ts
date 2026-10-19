@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { agents, apiKeys } from "@/db/schema";
-import { AGENT_SCOPES, isDrawScope, OPEN_API_SCOPES } from "@/lib/open-api/scopes";
+import { checkKeyInput } from "@/lib/open-api/key-input";
+import { isDrawScope, OPEN_API_SCOPES } from "@/lib/open-api/scopes";
 import { agentCanSeeDrawApi } from "@/lib/open-api/draw-access";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth";
@@ -16,7 +17,24 @@ const createSchema = z.object({
   agentId: z.number().int().positive().optional(),
   scopes: z.array(z.enum(OPEN_API_SCOPES)).min(1),
   rateLimitPerMin: z.number().int().min(1).max(600).optional(),
+  ipAllowlist: z.array(z.string().max(64)).max(50).default([]),
 });
+
+const updateSchema = z.object({
+  id: z.number().int().positive(),
+  name: z.string().trim().min(1).max(64),
+  scopes: z.array(z.enum(OPEN_API_SCOPES)).min(1),
+  ipAllowlist: z.array(z.string().max(64)).max(50).default([]),
+});
+
+function parseList(raw: string) {
+  try {
+    const value = JSON.parse(raw);
+    return Array.isArray(value) ? value.map(String) : [];
+  } catch {
+    return [];
+  }
+}
 
 function newKey() {
   const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -42,9 +60,12 @@ export async function GET() {
       agentId: apiKeys.agentId,
       keyPrefix: apiKeys.keyPrefix,
       scopes: apiKeys.scopes,
+      ipAllowlist: apiKeys.ipAllowlist,
+      mode: apiKeys.mode,
       status: apiKeys.status,
       rateLimitPerMin: apiKeys.rateLimitPerMin,
       lastUsedAt: apiKeys.lastUsedAt,
+      lastUsedIp: apiKeys.lastUsedIp,
       createdAt: apiKeys.createdAt,
     })
     .from(apiKeys)
@@ -69,10 +90,6 @@ export async function POST(req: Request) {
     if (!parsed.data.agentId) {
       return NextResponse.json({ error: "代理 Key 需要 agentId" }, { status: 400 });
     }
-    const extra = parsed.data.scopes.filter((scope) => !(AGENT_SCOPES as readonly string[]).includes(scope));
-    if (extra.length) {
-      return NextResponse.json({ error: "代理 Key 不能包含该权限" }, { status: 400 });
-    }
     const agent = await db.query.agents.findFirst({
       where: eq(agents.id, parsed.data.agentId),
       columns: { status: true },
@@ -84,6 +101,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "这个代理还没开通提卡，不能给提卡权限" }, { status: 400 });
     }
   }
+  const checked = checkKeyInput({
+    ownerType: parsed.data.ownerType,
+    mode: "live",
+    scopes: parsed.data.scopes,
+    ipAllowlist: parsed.data.ipAllowlist,
+  });
+  if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 });
   const token = newKey();
   const [created] = await db
     .insert(apiKeys)
@@ -93,7 +117,8 @@ export async function POST(req: Request) {
       name: parsed.data.name,
       keyPrefix: token.slice(0, 16),
       keyHash: hashLookupValue(token),
-      scopes: JSON.stringify(parsed.data.scopes),
+      scopes: JSON.stringify(checked.scopes),
+      ipAllowlist: JSON.stringify(checked.ipAllowlist),
       rateLimitPerMin: parsed.data.rateLimitPerMin ?? 60,
       createdBy: session.id,
     })
@@ -103,8 +128,59 @@ export async function POST(req: Request) {
     action: "api_key_create",
     targetType: "api_key",
     targetId: created?.id,
+    metadata: { scopes: checked.scopes, ipAllowlist: checked.ipAllowlist },
   });
   return NextResponse.json({ id: created?.id, keyPrefix: created?.keyPrefix, token });
+}
+
+export async function PATCH(req: Request) {
+  let session;
+  try {
+    session = await requireAdmin();
+  } catch (error) {
+    if (error instanceof Response) return error;
+    throw error;
+  }
+  await bootDb();
+  const parsed = updateSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0]?.message || "参数无效" }, { status: 400 });
+  }
+  const row = await db.query.apiKeys.findFirst({ where: eq(apiKeys.id, parsed.data.id) });
+  if (!row) return NextResponse.json({ error: "Key 不存在" }, { status: 404 });
+  if (row.status !== "active") return NextResponse.json({ error: "已吊销的 Key 不能修改" }, { status: 400 });
+  const ownerType = row.ownerType === "agent" ? "agent" : "platform";
+  const before = parseList(row.scopes);
+  const addedDraw = parsed.data.scopes.some((scope) => isDrawScope(scope) && !before.includes(scope));
+  if (ownerType === "agent" && addedDraw && !(row.agentId && (await agentCanSeeDrawApi(row.agentId)))) {
+    return NextResponse.json({ error: "这个代理还没开通提卡，不能给提卡权限" }, { status: 400 });
+  }
+  const checked = checkKeyInput({
+    ownerType,
+    mode: row.mode === "test" ? "test" : "live",
+    scopes: parsed.data.scopes,
+    ipAllowlist: parsed.data.ipAllowlist,
+  });
+  if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 });
+  await db
+    .update(apiKeys)
+    .set({
+      name: parsed.data.name,
+      scopes: JSON.stringify(checked.scopes),
+      ipAllowlist: JSON.stringify(checked.ipAllowlist),
+    })
+    .where(and(eq(apiKeys.id, row.id), eq(apiKeys.status, "active")));
+  await writeAuditLog({
+    actor: session,
+    action: "api_key_update",
+    targetType: "api_key",
+    targetId: row.id,
+    metadata: {
+      before: { name: row.name, scopes: before, ipAllowlist: parseList(row.ipAllowlist) },
+      after: { name: parsed.data.name, scopes: checked.scopes, ipAllowlist: checked.ipAllowlist },
+    },
+  });
+  return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(req: Request) {

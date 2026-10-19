@@ -2,35 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { AgentApiDocs } from "@/components/agent-api-docs";
+import { AgentApiKeys } from "@/components/agent-api-keys";
 import { toast } from "@/components/toast";
 import { formatDateTime } from "@/lib/datetime";
-
-type KeyRow = {
-  id: number;
-  name: string;
-  keyPrefix: string;
-  scopes: string;
-  status: string;
-  lastUsedAt: string | null;
-  createdAt: string;
-  mode?: string;
-};
-
-/** 测试 Key 能勾的权限，和服务端 TEST_KEY_SCOPES 一致。 */
-const TEST_KEY_SCOPES = ["plans:read", "orders:read", "orders:write", "cdks:reveal"];
-
-const SCOPE_LABEL: Record<string, string> = {
-  "plans:read": "查套餐",
-  "orders:read": "查订单",
-  "orders:write": "代客下单支付",
-  "cdks:read": "查卡密",
-  "cdks:reveal": "看卡密明文",
-  "redeem:write": "提交兑换",
-  "redeem:read": "查兑换结果",
-  "draw:read": "查提卡",
-  "draw:write": "提卡",
-  "draw:reveal": "看提卡明文",
-};
 
 const API_TABS = [
   { id: "keys", label: "API Key" },
@@ -49,24 +23,6 @@ export function AgentApiPanel() {
     setTab(next);
     window.history.replaceState(null, "", `#${next}`);
   }
-  const [keys, setKeys] = useState<KeyRow[]>([]);
-  const [scopes, setScopes] = useState<string[]>([]);
-  const [name, setName] = useState("默认 Key");
-  const [picked, setPicked] = useState<string[]>(["plans:read", "orders:read", "cdks:read", "redeem:read"]);
-  const [freshToken, setFreshToken] = useState("");
-  const [testMode, setTestMode] = useState(false);
-  const visibleScopes = testMode ? scopes.filter((scope) => TEST_KEY_SCOPES.includes(scope)) : scopes;
-
-  async function reload() {
-    const response = await fetch("/api/agent/api-keys");
-    const data = await response.json();
-    setKeys(data.list || []);
-    setScopes(data.scopes || []);
-  }
-
-  useEffect(() => {
-    void reload();
-  }, []);
 
   return (
     <div className="space-y-5">
@@ -84,115 +40,7 @@ export function AgentApiPanel() {
           </button>
         ))}
       </div>
-      {tab === "keys" ? (
-      <section className="km-panel space-y-3">
-        <h2 className="font-semibold">API Key</h2>
-        <p className="text-sm text-[var(--km-fg-muted)]">
-          请求头带 Authorization: Bearer km_live_... 。明文只在创建时出现一次。代理 Key 只能访问自己店铺的数据，也只能兑换自己卖出的卡。
-        </p>
-        <p className="text-sm text-[var(--km-fg-muted)]">
-          对接自己的分销站时，先建一把<strong>测试 Key</strong>（km_test_ 开头）：下单返回的付款链接打开就算付款成功，发的是 TEST- 开头的假卡，回调里 livemode 为 false，不扣钱、不进账本。跑通后再换正式 Key。
-        </p>
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="text-sm">
-            名称
-            <input className="km-input mt-1" value={name} onChange={(event) => setName(event.target.value)} />
-          </label>
-          <button
-            className="km-btn"
-            onClick={async () => {
-              const response = await fetch("/api/agent/api-keys", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  name,
-                  scopes: testMode ? picked.filter((scope) => TEST_KEY_SCOPES.includes(scope)) : picked,
-                  mode: testMode ? "test" : "live",
-                }),
-              });
-              const data = await response.json();
-              if (!response.ok) {
-                toast(data.error || "创建失败");
-                return;
-              }
-              setFreshToken(data.token || "");
-              toast("Key 已创建，请马上复制");
-              await reload();
-            }}
-          >
-            创建
-          </button>
-        </div>
-        <label className="flex items-center gap-1 text-sm">
-          <input
-            type="checkbox"
-            checked={testMode}
-            onChange={(event) => {
-              setTestMode(event.target.checked);
-              if (event.target.checked) setPicked(["plans:read", "orders:read", "orders:write", "cdks:reveal"]);
-            }}
-          />
-          测试 Key（沙箱，不产生真实订单）
-        </label>
-        <div className="flex flex-wrap gap-3 text-sm">
-          {visibleScopes.map((scope) => (
-            <label key={scope} className="flex items-center gap-1">
-              <input
-                type="checkbox"
-                checked={picked.includes(scope)}
-                onChange={(event) => {
-                  setPicked((current) =>
-                    event.target.checked ? [...current, scope] : current.filter((item) => item !== scope),
-                  );
-                }}
-              />
-              {SCOPE_LABEL[scope] || scope}
-            </label>
-          ))}
-        </div>
-        {freshToken ? (
-          <pre className="overflow-x-auto rounded bg-[var(--km-bg)] p-3 text-sm">{freshToken}</pre>
-        ) : null}
-        <table className="w-full text-left text-sm">
-          <thead>
-            <tr>
-              <th className="py-2">名称</th>
-              <th>前缀</th>
-              <th>状态</th>
-              <th>最近使用</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {keys.map((row) => (
-              <tr key={row.id} className="border-t border-[var(--km-border)]">
-                <td className="py-2">
-                  {row.name}
-                  {row.mode === "test" ? <span className="km-acp-pill warn ml-2">测试</span> : null}
-                </td>
-                <td className="font-mono">{row.keyPrefix}</td>
-                <td>{row.status === "active" ? "有效" : "已吊销"}</td>
-                <td>{formatDateTime(row.lastUsedAt)}</td>
-                <td>
-                  {row.status === "active" ? (
-                    <button
-                      className="km-btn km-btn-ghost"
-                      onClick={async () => {
-                        await fetch(`/api/agent/api-keys?id=${row.id}`, { method: "DELETE" });
-                        await reload();
-                      }}
-                    >
-                      吊销
-                    </button>
-                  ) : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-
-      ) : null}
+      {tab === "keys" ? <AgentApiKeys /> : null}
       {tab === "hooks" ? <WebhookForm /> : null}
       {tab === "docs" ? <AgentApiDocs /> : null}
     </div>

@@ -1724,3 +1724,232 @@ button.km-acp-row {
     transition: none;
   }
 }
+
+/* ---------- 开放 API：Key 新建表单 + 列表 ---------- */
+.km-api-create {
+  display: grid;
+  gap: 0.9rem;
+  border: 1px solid var(--km-border);
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--km-bg-muted) 40%, var(--km-bg-elevated));
+  padding: 1rem 1.1rem;
+}
+
+.km-api-create-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem 1.25rem;
+}
+
+.km-api-create-head .km-input {
+  width: 16rem;
+  max-width: 100%;
+}
+
+.km-api-field {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.km-api-label {
+  color: var(--km-fg-muted);
+  font-size: 0.78rem;
+  font-weight: 550;
+}
+
+.km-api-label em {
+  margin-left: 0.4rem;
+  font-style: normal;
+  font-weight: 450;
+  opacity: 0.8;
+}
+
+.km-api-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding-bottom: 0.7rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.km-api-scopes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 1.1rem;
+}
+
+.km-api-scopes label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.km-api-ips {
+  width: 100%;
+  max-width: 28rem;
+  min-height: 4.9rem;
+  font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.km-api-hint {
+  color: var(--km-fg-muted);
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+.km-api-hint code,
+.km-api-ip-list code {
+  font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+.km-api-token {
+  display: grid;
+  gap: 0.55rem;
+  border: 1px solid color-mix(in oklab, var(--km-success) 30%, var(--km-border));
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--km-success) 7%, var(--km-bg-elevated));
+  padding: 0.8rem 0.9rem;
+  font-size: 0.82rem;
+}
+
+.km-api-token-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.km-api-token-row code {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  border-radius: 10px;
+  background: var(--km-bg-muted);
+  padding: 0.5rem 0.7rem;
+  font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.8rem;
+}
+
+.km-api-keys {
+  min-width: 760px;
+}
+
+/* 权限、白名单都可能折行，整行顶对齐，名称和操作不会飘在中间 */
+.km-api-keys td {
+  vertical-align: top;
+}
+
+.km-api-name {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 550;
+}
+
+.km-api-keys .no.sub {
+  margin-top: 0.25rem;
+}
+
+.km-api-scope-cell {
+  max-width: 17rem;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.km-api-scope {
+  white-space: nowrap;
+}
+
+.km-api-ip-list {
+  display: grid;
+  gap: 0.15rem;
+  font-size: 0.78rem;
+}
+
+.km-acp-link.km-api-danger {
+  color: var(--km-danger);
+}
+
+.km-api-keys tr.is-editing td {
+  border-bottom-color: transparent;
+}
+
+.km-api-keys tr.is-editing td,
+.km-api-keys tr.km-api-edit-row td,
+.km-api-keys tbody tr.km-api-edit-row:hover {
+  background: color-mix(in oklab, var(--km-bg-muted) 45%, transparent);
+}
+
+.km-api-keys tr.km-api-edit-row td {
+  padding: 0.4rem 0.6rem 1.1rem;
+}
+
+.km-api-editor {
+  display: grid;
+  gap: 0.9rem;
+  max-width: 46rem;
+}
+
+.km-api-editor .km-input:not(textarea) {
+  width: 16rem;
+  max-width: 100%;
+}
+
+/* 手机上 Key 列表不横向滚，每把 Key 叠成一块 */
+@media (max-width: 640px) {
+  .km-api-keys {
+    min-width: 0;
+  }
+
+  .km-api-keys thead {
+    display: none;
+  }
+
+  .km-api-keys,
+  .km-api-keys tbody,
+  .km-api-keys tr,
+  .km-api-keys td {
+    display: block;
+    width: 100%;
+  }
+
+  .km-api-keys tr {
+    padding: 0.85rem 0.15rem;
+    border-bottom: 1px solid var(--km-border);
+  }
+
+  .km-api-keys td,
+  .km-api-keys tr.km-api-edit-row td {
+    padding: 0.3rem 0;
+    border-bottom: 0;
+  }
+
+  .km-api-keys td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.1rem;
+    color: var(--km-fg-muted);
+    font-size: 0.7rem;
+  }
+
+  .km-api-keys td.act {
+    padding-top: 0.5rem;
+    text-align: left;
+  }
+
+  .km-api-keys tr.is-editing {
+    border-bottom: 0;
+  }
+
+  .km-api-scope-cell {
+    max-width: none;
+  }
+}

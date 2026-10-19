@@ -4,7 +4,9 @@ import { agents, apiKeys } from "@/db/schema";
 import { bootDb } from "@/lib/config";
 import { hashLookupValue } from "@/lib/crypto";
 import { clientIp, enforceRateLimitFor } from "@/lib/rate-limit";
+import { checkKeySource } from "./ip-allowlist";
 import { openFail } from "./respond";
+import { TEST_KEY_CALLABLE_SCOPES } from "./scopes";
 
 const lastUsedWriteAt = new Map<number, number>();
 
@@ -33,7 +35,7 @@ export type ApiKeyContext = {
 };
 
 /** 测试 Key 能调的权限。其余接口会动真卡或真钱，测试 Key 一律拒绝。 */
-export const TEST_MODE_SCOPES: readonly OpenApiScope[] = ["plans:read", "orders:read", "orders:write"];
+export const TEST_MODE_SCOPES: readonly string[] = TEST_KEY_CALLABLE_SCOPES;
 
 export async function requireApiKey(req: Request, scope: OpenApiScope) {
   await bootDb();
@@ -57,11 +59,7 @@ export async function requireApiKey(req: Request, scope: OpenApiScope) {
   } catch {
     return openFail("UNAUTHORIZED", "API Key 配置损坏");
   }
-  if (!scopes.includes(scope)) return openFail("FORBIDDEN_SCOPE", "API Key 没有该权限");
   const mode = row.mode === "test" ? "test" : "live";
-  if (mode === "test" && !TEST_MODE_SCOPES.includes(scope)) {
-    return openFail("FORBIDDEN_SCOPE", "测试 Key 只能调用 /plans、/orders、/orders/quote，其余接口请用正式 Key");
-  }
   if (row.ownerType === "agent") {
     if (!row.agentId) return openFail("UNAUTHORIZED", "API Key 无效");
     const agent = await db.query.agents.findFirst({
@@ -72,9 +70,16 @@ export async function requireApiKey(req: Request, scope: OpenApiScope) {
       return openFail("UNAUTHORIZED", "API Key 无效");
     }
   }
+  // 先认来源再看权限：白名单外的调用方不该知道这把 Key 能干什么。
   const ip = clientIp(req);
-  if (allowlist.length && !allowlist.includes(ip)) {
-    return openFail("FORBIDDEN_SCOPE", "来源 IP 不在白名单");
+  const ipRejected = checkKeySource({ mode, allowlist, ip });
+  if (ipRejected) return openFail("IP_NOT_ALLOWED", ipRejected);
+  if (!scopes.includes(scope)) return openFail("FORBIDDEN_SCOPE", `API Key 没有该权限（需要 ${scope}）`);
+  if (mode === "test" && !TEST_MODE_SCOPES.includes(scope)) {
+    if (scope === "cdks:reveal") {
+      return openFail("FORBIDDEN_SCOPE", "测试 Key 看沙箱假卡明文请用 GET /orders/{orderNo}?reveal=1");
+    }
+    return openFail("FORBIDDEN_SCOPE", "测试 Key 只能调用 /plans、/orders、/orders/quote，其余接口请用正式 Key");
   }
   const limited = enforceRateLimitFor(`open:${row.id}`, row.rateLimitPerMin);
   if (limited) return openFail("RATE_LIMITED", "请求过于频繁");
