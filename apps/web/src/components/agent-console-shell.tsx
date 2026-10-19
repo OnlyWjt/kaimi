@@ -18,13 +18,13 @@ import "./agent-console.css";
 /** 没填售后联系方式时每一页都挂着，直到填好。 */
 function ContactRequiredBanner({ gate }: { gate: Exclude<ContactGate, { state: "ok" }> }) {
   return (
-    <div className="km-acp-warn mb-4 flex flex-wrap items-center justify-between gap-3">
+    <div className="km-acp-warn flex flex-wrap items-center justify-between gap-3">
       <span className={gate.state === "blocked" ? "text-[var(--km-danger)]" : undefined}>
         {gate.state === "blocked"
           ? "店铺已暂停接单：还没有填写售后联系方式（微信、QQ 或 Telegram）。填好后立即恢复。"
           : `请在 ${formatDateTime(gate.deadline)} 前填写售后联系方式（微信、QQ 或 Telegram），否则店铺会暂停接单。`}
       </span>
-      <Link href="/agent/storefront" className="km-btn km-btn-primary">
+      <Link href="/agent/storefront" className="km-btn km-btn-sm">
         去填写
       </Link>
     </div>
@@ -34,7 +34,7 @@ function ContactRequiredBanner({ gate }: { gate: Exclude<ContactGate, { state: "
 /** 平台停售时每一页都挂着。具体原因是运维细节，不给代理看，只讲清楚影响、不用他处理。 */
 function SalesPausedBanner() {
   return (
-    <div className="km-acp-warn mb-4 text-[var(--km-danger)]">
+    <div className="km-acp-warn text-[var(--km-danger)]">
       平台暂时停止了所有店铺的购买，买家现在下不了单。恢复后店铺自动重新开放，不用你操作。
     </div>
   );
@@ -257,15 +257,11 @@ export function AgentConsoleShell({
             </div>
           </div>
           <div className="km-acp-account">
-            <button
-              type="button"
-              className="km-btn km-btn-ghost"
-              disabled={passwordBusy}
-              onClick={() => void changePassword()}
-            >
+            <button type="button" disabled={passwordBusy} onClick={() => void changePassword()}>
               {passwordBusy ? "修改中…" : "修改密码"}
             </button>
-            <button type="button" className="km-btn km-btn-ghost" onClick={() => void logout()}>
+            <span aria-hidden>·</span>
+            <button type="button" onClick={() => void logout()}>
               退出登录
             </button>
           </div>

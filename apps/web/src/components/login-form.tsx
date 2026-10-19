@@ -38,7 +38,7 @@ export function LoginForm() {
         <p className="mt-2 text-sm text-[var(--km-fg-muted)]">
           代理用平台发给你的账号从这里进后台，登录后改店铺链接和商品零售价。
           第一次用先看
-          <a className="mx-1 underline" href="/start">
+          <a className="underline underline-offset-2" href="/start">
             快速上手
           </a>
           。管理员账号会进入总后台。

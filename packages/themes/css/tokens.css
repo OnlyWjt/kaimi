@@ -19,7 +19,7 @@
   --km-warning: #b8863a;
   --km-label: #c17a5a;
   --km-radius: 22px;
-  --km-shadow: 0 18px 50px -28px rgb(23 23 23 / 28%);
+  --km-shadow: 0 1px 2px rgb(23 23 23 / 5%), 0 2px 8px -2px rgb(23 23 23 / 6%);
   --km-font-display: "Sora", "Segoe UI", sans-serif;
   --km-font-body: "IBM Plex Sans", "Segoe UI", "PingFang SC", sans-serif;
   --km-hero-glow:
@@ -43,7 +43,7 @@
   --km-warning: #d4b06a;
   --km-label: #7fdccd;
   --km-radius: 22px;
-  --km-shadow: 0 20px 50px -24px rgb(0 0 0 / 55%);
+  --km-shadow: 0 1px 2px rgb(0 0 0 / 35%);
   --km-hero-glow:
     radial-gradient(1000px 480px at 16% -12%, #1f5c5566, transparent 58%),
     radial-gradient(820px 400px at 92% 0%, #2a3d5c66, transparent 55%);
@@ -64,7 +64,7 @@
   --km-warning: #d4b06a;
   --km-label: #c4c4c4;
   --km-radius: 22px;
-  --km-shadow: 0 20px 50px -24px rgb(0 0 0 / 60%);
+  --km-shadow: 0 1px 2px rgb(0 0 0 / 40%);
   --km-hero-glow: radial-gradient(900px 420px at 50% -20%, #2a2a2a, transparent 60%);
 }
 
@@ -83,7 +83,7 @@
   --km-warning: #b8863a;
   --km-label: #c9447a;
   --km-radius: 26px;
-  --km-shadow: 0 18px 50px -28px rgb(26 18 21 / 24%);
+  --km-shadow: 0 1px 2px rgb(26 18 21 / 5%), 0 2px 8px -2px rgb(26 18 21 / 6%);
   --km-hero-glow:
     radial-gradient(900px 480px at 18% -8%, #f4b8c466, transparent 58%),
     radial-gradient(760px 400px at 88% 0%, #f3d6a866, transparent 55%);
@@ -104,7 +104,7 @@
   --km-warning: #b3781f;
   --km-label: #1668c9;
   --km-radius: 18px;
-  --km-shadow: 0 18px 46px -26px rgb(16 36 58 / 30%);
+  --km-shadow: 0 1px 2px rgb(16 36 58 / 6%), 0 2px 8px -2px rgb(16 36 58 / 7%);
   --km-hero-glow:
     radial-gradient(940px 500px at 10% -10%, #a9cdf070, transparent 58%),
     radial-gradient(820px 440px at 92% -4%, #b9e3ee70, transparent 56%);
@@ -125,7 +125,7 @@
   --km-warning: #cfae63;
   --km-label: #8ed3a0;
   --km-radius: 16px;
-  --km-shadow: 0 20px 48px -24px rgb(0 0 0 / 58%);
+  --km-shadow: 0 1px 2px rgb(0 0 0 / 38%);
   --km-hero-glow:
     radial-gradient(960px 460px at 14% -12%, #1c4a3066, transparent 58%),
     radial-gradient(800px 400px at 90% 0%, #2c4a1f55, transparent 55%);
@@ -146,7 +146,7 @@
   --km-warning: #a8761a;
   --km-label: #e2680f;
   --km-radius: 30px;
-  --km-shadow: 0 18px 48px -26px rgb(43 26 8 / 26%);
+  --km-shadow: 0 1px 2px rgb(43 26 8 / 5%), 0 2px 8px -2px rgb(43 26 8 / 6%);
   --km-hero-glow:
     radial-gradient(900px 500px at 14% -10%, #ffcf9a80, transparent 58%),
     radial-gradient(820px 420px at 90% -4%, #ffe07a70, transparent 55%);
@@ -186,7 +186,7 @@
   --km-warning: #d3b273;
   --km-label: #c4a3f7;
   --km-radius: 26px;
-  --km-shadow: 0 20px 52px -24px rgb(0 0 0 / 60%);
+  --km-shadow: 0 1px 2px rgb(0 0 0 / 40%);
   --km-hero-glow:
     radial-gradient(980px 470px at 16% -12%, #4a2a7066, transparent 58%),
     radial-gradient(820px 400px at 92% 0%, #6b2f6255, transparent 55%);

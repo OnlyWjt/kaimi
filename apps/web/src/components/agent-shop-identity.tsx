@@ -75,7 +75,7 @@ export function AgentShopIdentity({
         </div>
       </div>
       <label className="block space-y-2">
-        <span className="text-sm">店铺 slug</span>
+        <span className="block text-sm">店铺 slug</span>
         <input
           className="km-input w-full max-w-md"
           value={slug}

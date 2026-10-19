@@ -29,11 +29,14 @@ html {
   scroll-padding-top: 5.5rem;
 }
 
+/*
+ * 光晕铺满页面、跟着内容一起滚走。以前是 fixed 加 28 秒漂移动画，
+ * 内容像浮在一层会动的雾上，整页发飘。
+ */
 body {
   background-image: var(--km-hero-glow);
-  background-attachment: fixed;
-  background-size: 140% 140%, 130% 130%, 150% 150%;
-  animation: km-mesh 28s ease-in-out infinite;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
 }
 
 a {
@@ -162,13 +165,13 @@ a {
     background 160ms ease;
 }
 
+/* 悬停只换底色，不上浮、不发光：按钮是钉在页面上的 */
 .km-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 10px 28px color-mix(in oklab, var(--km-accent) 22%, transparent);
+  background: color-mix(in oklab, var(--km-accent) 86%, var(--km-bg));
 }
 
 .km-btn:active {
-  transform: scale(0.98);
+  transform: translateY(1px);
 }
 
 .km-btn:focus-visible {
@@ -196,6 +199,7 @@ a {
 
 .km-btn-ghost:hover {
   background: var(--km-bg-elevated);
+  border-color: color-mix(in oklab, var(--km-fg) 35%, var(--km-border));
   box-shadow: none;
 }
 
@@ -205,7 +209,7 @@ a {
 }
 
 .km-btn-danger:hover {
-  box-shadow: 0 10px 28px color-mix(in oklab, var(--km-danger) 26%, transparent);
+  background: color-mix(in oklab, var(--km-danger) 86%, var(--km-fg));
 }
 
 .km-btn-muted {
@@ -215,6 +219,7 @@ a {
 }
 
 .km-btn-muted:hover {
+  background: var(--km-bg-muted);
   transform: none;
   box-shadow: none;
 }
@@ -279,6 +284,19 @@ a {
 .km-input:focus {
   border-color: color-mix(in oklab, var(--km-fg) 45%, var(--km-border));
   box-shadow: 0 0 0 4px color-mix(in oklab, var(--km-fg) 8%, transparent);
+}
+
+/* 后台和代理台是工作台：输入框矮一号，和旁边的小按钮齐平，不再一个个鼓出来 */
+.km-admin .km-input,
+.km-acp-main .km-input {
+  border-radius: 10px;
+  padding: 0.55rem 0.8rem;
+  font-size: 0.9rem;
+}
+
+.km-admin select.km-input,
+.km-acp-main select.km-input {
+  padding-right: 2.3rem;
 }
 
 .km-input::placeholder {
@@ -391,8 +409,8 @@ select.km-input option {
   min-height: 100vh;
   background-color: var(--km-bg);
   background-image: var(--km-hero-glow);
-  background-attachment: fixed;
-  background-size: 140% 140%, 130% 130%, 150% 150%;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
 }
 
 .km-shop {
@@ -429,8 +447,7 @@ select.km-input option {
 }
 
 .km-plan-pick:hover {
-  transform: translateY(-1px);
-  border-color: color-mix(in oklab, var(--km-fg) 22%, var(--km-border));
+  border-color: color-mix(in oklab, var(--km-fg) 30%, var(--km-border));
 }
 
 .km-plan-pick-active {
@@ -583,19 +600,18 @@ select.km-input option {
 }
 
 /* —— Panels —— */
+/* 实底 + 清楚的边框 + 贴边细阴影：面板压在页面上，不再是悬着的毛玻璃 */
 .km-panel {
-  border: 1px solid color-mix(in oklab, var(--km-border) 88%, transparent);
-  background: color-mix(in oklab, var(--km-bg-elevated) 94%, transparent);
+  border: 1px solid var(--km-border);
+  background: var(--km-bg-elevated);
   border-radius: var(--km-radius);
   padding: 1.45rem 1.5rem;
-  backdrop-filter: blur(16px);
   box-shadow: var(--km-shadow);
-  transition: transform 220ms ease, box-shadow 220ms ease;
+  transition: border-color 160ms ease;
 }
 
 .km-panel-hover:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 26px 60px -30px rgb(23 23 23 / 32%);
+  border-color: color-mix(in oklab, var(--km-fg) 30%, var(--km-border));
 }
 
 .km-page-hero {
@@ -607,7 +623,6 @@ select.km-input option {
 }
 
 .km-eyebrow {
-  margin: 0;
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.2em;
@@ -616,7 +631,6 @@ select.km-input option {
 }
 
 .km-page-title {
-  margin: 0;
   font-family: var(--font-sora), var(--km-font-display);
   font-size: clamp(2rem, 4.4vw, 3.15rem);
   font-weight: 600;
@@ -625,7 +639,6 @@ select.km-input option {
 }
 
 .km-lead {
-  margin: 0;
   max-width: 34rem;
   font-size: 1.02rem;
   line-height: 1.65;
@@ -691,9 +704,13 @@ select.km-input option {
   background: color-mix(in oklab, var(--km-bg-muted) 70%, transparent);
 }
 
-.km-tab-active {
-  background: var(--km-accent);
-  color: var(--km-accent-fg);
+.km-tab-active,
+.km-tab-active:hover {
+  /* 子页签选中用浅底加粗，黑底留给上一级：一排黑胶囊叠一排黑胶囊，分不清层级 */
+  background: var(--km-bg-muted);
+  border-color: var(--km-border);
+  color: var(--km-fg);
+  font-weight: 600;
 }
 
 .km-table {
@@ -1095,15 +1112,6 @@ select.km-input option {
   }
 }
 
-@keyframes km-mesh {
-  0%,
-  100% {
-    background-position: 0% 0%, 100% 0%, 50% 100%;
-  }
-  50% {
-    background-position: 8% 6%, 92% 10%, 46% 92%;
-  }
-}
 
 .km-rise {
   animation: km-rise 420ms ease both;
