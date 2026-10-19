@@ -17,6 +17,7 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
       title: "调用约定",
       blocks: [
         { kind: "p", text: `基础地址 ${base}。每个请求都要带请求头 Authorization: Bearer km_live_你的Key。Key 只在创建时显示一次，丢了只能吊销后重建。` },
+        { kind: "p", text: "正式 Key 必须设置 IP 白名单：只有白名单里的服务器能用这把 Key。填你服务器的公网出口 IP，可以填多个，也可以填网段（IPv4 最宽 /24，IPv6 最宽 /64）。权限和白名单建好后都能在「开放 API」页修改，改完马上生效，不用换 Key。被白名单拦下时返回 IP_NOT_ALLOWED，message 里写着我们看到的来源 IP，照着填进白名单即可。测试 Key 的白名单选填。" },
         { kind: "p", text: "代理 Key 只能操作自己的店铺：查套餐和订单、代客下单、看卡密、兑换自己卖出的卡。已开通提卡的代理还能用提卡接口。金额单位是分，时间是 UTC。代客下单的价格是你自己设的零售价。" },
         { kind: "p", text: "成功时 HTTP 200，正文是 { \"data\": ..., \"request_id\": \"req_...\" }。失败时 HTTP 状态码对应错误，正文是 { \"error\": { \"code\", \"message\" }, \"request_id\" }。排错时把 request_id 留着。" },
         {
@@ -24,7 +25,8 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
           headers: ["错误码", "HTTP", "含义"],
           rows: [
             ["UNAUTHORIZED", "401", "没带 Key、Key 已吊销，或代理已被停用"],
-            ["FORBIDDEN_SCOPE", "403", "这把 Key 没有该权限，或来源 IP 不在白名单"],
+            ["FORBIDDEN_SCOPE", "403", "这把 Key 没有该权限，到「开放 API」页编辑 Key 勾上即可"],
+            ["IP_NOT_ALLOWED", "403", "来源 IP 不在这把 Key 的白名单里，或正式 Key 还没设白名单"],
             ["VALIDATION_FAILED", "400", "参数缺失或格式不对"],
             ["CDK_INVALID", "400", "卡密无效、已使用，或不属于本店"],
             ["NOT_FOUND", "404", "订单、卡密或兑换单不存在，或不属于本店"],
@@ -41,7 +43,7 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
       id: "test-mode",
       title: "测试模式",
       blocks: [
-        { kind: "p", text: "对接自己的分销站时，先在「开放 API」页建一把测试 Key（km_test_ 开头）。测试 Key 只能调 GET /plans、POST /orders/quote、POST /orders、GET /orders、GET /orders/{orderNo}，其余接口返回 FORBIDDEN_SCOPE。" },
+        { kind: "p", text: "对接自己的分销站时，先在「开放 API」页建一把测试 Key（km_test_ 开头）。测试 Key 只能调 GET /plans、POST /orders/quote、POST /orders、GET /orders、GET /orders/{orderNo}，其余接口返回 FORBIDDEN_SCOPE。勾了「看卡密明文」的测试 Key，用 GET /orders/{orderNo}?reveal=1 看沙箱订单的假卡。" },
         { kind: "p", text: "套餐、价格、优惠券、地区确认都按正式规则校验，测试通过的参数在正式环境同样能下单。但订单只进沙箱：订单号 KT 开头，返回的 pay_url 是模拟付款链接，打开就算付款成功并发出 TEST- 开头的假卡，有 return_url 就跳回去，同时推 order.paid 和 order.delivered 回调。沙箱订单的返回和回调里都有 livemode: false，不扣钱、不进账本、不占库存，30 天后自动清理。" },
         { kind: "p", text: "跑通后把 Key 换成正式的 km_live_ 即可，代码不用改。建议你的接收端看到 livemode 为 false 时不要真的给买家发货。" },
       ],
