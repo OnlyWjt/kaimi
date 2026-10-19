@@ -1,8 +1,7 @@
+/* 工作台用素底，不叠光晕：天天盯着看的页面要稳 */
 .km-acp {
   min-height: 100vh;
-  background:
-    radial-gradient(1200px 480px at 12% -10%, color-mix(in oklab, var(--km-accent) 10%, transparent), transparent 60%),
-    var(--km-bg);
+  background: var(--km-bg);
 }
 
 .km-acp-banner {
@@ -27,12 +26,15 @@
   padding: 1.4rem 0 3.5rem;
 }
 
+/* 侧栏右边一条细线，把导航和内容分成两块，不再是两摞东西各自悬着 */
 .km-acp-side {
   position: sticky;
   top: 1rem;
   align-self: start;
   display: grid;
   gap: 1rem;
+  padding-right: 1.25rem;
+  border-right: 1px solid var(--km-border);
 }
 
 .km-acp-brand {
@@ -48,11 +50,11 @@
 
 .km-acp-nav {
   display: grid;
-  gap: 0.2rem;
+  gap: 1px;
 }
 
 .km-acp-nav-label {
-  padding: 0.7rem 0.7rem 0.25rem;
+  padding: 0.95rem 0.7rem 0.3rem;
   color: var(--km-fg-muted);
   font-size: 0.7rem;
   font-weight: 650;
@@ -68,10 +70,11 @@
   gap: 0.6rem;
   width: 100%;
   border: 0;
-  border-radius: 12px;
+  border-radius: 10px;
   background: transparent;
-  color: var(--km-fg);
-  padding: 0.62rem 0.75rem;
+  color: color-mix(in oklab, var(--km-fg) 78%, var(--km-fg-muted));
+  padding: 0.48rem 0.75rem;
+  font-size: 0.92rem;
   text-align: left;
   text-decoration: none;
   cursor: pointer;
@@ -80,12 +83,15 @@
 .km-acp-nav a:hover,
 .km-acp-nav button:hover {
   background: color-mix(in oklab, var(--km-bg-muted) 80%, transparent);
+  color: var(--km-fg);
 }
 
+/* 选中项：实色底 + 加粗，不再套一圈描边 */
 .km-acp-nav a.is-on,
 .km-acp-nav button.is-on {
-  background: color-mix(in oklab, var(--km-accent) 12%, var(--km-bg-elevated));
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--km-accent) 28%, transparent);
+  background: color-mix(in oklab, var(--km-accent) 11%, var(--km-bg-elevated));
+  color: var(--km-fg);
+  font-weight: 600;
 }
 
 .km-acp-ext {
@@ -127,13 +133,41 @@
   font-size: 0.78rem;
 }
 
+/* 修改密码 / 退出登录：一行两个文字链接，不再是两颗大胶囊按钮压在侧栏底下 */
 .km-acp-account {
-  display: grid;
-  gap: 0.35rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.75rem;
+  color: var(--km-fg-muted);
+  font-size: 0.82rem;
 }
 
 .km-acp-account button {
-  width: 100%;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.km-acp-account button:hover {
+  color: var(--km-fg);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.km-acp-account button:disabled {
+  cursor: default;
+  text-decoration: none;
+}
+
+/* 代理台是工作台：按钮比店铺前台小一号，跟表格、表单的密度对齐 */
+.km-acp-main .km-btn,
+.km-acp-shopchip .km-btn {
+  padding: 0.5rem 0.95rem;
+  font-size: 0.85rem;
 }
 
 .km-acp-main {
@@ -199,7 +233,9 @@
   margin-top: 0.35rem;
   font-family: var(--font-sora), var(--km-font-display);
   font-size: 1.55rem;
-  letter-spacing: -0.04em;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
 }
 
 .km-acp-kpi small {
@@ -742,6 +778,23 @@ button.km-acp-row {
   display: grid;
   gap: 0.35rem;
   font-size: 0.84rem;
+}
+
+/* 勾选框那一行要横排：框在前、字紧跟着。上面的 grid 会把框单独撑成一行居中，字掉到下一行 */
+.km-acp-fields label:has(> input[type="checkbox"]) {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-self: start;
+  cursor: pointer;
+}
+
+.km-acp-fields input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--km-accent);
+  cursor: pointer;
 }
 
 .km-acp-ticket {
@@ -1476,12 +1529,25 @@ button.km-acp-row {
     background: rgb(0 0 0 / 32%);
   }
 
-  .km-acp-kpis,
   .km-acp-grid2,
   .km-acp-composer,
   .km-acp-nowthen,
   .km-acp-kinds {
     grid-template-columns: 1fr;
+  }
+
+  /* 数字卡两列：一列一张太高，一屏只看得到两张半 */
+  .km-acp-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.6rem;
+  }
+
+  .km-acp-kpi {
+    padding: 0.85rem 0.9rem;
+  }
+
+  .km-acp-kpi strong {
+    font-size: 1.3rem;
   }
 
   .km-acp-coupon {

@@ -161,108 +161,110 @@ export function AdminOrders({
               导出 CSV
             </a>
           </div>
-          <table className="km-table">
-            <colgroup>
-              <col style={{ width: "22%" }} />
-              <col style={{ width: "7%" }} />
-              <col style={{ width: "20%" }} />
-              <col style={{ width: "16%" }} />
-              <col style={{ width: "9%" }} />
-              <col style={{ width: "8%" }} />
-              <col style={{ width: "9%" }} />
-              <col style={{ width: "9%" }} />
-            </colgroup>
-            <thead>
-              <tr>
-                <th>订单</th>
-                <th>类型</th>
-                <th>买家 / 卡密</th>
-                <th>商品</th>
-                <th>支付</th>
-                <th>状态</th>
-                <th>时间</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orders.map((o) => {
-                const orderNo = String(o.orderNo || "");
-                const email = String(o.email || o.accountEmail || "—");
-                const code = String(o.codeMasked || o.codeLast4 || "—");
-                const plan = String(o.upstreamPlan || "—");
-                const message = o.message ? String(o.message) : "";
-                const expanded = expandedNo === orderNo;
-                const storeRow = o.rowKind === "store";
-                return (
-                  <Fragment key={`${o.rowKind || "redeem"}-${o.id}`}>
-                    <tr>
-                      <td className="km-clip font-mono" title={orderNo}>
-                        <div>{orderNo}</div>
-                        {o.agentLabel ? (
-                          <div className="text-xs text-[var(--km-fg-muted)]">{String(o.agentLabel)}</div>
-                        ) : null}
-                      </td>
-                      <td>{kindLabel(o.kind)}</td>
-                      <td>
-                        <div className="km-clip" title={email}>
-                          {email}
-                        </div>
-                        {code !== "—" ? (
-                          <div className="km-clip font-mono text-xs text-[var(--km-fg-muted)]" title={code}>
-                            {code}
-                          </div>
-                        ) : null}
-                      </td>
-                      <td className="km-clip" title={plan}>
-                        {plan}
-                      </td>
-                      <td>
-                        {o.kind === "recharge" && o.payStatus === "manual" ? (
-                          <span className="km-badge" title="买家拿卡密直接来兑换，不是在店铺下的单">
-                            直接兑换
-                          </span>
-                        ) : (
-                          <StatusBadge status={String(o.payStatus || "")} />
-                        )}
-                      </td>
-                      <td>
-                        <span title={message || undefined}>{progressLabel(o.kind, String(o.fulfillStatus || ""))}</span>
-                      </td>
-                      <td className="km-clip text-[var(--km-fg-muted)]" title={String(o.createdAt || "")}>
-                        {formatWhen(o.createdAt)}
-                      </td>
-                      <td>
-                        <div className="km-row-actions">
-                          {!storeRow && o.kind === "recharge" && o.upstreamRequestId ? (
-                            <button
-                              className="km-btn km-btn-ghost"
-                              disabled={busy}
-                              onClick={async () => {
-                                await act({ action: "poll_order", orderNo: o.orderNo, requestId: o.upstreamRequestId });
-                                await reload();
-                              }}
-                            >
-                              重拉
-                            </button>
-                          ) : null}
-                          <button className="km-btn km-btn-ghost" onClick={() => setExpandedNo(expanded ? "" : orderNo)}>
-                            {expanded ? "收起" : "明细"}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                    {expanded ? (
+          <div className="overflow-x-auto">
+            <table className="km-table min-w-[820px]">
+              <colgroup>
+                <col style={{ width: "22%" }} />
+                <col style={{ width: "7%" }} />
+                <col style={{ width: "20%" }} />
+                <col style={{ width: "16%" }} />
+                <col style={{ width: "9%" }} />
+                <col style={{ width: "8%" }} />
+                <col style={{ width: "9%" }} />
+                <col style={{ width: "9%" }} />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>订单</th>
+                  <th>类型</th>
+                  <th>买家 / 卡密</th>
+                  <th>商品</th>
+                  <th>支付</th>
+                  <th>状态</th>
+                  <th>时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {orders.map((o) => {
+                  const orderNo = String(o.orderNo || "");
+                  const email = String(o.email || o.accountEmail || "—");
+                  const code = String(o.codeMasked || o.codeLast4 || "—");
+                  const plan = String(o.upstreamPlan || "—");
+                  const message = o.message ? String(o.message) : "";
+                  const expanded = expandedNo === orderNo;
+                  const storeRow = o.rowKind === "store";
+                  return (
+                    <Fragment key={`${o.rowKind || "redeem"}-${o.id}`}>
                       <tr>
-                        <td colSpan={8}>
-                          {storeRow ? <StoreOrderDetail orderNo={orderNo} /> : <AdminOrderTimeline orderNo={orderNo} />}
+                        <td className="km-clip font-mono" title={orderNo}>
+                          <div>{orderNo}</div>
+                          {o.agentLabel ? (
+                            <div className="text-xs text-[var(--km-fg-muted)]">{String(o.agentLabel)}</div>
+                          ) : null}
+                        </td>
+                        <td>{kindLabel(o.kind)}</td>
+                        <td>
+                          <div className="km-clip" title={email}>
+                            {email}
+                          </div>
+                          {code !== "—" ? (
+                            <div className="km-clip font-mono text-xs text-[var(--km-fg-muted)]" title={code}>
+                              {code}
+                            </div>
+                          ) : null}
+                        </td>
+                        <td className="km-clip" title={plan}>
+                          {plan}
+                        </td>
+                        <td>
+                          {o.kind === "recharge" && o.payStatus === "manual" ? (
+                            <span className="km-badge" title="买家拿卡密直接来兑换，不是在店铺下的单">
+                              直接兑换
+                            </span>
+                          ) : (
+                            <StatusBadge status={String(o.payStatus || "")} />
+                          )}
+                        </td>
+                        <td>
+                          <span title={message || undefined}>{progressLabel(o.kind, String(o.fulfillStatus || ""))}</span>
+                        </td>
+                        <td className="km-clip text-[var(--km-fg-muted)]" title={String(o.createdAt || "")}>
+                          {formatWhen(o.createdAt)}
+                        </td>
+                        <td>
+                          <div className="km-row-actions">
+                            {!storeRow && o.kind === "recharge" && o.upstreamRequestId ? (
+                              <button
+                                className="km-btn km-btn-ghost"
+                                disabled={busy}
+                                onClick={async () => {
+                                  await act({ action: "poll_order", orderNo: o.orderNo, requestId: o.upstreamRequestId });
+                                  await reload();
+                                }}
+                              >
+                                重拉
+                              </button>
+                            ) : null}
+                            <button className="km-btn km-btn-ghost" onClick={() => setExpandedNo(expanded ? "" : orderNo)}>
+                              {expanded ? "收起" : "明细"}
+                            </button>
+                          </div>
                         </td>
                       </tr>
-                    ) : null}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
+                      {expanded ? (
+                        <tr>
+                          <td colSpan={8}>
+                            {storeRow ? <StoreOrderDetail orderNo={orderNo} /> : <AdminOrderTimeline orderNo={orderNo} />}
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
           {!orders.length ? <p className="py-4 text-[var(--km-fg-muted)]">无匹配订单</p> : null}
           {nextCursor ? (
             <button className="km-btn km-btn-ghost mt-3" onClick={() => void loadMore()}>

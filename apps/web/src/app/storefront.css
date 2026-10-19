@@ -8,8 +8,8 @@
   min-height: 100vh;
   background-color: var(--km-bg);
   background-image: var(--km-hero-glow);
-  background-attachment: fixed;
-  background-size: 140% 140%, 130% 130%, 150% 150%;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
   color: var(--km-fg);
 }
 
@@ -925,12 +925,13 @@ a.km-sf-contact:hover {
   background: var(--km-bg-elevated);
   color: inherit;
   cursor: pointer;
-  transition: border-color 160ms ease, transform 160ms ease;
+  box-shadow: var(--km-shadow);
+  transition: border-color 160ms ease;
 }
 
+/* 悬停只描深边框，卡片不往上抬 */
 .km-sf-card2:hover {
   border-color: var(--km-fg);
-  transform: translateY(-2px);
 }
 
 .km-sf-card2-art {

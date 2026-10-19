@@ -248,7 +248,7 @@ export function AgentStorefrontSettings() {
       <div className="space-y-4">
         <h3 className="text-sm font-semibold">品牌</h3>
         <label className="block space-y-1.5">
-          <span className="text-sm">店名</span>
+          <span className="block text-sm">店名</span>
           <input
             className="km-input max-w-md"
             maxLength={64}

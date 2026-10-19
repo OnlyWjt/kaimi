@@ -123,46 +123,48 @@ export function AdminOverview({
             全部店铺订单
           </button>
         </div>
-        <table className="km-table text-sm">
-          <colgroup>
-            <col style={{ width: "26%" }} />
-            <col style={{ width: "26%" }} />
-            <col style={{ width: "16%" }} />
-            <col style={{ width: "12%" }} />
-            <col style={{ width: "10%" }} />
-            <col style={{ width: "10%" }} />
-          </colgroup>
-          <thead>
-            <tr>
-              <th>订单</th>
-              <th>商品</th>
-              <th>代理</th>
-              <th>金额</th>
-              <th>时间</th>
-              <th>状态</th>
-            </tr>
-          </thead>
-          <tbody>
-            {recent.map((o) => (
-              <tr key={o.orderNo}>
-                <td className="km-clip font-mono text-xs" title={o.orderNo}>
-                  {o.orderNo}
-                </td>
-                <td className="km-clip" title={o.productName}>
-                  {o.productName}
-                </td>
-                <td className="km-clip" title={o.agentName}>
-                  {o.agentName}
-                </td>
-                <td>¥{(o.grossCents / 100).toFixed(2)}</td>
-                <td className="whitespace-nowrap text-xs text-[var(--km-fg-muted)]">{formatWhen(o.createdAt)}</td>
-                <td>
-                  <StatusBadge status={o.payStatus === "paid" || o.payStatus === "manual" ? o.fulfillStatus : o.payStatus} />
-                </td>
+        <div className="overflow-x-auto">
+          <table className="km-table min-w-[720px] text-sm">
+            <colgroup>
+              <col style={{ width: "26%" }} />
+              <col style={{ width: "26%" }} />
+              <col style={{ width: "16%" }} />
+              <col style={{ width: "12%" }} />
+              <col style={{ width: "10%" }} />
+              <col style={{ width: "10%" }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>订单</th>
+                <th>商品</th>
+                <th>代理</th>
+                <th>金额</th>
+                <th>时间</th>
+                <th>状态</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {recent.map((o) => (
+                <tr key={o.orderNo}>
+                  <td className="km-clip font-mono text-xs" title={o.orderNo}>
+                    {o.orderNo}
+                  </td>
+                  <td className="km-clip" title={o.productName}>
+                    {o.productName}
+                  </td>
+                  <td className="km-clip" title={o.agentName}>
+                    {o.agentName}
+                  </td>
+                  <td>¥{(o.grossCents / 100).toFixed(2)}</td>
+                  <td className="whitespace-nowrap text-xs text-[var(--km-fg-muted)]">{formatWhen(o.createdAt)}</td>
+                  <td>
+                    <StatusBadge status={o.payStatus === "paid" || o.payStatus === "manual" ? o.fulfillStatus : o.payStatus} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         {!recent.length ? <p className="py-4 text-sm text-[var(--km-fg-muted)]">还没有店铺订单</p> : null}
       </div>
       <p className="text-sm text-[var(--km-fg-muted)]">
