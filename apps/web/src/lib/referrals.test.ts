@@ -24,12 +24,22 @@ const sent = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/mail", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/mail")>()),
-  sendShopMail: vi.fn(async (input: { agentId: number; to: string; subject: (s: string) => string; lines: (s: string) => string[] }) => {
-    if (sent.mailMode === "throw") throw new Error("SMTP 连不上");
-    if (sent.mailMode === "skip") return { sent: false, reason: "平台订单邮件未开启" };
-    sent.mails.push({ agentId: input.agentId, to: input.to, subject: input.subject("测试店"), text: input.lines("测试店").join("\n") });
-    return { sent: true };
-  }),
+  sendShopMail: vi.fn(
+    async (input: {
+      agentId: number;
+      to: string;
+      template: import("@/lib/mail-template-core").MailTemplateKey;
+      context: (s: string) => Omit<import("@/lib/mail-template-core").MailContext, "afterSales">;
+    }) => {
+      if (sent.mailMode === "throw") throw new Error("SMTP 连不上");
+      if (sent.mailMode === "skip") return { sent: false, reason: "平台订单邮件未开启" };
+      // 用系统默认模板渲染，断言的就是买家实际收到的文字
+      const core = await import("@/lib/mail-template-core");
+      const rendered = core.renderMailTemplate(input.template, core.MAIL_TEMPLATE_DEFS[input.template].system, input.context("测试店"));
+      sent.mails.push({ agentId: input.agentId, to: input.to, subject: rendered.subject, text: rendered.text });
+      return { sent: true };
+    },
+  ),
 }));
 vi.mock("@/lib/notify", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/notify")>()),
@@ -561,10 +571,11 @@ describe("第二期：邮件和 Telegram", () => {
     await enable(shop);
     const order = await deliveredOrder(shop, mail("wanglines"));
     await m.config.setSetting("public_base_url", "");
-    expect(await m.ref.referralInviteMailLines(order)).toEqual([]);
+    expect(await m.ref.referralInviteMailBlock(order)).toBeNull();
     await m.config.setSetting("public_base_url", "https://shop.example.com");
-    const lines = await m.ref.referralInviteMailLines({ ...order, referralProcessedAt: "x" });
+    const block = await m.ref.referralInviteMailBlock({ ...order, referralProcessedAt: "x" });
     const code = await inviteCodeOf(shop, mail("wanglines"));
-    expect(lines.join("\n")).toContain(`https://shop.example.com/s/${shop.slug}?ref=${code}`);
+    expect(block?.link).toBe(`https://shop.example.com/s/${shop.slug}?ref=${code}`);
+    expect(block?.code).toBe(code);
   });
 });

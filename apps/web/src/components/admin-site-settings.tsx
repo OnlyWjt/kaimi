@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { loadAdminSection, postAdminAction } from "@/components/admin-api";
 import { AdminFolioSettings } from "@/components/admin-folio-settings";
 import { AdminMailSettings, AdminTelegramBindings } from "@/components/admin-mail-settings";
+import { AdminMailTemplates } from "@/components/admin-mail-templates";
 import { CardIntegration } from "@/components/card-integration";
 import { KmSelect } from "@/components/km-select";
 import { toast } from "@/components/toast";
@@ -173,6 +174,7 @@ export function AdminNotify() {
         </p>
       </div>
       <AdminMailSettings />
+      <AdminMailTemplates />
       <AdminFolioSettings />
       <AdminTelegramBindings />
     </div>

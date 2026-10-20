@@ -1722,6 +1722,21 @@ async function ensureRedeemGuardSchema() {
   await ensureReconciliationSchema();
   await ensureReferralSchema();
   await ensureFolioSchema();
+  await client.executeMultiple(`
+    CREATE TABLE IF NOT EXISTS mail_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id INTEGER NOT NULL DEFAULT 0,
+      template_key TEXT NOT NULL,
+      subject TEXT,
+      body TEXT,
+      config_json TEXT NOT NULL DEFAULT '{}',
+      agent_editable INTEGER NOT NULL DEFAULT 1,
+      updated_by INTEGER,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS mail_templates_agent_key_uq ON mail_templates(agent_id, template_key);
+  `);
 }
 
 /** 开票接入 Folio：订单上的开票状态、回调事件、nonce。全是 IF NOT EXISTS / 重复列忽略。 */

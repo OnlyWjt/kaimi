@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { MailTemplateEditor } from "@/components/mail-template-editor";
 
 type Snapshot = {
+  shopName: string;
   botConfigured: boolean;
   botUsername: string;
   telegramBound: boolean;
@@ -180,7 +182,7 @@ export function AgentNotify() {
         <div>
           <h2 className="text-xl font-semibold">发给买家的邮件</h2>
           <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-            发信地址由平台统一。你可以改买家看到的名称，以及回复时回到哪个邮箱。邮件里只有订单号和交付内容。
+            发信地址由平台统一。你可以改买家看到的发件人名称、回复邮箱，以及邮件模板。
           </p>
           <p className="text-sm text-[var(--km-fg-muted)]">
             {form.platformMailReady
@@ -231,6 +233,11 @@ export function AgentNotify() {
         >
           保存
         </button>
+        <div className="mt-mail-head">
+          <h3>邮件模板</h3>
+          <p>买家收到的邮件长什么样。不改就用平台模板；改了以后平台再调整，也不会动你的。</p>
+        </div>
+        <MailTemplateEditor mode="agent" shopName={form.shopName} senderName={form.mailFromName} />
       </section>
       {message ? <p className="text-sm">{message}</p> : null}
     </div>

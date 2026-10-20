@@ -1121,6 +1121,34 @@ export const apiWebhookEndpoints = sqliteTable(
   }),
 );
 
+/**
+ * 买家邮件模板。agent_id = 0 是平台模板，> 0 是代理自己的。
+ * 平台行的 subject / body 为 NULL 表示用系统默认（代码里的文案），这一行只用来存「允许代理修改」。
+ * template_key = after_sales 的行存售后联系区块，内容在 config_json。
+ */
+export const mailTemplates = sqliteTable(
+  "mail_templates",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    agentId: integer("agent_id").notNull().default(0),
+    templateKey: text("template_key").notNull(),
+    subject: text("subject"),
+    body: text("body"),
+    configJson: text("config_json").notNull().default("{}"),
+    agentEditable: integer("agent_editable", { mode: "boolean" }).notNull().default(true),
+    updatedBy: integer("updated_by"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+  },
+  (t) => ({
+    agentKeyIdx: uniqueIndex("mail_templates_agent_key_uq").on(t.agentId, t.templateKey),
+  }),
+);
+
 /** Folio 开票回调，一条回调一行：按 event_id 去重、留审计、兼做代理通知的发件箱。 */
 export const folioInvoiceEvents = sqliteTable(
   "folio_invoice_events",

@@ -1,0 +1,170 @@
+/* 邮件模板编辑器（管理员、代理共用）。只用 --km-* 变量，换主题也跟着变。 */
+.mt-root { display: block; }
+.mt-root * { box-sizing: border-box; }
+.mt-muted { color: var(--km-fg-muted); }
+.mt-stack > * + * { margin-top: 0.75rem; }
+
+.mt-grid2 { display: grid; gap: 0.75rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.mt-field { display: block; font-size: 0.875rem; }
+.mt-field > span { display: block; margin-bottom: 0.3rem; }
+.mt-field .km-input { width: 100%; }
+
+.mt-divider { height: 1px; margin: 1.25rem 0 1.1rem; background: var(--km-border); }
+
+.mt-sec-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 0.5rem 1rem; }
+.mt-sec-head h3 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+.mt-sec-head p { margin: 0.2rem 0 0; font-size: 0.85rem; color: var(--km-fg-muted); }
+
+/* 标签页：和代理订单页的分段按钮同一个样子 */
+.mt-tabs {
+  display: inline-flex; gap: 0.25rem; max-width: 100%; margin-top: 0.85rem; padding: 0.2rem;
+  overflow-x: auto; border-radius: 999px; background: var(--km-bg-muted); scrollbar-width: none;
+}
+.mt-tabs::-webkit-scrollbar { display: none; }
+.mt-tab {
+  flex-shrink: 0; padding: 0.35rem 0.85rem; border: 0; border-radius: 999px; background: transparent;
+  color: var(--km-fg-muted); font-size: 0.8rem; cursor: pointer; white-space: nowrap; transition: background 0.15s, color 0.15s;
+}
+.mt-tab:hover { color: var(--km-fg); }
+.mt-tab.is-on {
+  background: var(--km-bg-elevated, var(--km-bg)); color: var(--km-fg); font-weight: 600;
+  box-shadow: 0 1px 2px color-mix(in oklab, var(--km-fg) 12%, transparent);
+}
+.mt-tab .dot { display: inline-block; width: 0.38rem; height: 0.38rem; margin-left: 0.35rem; border-radius: 50%; background: var(--km-accent, var(--km-fg)); vertical-align: middle; }
+
+.mt-status {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin-top: 0.85rem;
+  padding: 0.6rem 0.75rem; border: 1px solid var(--km-border); border-radius: 0.75rem; font-size: 0.82rem;
+}
+.mt-status .grow { flex: 1 1 14rem; min-width: 0; color: var(--km-fg-muted); }
+.mt-badge {
+  display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.15rem 0.55rem; border-radius: 999px;
+  background: var(--km-bg-muted); font-size: 0.75rem; font-weight: 600; white-space: nowrap;
+}
+.mt-badge::before { content: ""; width: 0.4rem; height: 0.4rem; border-radius: 50%; background: color-mix(in oklab, var(--km-fg-muted) 60%, transparent); }
+.mt-badge.is-mine { background: color-mix(in oklab, var(--km-accent, #2563eb) 14%, var(--km-bg-muted)); }
+.mt-badge.is-mine::before { background: var(--km-accent, #2563eb); }
+.mt-badge.is-lock::before { background: var(--km-warning, #b45309); }
+
+.mt-work { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr); margin-top: 0.9rem; align-items: start; }
+
+.mt-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; margin: 0.75rem 0 0.4rem; }
+.mt-tool {
+  padding: 0.2rem 0.55rem; border: 1px solid var(--km-border); border-radius: 0.45rem; background: transparent;
+  color: var(--km-fg); font-size: 0.78rem; cursor: pointer;
+}
+.mt-tool:hover:not(:disabled) { background: var(--km-bg-muted); }
+.mt-tool:disabled { opacity: 0.45; cursor: default; }
+.mt-tool.b { font-weight: 700; }
+.mt-tool-sep { width: 1px; height: 1rem; margin: 0 0.15rem; background: var(--km-border); }
+.mt-tool-hint { font-size: 0.74rem; color: var(--km-fg-muted); }
+.mt-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.5rem; }
+.mt-chip {
+  padding: 0.12rem 0.5rem; border: 1px dashed var(--km-border); border-radius: 999px; background: transparent;
+  color: var(--km-fg-muted); font-size: 0.74rem; cursor: pointer;
+}
+.mt-chip:hover:not(:disabled) { border-style: solid; color: var(--km-fg); }
+.mt-chip.is-block { border-style: solid; background: var(--km-bg-muted); }
+.mt-chip:disabled { opacity: 0.45; cursor: default; }
+.mt-chips-label { align-self: center; margin-right: 0.15rem; font-size: 0.72rem; color: var(--km-fg-muted); }
+
+textarea.mt-body {
+  display: block; width: 100%; min-height: 19rem; resize: vertical; line-height: 1.65;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 0.82rem;
+}
+.mt-root .km-input[readonly] { background: var(--km-bg-muted); color: var(--km-fg-muted); cursor: default; }
+
+.mt-checks { display: flex; flex-wrap: wrap; gap: 0.35rem 0.9rem; margin-top: 0.55rem; font-size: 0.76rem; color: var(--km-fg-muted); }
+.mt-check.ok::before { content: "✓ "; color: var(--km-success, #15803d); }
+.mt-check.bad { color: var(--km-danger); }
+.mt-check.bad::before { content: "✗ "; }
+.mt-errors { margin: 0.4rem 0 0; padding: 0; list-style: none; font-size: 0.78rem; color: var(--km-danger); }
+
+/* 预览 */
+.mt-preview { border: 1px solid var(--km-border); border-radius: 0.9rem; overflow: hidden; background: var(--km-bg-elevated, var(--km-bg)); }
+.mt-prev-head {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.4rem;
+  padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--km-border); font-size: 0.78rem;
+}
+.mt-prev-head .ttl { font-weight: 600; }
+.mt-seg { display: inline-flex; padding: 0.15rem; border-radius: 999px; background: var(--km-bg-muted); }
+.mt-seg button {
+  padding: 0.18rem 0.6rem; border: 0; border-radius: 999px; background: transparent; color: var(--km-fg-muted);
+  font-size: 0.74rem; cursor: pointer;
+}
+.mt-seg button.is-on { background: var(--km-bg-elevated, var(--km-bg)); color: var(--km-fg); font-weight: 600; box-shadow: 0 1px 2px color-mix(in oklab, var(--km-fg) 12%, transparent); }
+.mt-prev-meta { padding: 0.55rem 0.85rem; border-bottom: 1px solid var(--km-border); font-size: 0.78rem; }
+.mt-prev-meta div + div { margin-top: 0.15rem; }
+.mt-prev-meta b { display: inline-block; min-width: 3.2rem; font-weight: 500; color: var(--km-fg-muted); }
+.mt-prev-body { overflow: hidden; background: #f2f3f5; }
+.mt-prev-body.is-phone { padding-top: 0.9rem; }
+.mt-prev-body iframe { display: block; height: 20rem; border: 0; background: #f2f3f5; }
+.mt-prev-body.is-phone iframe { border: 1px solid #d8dbe0; border-radius: 1rem; }
+.mt-prev-text {
+  margin: 0; padding: 1rem 1.1rem; max-height: 34rem; overflow: auto; background: var(--km-bg-elevated, var(--km-bg));
+  white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.78rem; line-height: 1.7; color: var(--km-fg);
+}
+.mt-viewing {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.45rem 0.85rem;
+  background: color-mix(in oklab, var(--km-warning, #b45309) 12%, var(--km-bg-elevated, var(--km-bg))); font-size: 0.78rem;
+}
+
+.mt-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 1rem; }
+.mt-actions .gap { flex: 1 1 1rem; }
+.mt-test { display: flex; align-items: center; gap: 0.4rem; }
+.mt-test .km-input { width: 13rem; }
+
+/* 售后联系 */
+.mt-contacts { margin-top: 0.4rem; border: 1px solid var(--km-border); border-radius: 0.75rem; }
+.mt-contact { display: flex; align-items: center; gap: 0.6rem; padding: 0.55rem 0.75rem; font-size: 0.85rem; }
+.mt-contact + .mt-contact { border-top: 1px solid var(--km-border); }
+.mt-contact .type { width: 4.6rem; flex-shrink: 0; color: var(--km-fg-muted); }
+.mt-contact .val { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mt-contact .src { flex-shrink: 0; font-size: 0.72rem; color: var(--km-fg-muted); }
+.mt-contact .del { flex-shrink: 0; padding: 0; border: 0; background: none; color: var(--km-danger); font-size: 0.75rem; cursor: pointer; }
+.mt-add { display: grid; gap: 0.5rem; grid-template-columns: 7.5rem minmax(0, 1fr) auto; margin-top: 0.6rem; }
+.mt-add select.km-input { padding-right: 1.6rem; }
+.mt-note { margin: 0.45rem 0 0; font-size: 0.78rem; color: var(--km-fg-muted); }
+.mt-note.bad { color: var(--km-danger); }
+
+/* 开关（管理员） */
+.mt-switch { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0; border: 0; background: none; color: var(--km-fg); font-size: 0.8rem; cursor: pointer; }
+.mt-switch .track { position: relative; width: 2.2rem; height: 1.25rem; border-radius: 999px; background: var(--km-border); transition: background 0.15s; }
+.mt-switch .knob { position: absolute; top: 0.125rem; left: 0.125rem; width: 1rem; height: 1rem; border-radius: 50%; background: #fff; transition: left 0.15s; }
+.mt-switch[aria-checked="true"] .track { background: var(--km-fg); }
+.mt-switch[aria-checked="true"] .knob { left: 1.075rem; }
+
+/* 改过模板的代理 */
+.mt-agents { margin-top: 1.1rem; }
+.mt-agents h4 { margin: 0 0 0.4rem; font-size: 0.85rem; font-weight: 600; }
+.mt-agent-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0; border-top: 1px solid var(--km-border); font-size: 0.82rem; }
+.mt-agent-row .name { flex: 1; min-width: 0; }
+.mt-agent-row .when { color: var(--km-fg-muted); font-size: 0.76rem; white-space: nowrap; }
+.mt-link { padding: 0; border: 0; background: none; color: var(--km-accent, var(--km-fg)); font-size: 0.8rem; cursor: pointer; }
+.mt-link.danger { color: var(--km-danger); }
+
+
+@media (max-width: 900px) {
+  .mt-work { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .mt-grid2 { grid-template-columns: minmax(0, 1fr); }
+  .mt-tabs { display: flex; }
+  .mt-actions .gap { display: none; }
+  .mt-tool-sep { display: none; }
+  .mt-tool-hint { flex-basis: 100%; }
+  .mt-test { width: 100%; }
+  .mt-test .km-input { flex: 1; width: auto; }
+  .mt-add { grid-template-columns: 6.5rem minmax(0, 1fr); }
+  .mt-add .km-btn { grid-column: 1 / -1; }
+  textarea.mt-body { min-height: 15rem; }
+}
+
+.mt-gap { margin-top: 0.75rem; }
+.mt-prev-switches { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.mt-contacts .mt-muted { font-size: 0.8rem; }
+.mt-switch:disabled, .mt-link:disabled { opacity: 0.55; cursor: default; }
+.mt-mail-head { margin-top: 1.25rem; padding-top: 1.1rem; border-top: 1px solid var(--km-border); }
+.mt-mail-head h3 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+.mt-mail-head p { margin: 0.2rem 0 0; font-size: 0.85rem; color: var(--km-fg-muted); }

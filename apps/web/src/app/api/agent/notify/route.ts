@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { agents } from "@/db/schema";
 import { requireAgent } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
+import { publicShopName } from "@/lib/agent-names";
 import { readMailSettings } from "@/lib/mail";
 import { currentBotInfo, issueAgentBindCode, unbindAgentTelegram } from "@/lib/telegram-bind";
 
@@ -33,6 +34,7 @@ async function snapshot(agentId: number) {
   if (!agent) return null;
   const [mail, bot] = await Promise.all([readMailSettings(), currentBotInfo()]);
   return {
+    shopName: publicShopName(agent),
     botConfigured: bot.configured,
     botUsername: bot.username,
     telegramBound: Boolean(agent.telegramChatId),

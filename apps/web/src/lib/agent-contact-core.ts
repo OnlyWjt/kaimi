@@ -82,18 +82,6 @@ export function afterSalesContacts<T extends Pick<ContactItem, "type" | "value">
   ];
 }
 
-/** 发货邮件里的售后段落，纯文本。没有可用联系方式时返回空数组。 */
-export function afterSalesMailLines(contacts: Pick<ContactItem, "type" | "value" | "label">[]) {
-  const list = afterSalesContacts(contacts);
-  if (!list.length) return [];
-  return [
-    "",
-    "售后联系",
-    "卡密或账号有任何问题，请直接联系店主处理：",
-    ...list.map((contact) => `${contact.label.zh.trim() || contactTypeLabel(contact.type)}：${contact.value.trim()}`),
-  ];
-}
-
 export type ContactGate =
   | { state: "ok" }
   | { state: "grace"; deadline: string }

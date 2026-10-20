@@ -7,6 +7,7 @@ import {
   agents,
 } from "@/db/schema";
 import { formatBeijingDateTime } from "@/lib/datetime";
+import type { MailContext } from "@/lib/mail-template-core";
 import { getPublicBaseUrl } from "@/lib/public-url";
 import {
   maskReferralEmail,
@@ -41,15 +42,29 @@ async function couponMailContext(couponId: number) {
   };
 }
 
-function couponUseLines(ctx: NonNullable<Awaited<ReturnType<typeof couponMailContext>>>) {
-  return [
-    `券码 ${ctx.coupon.code}`,
-    `可用于：${ctx.description}`,
-    `有效期至 ${formatBeijingDateTime(ctx.coupon.expiresAt)}（北京时间）`,
-    "",
-    `下次在本店下单时，在「优惠券」里填券码。下单邮箱要用这个邮箱（${maskReferralEmail(ctx.email)}），别的邮箱用不了。`,
-    ...(ctx.shopUrl ? [ctx.shopUrl] : []),
-  ];
+/** 邀请券两封邮件的模板数据。券码和用法区块的文字和改模板之前一样。 */
+function couponMailTemplateContext(
+  shop: string,
+  ctx: NonNullable<Awaited<ReturnType<typeof couponMailContext>>>,
+): Omit<MailContext, "afterSales"> {
+  const expiresAt = formatBeijingDateTime(ctx.coupon.expiresAt);
+  return {
+    vars: {
+      shop,
+      buyer_email: ctx.email,
+      coupon_code: ctx.coupon.code,
+      coupon_scope: ctx.description,
+      coupon_expires_at: expiresAt,
+      shop_url: ctx.shopUrl,
+    },
+    coupon: {
+      code: ctx.coupon.code,
+      scope: ctx.description,
+      expiresAt,
+      maskedEmail: maskReferralEmail(ctx.email),
+      shopUrl: ctx.shopUrl,
+    },
+  };
 }
 
 /** 得券通知邮件。认领 notice_status，并发和重试都只发一次。 */
@@ -91,8 +106,8 @@ export async function sendReferralCouponNotice(couponId: number) {
     const result = await sendShopMail({
       agentId: ctx.coupon.agentId,
       to: ctx.email,
-      subject: (shop) => `${shop} 邀请券到账`,
-      lines: () => ["你邀请的好友在本店下单成功，送你一张邀请券：", "", ...couponUseLines(ctx)],
+      template: "coupon_notice",
+      context: (shop) => couponMailTemplateContext(shop, ctx),
     });
     await finish(result.sent ? "sent" : "skipped", result.sent ? "" : result.reason);
   } catch (error) {
@@ -180,8 +195,8 @@ export async function sendReferralCouponReminders(now = new Date(), limit = 20) 
       const result = await sendShopMail({
         agentId: ctx.coupon.agentId,
         to: ctx.email,
-        subject: (shop) => `${shop} 邀请券快到期了`,
-        lines: () => ["你在本店的邀请券还没用，3 天内就要到期了：", "", ...couponUseLines(ctx)],
+        template: "coupon_remind",
+        context: (shop) => couponMailTemplateContext(shop, ctx),
       });
       await db
         .update(agentReferralCoupons)
