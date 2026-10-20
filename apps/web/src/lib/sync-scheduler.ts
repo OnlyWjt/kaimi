@@ -19,6 +19,7 @@ import { retryPendingDeliveryMails } from "@/lib/mail";
 import { alertAgentsOfStuckOrders, retryAgentStorePaidNotifies } from "@/lib/notify";
 import { closeExpiredStoreOrders } from "@/lib/store-orders";
 import { checkStoreOrderPaidAtGateway } from "@/lib/payments/confirm-store-order";
+import { pruneFolioNonces } from "@/lib/folio/sign";
 
 const DEFAULT_MINUTES = 15;
 const TICK_INTERVAL_MS = 30_000;
@@ -100,6 +101,11 @@ async function maybeTick() {
         await refreshOpsHealth();
       } catch (err) {
         console.warn("[kaimi-sync] ops health failed", sanitizeLog(err));
+      }
+      try {
+        await pruneFolioNonces();
+      } catch (err) {
+        console.warn("[kaimi-sync] folio nonce prune failed", sanitizeLog(err));
       }
       try {
         if (now - (state.lastDrawRecoverMs || 0) >= DRAW_RECOVER_INTERVAL_MS) {

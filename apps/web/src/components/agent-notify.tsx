@@ -8,6 +8,7 @@ type Snapshot = {
   telegramBound: boolean;
   telegramUsername: string;
   telegramNotifyEnabled: boolean;
+  invoiceNotifyEnabled: boolean;
   mailDeliveryEnabled: boolean;
   mailFromName: string;
   mailReplyTo: string;
@@ -73,7 +74,7 @@ export function AgentNotify() {
         <div>
           <h2 className="text-xl font-semibold">Telegram</h2>
           <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-            只收你自己店铺的通知：每笔付款（购买人、金额、套餐和你的收益，不含平台成本和毛利），以及付款 10 分钟后还没发出卡的订单提醒。
+            只收你自己店铺的通知：每笔付款（购买人、金额、套餐和你的收益，不含平台成本和毛利），付款 10 分钟后还没发出卡的订单提醒，以及买家要的发票开出来的提醒。
           </p>
         </div>
         {botName ? (
@@ -110,6 +111,26 @@ export function AgentNotify() {
           />
           接收下单通知
         </label>
+        <div>
+          <label
+            className={`flex items-center gap-2 text-sm${form.telegramBound ? "" : " text-[var(--km-fg-muted)]"}`}
+          >
+            <input
+              type="checkbox"
+              disabled={!form.telegramBound}
+              checked={form.telegramBound && form.invoiceNotifyEnabled}
+              onChange={(event) => setForm({ ...form, invoiceNotifyEnabled: event.target.checked })}
+            />
+            开票完成通知
+          </label>
+          <p className="mt-1 pl-6 text-xs text-[var(--km-fg-muted)]">
+            {!form.telegramBound
+              ? "先绑定 Telegram 才能开"
+              : form.telegramNotifyEnabled
+                ? "买家要的发票开出、重开或作废时提醒你，不含抬头、税号和金额"
+                : "「接收下单通知」关着时，开票通知也不发"}
+          </p>
+        </div>
         <div className="flex flex-wrap gap-2">
           <button className="km-btn" disabled={busy || !form.botConfigured} onClick={() => void post({ action: "bind" })}>
             生成绑定码
@@ -201,6 +222,7 @@ export function AgentNotify() {
             void post({
               action: "save",
               telegramNotifyEnabled: form.telegramNotifyEnabled,
+              invoiceNotifyEnabled: form.invoiceNotifyEnabled,
               mailDeliveryEnabled: form.mailDeliveryEnabled,
               mailFromName: form.mailFromName,
               mailReplyTo: form.mailReplyTo,

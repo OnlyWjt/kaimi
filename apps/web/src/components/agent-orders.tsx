@@ -18,6 +18,7 @@ type AgentOrder = {
   statusLabel: string;
   statusTone: AgentOrderTone;
   statusHint: string;
+  invoiceStatus: { label: string; tone: AgentOrderTone; hint: string } | null;
   payStatus: string;
   canResendMail: boolean;
   queryUrl: string;
@@ -166,6 +167,7 @@ export function AgentOrders() {
                 <th className="num">实付</th>
                 <th className="num">收益</th>
                 <th>状态</th>
+                <th>开票</th>
                 <th className="act">操作</th>
               </tr>
             </thead>
@@ -202,6 +204,18 @@ export function AgentOrders() {
                       {order.statusHint && order.statusTone === "bad" ? (
                         <span className="hint">{order.statusHint}</span>
                       ) : null}
+                    </td>
+                    <td className={`c-invoice${order.invoiceStatus ? "" : " is-none"}`} data-label="开票">
+                      {order.invoiceStatus ? (
+                        <>
+                          <span className={`km-acp-status${TONE_CLASS[order.invoiceStatus.tone]}`}>
+                            {order.invoiceStatus.label}
+                          </span>
+                          {order.invoiceStatus.hint ? <span className="hint">{order.invoiceStatus.hint}</span> : null}
+                        </>
+                      ) : (
+                        <span className="none">—</span>
+                      )}
                     </td>
                     <td className="act c-act">
                       {order.queryUrl ? (

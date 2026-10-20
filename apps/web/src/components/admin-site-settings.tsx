@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { loadAdminSection, postAdminAction } from "@/components/admin-api";
+import { AdminFolioSettings } from "@/components/admin-folio-settings";
 import { AdminMailSettings, AdminTelegramBindings } from "@/components/admin-mail-settings";
 import { CardIntegration } from "@/components/card-integration";
 import { KmSelect } from "@/components/km-select";
@@ -172,6 +173,7 @@ export function AdminNotify() {
         </p>
       </div>
       <AdminMailSettings />
+      <AdminFolioSettings />
       <AdminTelegramBindings />
     </div>
   );

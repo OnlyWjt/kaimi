@@ -62,6 +62,8 @@ export const agents = sqliteTable(
     telegramChatId: text("telegram_chat_id").notNull().default(""),
     telegramUsername: text("telegram_username").notNull().default(""),
     telegramNotifyEnabled: integer("telegram_notify_enabled", { mode: "boolean" }).notNull().default(true),
+    /** 开票完成通知（Folio 回调后发 TG）。和下单通知分开开关。 */
+    invoiceNotifyEnabled: integer("invoice_notify_enabled", { mode: "boolean" }).notNull().default(true),
     mailDeliveryEnabled: integer("mail_delivery_enabled", { mode: "boolean" }).notNull().default(true),
     mailFromName: text("mail_from_name").notNull().default(""),
     mailReplyTo: text("mail_reply_to").notNull().default(""),
@@ -433,6 +435,25 @@ export const storeOrders = sqliteTable(
     invoiceNotifyStatus: text("invoice_notify_status").notNull().default(""),
     invoiceNotifyError: text("invoice_notify_error").notNull().default(""),
     invoiceNotifiedAt: text("invoice_notified_at"),
+    /**
+     * 推到 Folio 开票的状态。空 = 没推 / 不开票；pending 排队中；pushed 已进 Folio；
+     * rejected 被 Folio 拒绝（不自动重试）；failed 重试用尽。
+     */
+    folioPushStatus: text("folio_push_status").notNull().default(""),
+    folioPushError: text("folio_push_error").notNull().default(""),
+    folioPushedAt: text("folio_pushed_at"),
+    /** Folio 发票 id。红冲重开后换成新票的 id。 */
+    folioInvoiceId: text("folio_invoice_id").notNull().default(""),
+    /** 空 | pending_review 待开具 | issued 已开具并交付 | reddened 已红冲作废 */
+    invoiceStatus: text("invoice_status").notNull().default(""),
+    invoiceNo: text("invoice_no").notNull().default(""),
+    /** 开票时间，Folio 回调的 kprq（北京时间文本）。 */
+    invoiceIssuedAt: text("invoice_issued_at"),
+    invoicePdfUrl: text("invoice_pdf_url").notNull().default(""),
+    /** 已回写到订单的最大回调版本号。 */
+    invoiceSyncVersion: integer("invoice_sync_version").notNull().default(0),
+    /** 退款推给 Folio 后的处理结果：canceled / red_flush / red_pending / already_reddened / none */
+    folioRefundAction: text("folio_refund_action").notNull().default(""),
     /** pending | sending | sent | failed | skipped。空表示这单还没进入代理通知。 */
     agentNotifyStatus: text("agent_notify_status").notNull().default(""),
     agentNotifyError: text("agent_notify_error").notNull().default(""),
@@ -1099,6 +1120,51 @@ export const apiWebhookEndpoints = sqliteTable(
     agentIdx: index("api_webhook_endpoints_agent_idx").on(t.agentId),
   }),
 );
+
+/** Folio 开票回调，一条回调一行：按 event_id 去重、留审计、兼做代理通知的发件箱。 */
+export const folioInvoiceEvents = sqliteTable(
+  "folio_invoice_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    orderId: integer("order_id").notNull(),
+    eventId: text("event_id").notNull(),
+    /** invoice.issued | invoice.reddened | invoice.file_ready | invoice.resync */
+    event: text("event").notNull(),
+    version: integer("version").notNull().default(0),
+    folioInvoiceId: text("folio_invoice_id").notNull().default(""),
+    previousInvoiceId: text("previous_invoice_id").notNull().default(""),
+    status: text("status").notNull().default(""),
+    fphm: text("fphm").notNull().default(""),
+    kprq: text("kprq").notNull().default(""),
+    redReasonCode: text("red_reason_code").notNull().default(""),
+    /** 版本号不比订单上的新就不回写，记 false。 */
+    applied: integer("applied", { mode: "boolean" }).notNull().default(false),
+    /** issued | reissued | reddened；空串 = 这条不通知代理 */
+    noticeKind: text("notice_kind").notNull().default(""),
+    /** 空 | pending | sending | sent | failed | skipped */
+    agentNotifyStatus: text("agent_notify_status").notNull().default(""),
+    agentNotifyError: text("agent_notify_error").notNull().default(""),
+    agentNotifyAttempts: integer("agent_notify_attempts").notNull().default(0),
+    agentNotifiedAt: text("agent_notified_at"),
+    payloadJson: text("payload_json").notNull().default("{}"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+  },
+  (t) => ({
+    eventIdx: uniqueIndex("folio_invoice_events_event_id_uq").on(t.eventId),
+    orderIdx: index("folio_invoice_events_order_idx").on(t.orderId, t.id),
+  }),
+);
+
+/** Folio 请求的 nonce，10 分钟内不能重复。存库是为了重启后也拦得住重放。 */
+export const folioNonces = sqliteTable("folio_nonces", {
+  nonce: text("nonce").primaryKey(),
+  expiresAt: text("expires_at").notNull(),
+});
 
 export const apiWebhookDeliveries = sqliteTable(
   "api_webhook_deliveries",

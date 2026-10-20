@@ -13,6 +13,7 @@ import { classifyRefundCdks, isFinishedDelivery } from "@/lib/store-refund-core"
 import { releaseCouponForTransition } from "@/lib/coupons";
 import { handleReferralRefund } from "@/lib/referrals";
 import { recordOpsAlert } from "@/lib/ops-health";
+import { enqueueFolioRefund } from "@/lib/folio/push";
 
 // 退款中间态：已有展示标签/筛选（status-labels），之前没有写入方。
 const REFUNDING = "refunding";
@@ -378,6 +379,10 @@ export async function PATCH(
       earningAdjustmentCents:
         earning?.status === "settled" ? -earning.earningCents : 0,
     },
+  });
+  // 开过票或可能已推到 Folio 的单通知 Folio：未开具的作废，已开具的红冲。退款和拒付都推。
+  await enqueueFolioRefund(order.id).catch((error) => {
+    console.error(`[refund] Folio 退款推送入队失败 ${orderNo}`, error);
   });
   return NextResponse.json({ ok: true });
 }

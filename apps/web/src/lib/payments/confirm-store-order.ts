@@ -171,6 +171,8 @@ export async function confirmStoreOrderPaid(input: {
         payStatus: "paid",
         paymentTradeNo: tradeNo,
         paidAt: now,
+        // Folio 开关关着时推单任务会把它清回空
+        ...(current.invoiceRequested ? { folioPushStatus: "pending" } : {}),
         updatedAt: now,
       })
       .where(
@@ -214,6 +216,18 @@ export async function confirmStoreOrderPaid(input: {
           createdAt: now,
           updatedAt: now,
         },
+        ...(updated.invoiceRequested
+          ? [
+              {
+                type: "folio_push_invoice",
+                dedupeKey: `folio_push_invoice:${order.id}`,
+                payloadJson: JSON.stringify({ orderId: order.id }),
+                runAfter: now,
+                createdAt: now,
+                updatedAt: now,
+              },
+            ]
+          : []),
       ])
       .onConflictDoNothing({ target: backgroundJobs.dedupeKey });
     return { kind: "paid", order: updated };

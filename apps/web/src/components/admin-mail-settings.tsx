@@ -30,7 +30,7 @@ const EMPTY: MailForm = {
   passwordConfigured: false,
 };
 
-function Switch({
+export function Switch({
   checked,
   onChange,
   label,

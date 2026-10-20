@@ -1721,6 +1721,60 @@ async function ensureRedeemGuardSchema() {
   }
   await ensureReconciliationSchema();
   await ensureReferralSchema();
+  await ensureFolioSchema();
+}
+
+/** 开票接入 Folio：订单上的开票状态、回调事件、nonce。全是 IF NOT EXISTS / 重复列忽略。 */
+async function ensureFolioSchema() {
+  for (const sqlText of [
+    "ALTER TABLE store_orders ADD COLUMN folio_push_status TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE store_orders ADD COLUMN folio_push_error TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE store_orders ADD COLUMN folio_pushed_at TEXT",
+    "ALTER TABLE store_orders ADD COLUMN folio_invoice_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE store_orders ADD COLUMN invoice_status TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE store_orders ADD COLUMN invoice_no TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE store_orders ADD COLUMN invoice_issued_at TEXT",
+    "ALTER TABLE store_orders ADD COLUMN invoice_pdf_url TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE store_orders ADD COLUMN invoice_sync_version INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE store_orders ADD COLUMN folio_refund_action TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE agents ADD COLUMN invoice_notify_enabled INTEGER NOT NULL DEFAULT 1",
+  ]) {
+    try {
+      await client.execute(sqlText);
+    } catch (error) {
+      if (!/duplicate column/i.test(String(error))) throw error;
+    }
+  }
+  await client.executeMultiple(`
+    CREATE TABLE IF NOT EXISTS folio_invoice_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER NOT NULL,
+      event_id TEXT NOT NULL,
+      event TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 0,
+      folio_invoice_id TEXT NOT NULL DEFAULT '',
+      previous_invoice_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT '',
+      fphm TEXT NOT NULL DEFAULT '',
+      kprq TEXT NOT NULL DEFAULT '',
+      red_reason_code TEXT NOT NULL DEFAULT '',
+      applied INTEGER NOT NULL DEFAULT 0,
+      notice_kind TEXT NOT NULL DEFAULT '',
+      agent_notify_status TEXT NOT NULL DEFAULT '',
+      agent_notify_error TEXT NOT NULL DEFAULT '',
+      agent_notify_attempts INTEGER NOT NULL DEFAULT 0,
+      agent_notified_at TEXT,
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS folio_invoice_events_event_id_uq ON folio_invoice_events(event_id);
+    CREATE INDEX IF NOT EXISTS folio_invoice_events_order_idx ON folio_invoice_events(order_id, id);
+    CREATE TABLE IF NOT EXISTS folio_nonces (
+      nonce TEXT PRIMARY KEY,
+      expires_at TEXT NOT NULL
+    );
+  `);
 }
 
 /** 店铺邀请返券。全是 IF NOT EXISTS / 重复列忽略，可以反复跑。 */

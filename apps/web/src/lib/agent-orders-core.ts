@@ -62,6 +62,32 @@ export function agentOrderStatus(payStatus: string, fulfillStatus: string): {
   }
 }
 
+/**
+ * 代理订单列表的开票状态。只给状态，不给抬头和税号。
+ * 没申请开票、没付款的不显示；Folio 对接关着、这单也没进过 Folio 时同样不显示，和没接 Folio 时一样。
+ */
+export function agentInvoiceStatus(
+  order: {
+    invoiceRequested: boolean;
+    payStatus: string;
+    folioPushStatus: string;
+    invoiceStatus: string;
+  },
+  folioEnabled: boolean,
+): { label: string; tone: AgentOrderTone; hint: string } | null {
+  if (!order.invoiceRequested) return null;
+  if (order.invoiceStatus === "reddened") return { label: "已作废", tone: "muted", hint: "" };
+  if (order.invoiceStatus === "issued") return { label: "已开票", tone: "ok", hint: "" };
+  // 退款前没开出来的票 Folio 会作废，代理这边就不再显示
+  if (order.payStatus !== "paid" && order.payStatus !== "manual") return null;
+  if (!folioEnabled && !order.folioPushStatus && !order.invoiceStatus) return null;
+  if (order.folioPushStatus === "rejected" || order.folioPushStatus === "failed") {
+    return { label: "开票异常", tone: "bad", hint: "请联系平台" };
+  }
+  if (order.folioPushStatus === "pushed") return { label: "开票中", tone: "wait", hint: "" };
+  return { label: "待开票", tone: "wait", hint: "" };
+}
+
 /** 订单号或邮箱搜索：带 @ 当邮箱精确匹配，否则按订单号包含匹配。去掉 LIKE 通配符。 */
 export function parseAgentOrderKeyword(value: string | null | undefined) {
   const text = String(value || "").trim().replace(/[%_]/g, "").slice(0, 254);
