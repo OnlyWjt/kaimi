@@ -871,6 +871,75 @@ select.km-input option {
   background: var(--km-bg-muted);
 }
 
+a.km-od-act {
+  color: inherit;
+  text-decoration: none;
+}
+
+.km-od-act:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* 开票区块：标题行右侧放操作，下面是事实格和最近几条 Folio 回调 */
+.km-od-invoice {
+  margin-top: 0.75rem;
+}
+
+.km-od-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.km-od-head h4 {
+  margin: 0;
+}
+
+.km-od-head-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.km-od-invoice .km-od-facts {
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+}
+
+.km-od-ev {
+  font-size: 0.8rem;
+  font-weight: 550;
+}
+
+.km-od-ev span {
+  margin-left: 0.4rem;
+  color: var(--km-fg-muted);
+  font-size: 0.7rem;
+  font-weight: 450;
+}
+
+.km-od-invoice .km-od-message {
+  margin-top: 0.7rem;
+}
+
+.km-od-events {
+  margin-top: 0.7rem;
+  border-top: 1px solid var(--km-border);
+}
+
+.km-od-events .km-od-line:first-of-type {
+  border-top: 0;
+}
+
+.km-od-events .km-od-line > .km-od-sub {
+  max-width: 55%;
+  margin: 0;
+  text-align: right;
+}
+
 @media (max-width: 767px) {
   .km-od {
     padding: 0.85rem;
@@ -882,6 +951,10 @@ select.km-input option {
 
   .km-od-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .km-od-invoice .km-od-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

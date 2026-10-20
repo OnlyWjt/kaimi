@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { agents, issuedCdks, orders, storeOrders, users } from "@/db/schema";
+import { agents, folioInvoiceEvents, issuedCdks, orders, storeOrders, users } from "@/db/schema";
 import { agentIdentityLabel } from "@/lib/agent-identity-core";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { decryptSecret, maskCode } from "@/lib/crypto";
 import { FINISHED_GPT_PLAN_KEY } from "@/lib/finished-account-core";
+import { FOLIO_REPUSH_STATUSES } from "@/lib/folio/push";
+import { readFolioConfig } from "@/lib/folio/sign";
 
 function deliveryPreview(code: string, finished: boolean) {
   if (!code) return "";
@@ -51,6 +53,7 @@ export async function GET(_req: Request, context: { params: Promise<{ orderNo: s
     })
     .from(orders)
     .where(eq(orders.storeOrderId, order.id));
+  const invoice = order.invoiceRequested ? await loadInvoiceBlock(order) : null;
   return NextResponse.json({
     orderNo: order.orderNo,
     agent: agent ? agentIdentityLabel(agent) : "",
@@ -77,5 +80,45 @@ export async function GET(_req: Request, context: { params: Promise<{ orderNo: s
       };
     }),
     redemptions,
+    invoice,
   });
+}
+
+async function loadInvoiceBlock(order: typeof storeOrders.$inferSelect) {
+  const [config, events] = await Promise.all([
+    readFolioConfig(),
+    db
+      .select({
+        id: folioInvoiceEvents.id,
+        event: folioInvoiceEvents.event,
+        version: folioInvoiceEvents.version,
+        applied: folioInvoiceEvents.applied,
+        noticeKind: folioInvoiceEvents.noticeKind,
+        agentNotifyStatus: folioInvoiceEvents.agentNotifyStatus,
+        agentNotifyError: folioInvoiceEvents.agentNotifyError,
+        createdAt: folioInvoiceEvents.createdAt,
+      })
+      .from(folioInvoiceEvents)
+      .where(eq(folioInvoiceEvents.orderId, order.id))
+      .orderBy(desc(folioInvoiceEvents.id))
+      .limit(5),
+  ]);
+  return {
+    folioEnabled: config.enabled,
+    pushStatus: order.folioPushStatus,
+    pushError: order.folioPushError,
+    pushedAt: order.folioPushedAt,
+    folioInvoiceId: order.folioInvoiceId,
+    status: order.invoiceStatus,
+    invoiceNo: order.invoiceNo,
+    issuedAt: order.invoiceIssuedAt,
+    pdfUrl: order.invoicePdfUrl,
+    refundAction: order.folioRefundAction,
+    canPush:
+      config.enabled &&
+      order.payStatus === "paid" &&
+      (FOLIO_REPUSH_STATUSES as readonly string[]).includes(order.folioPushStatus),
+    canResendNotice: events.some((row) => row.noticeKind !== ""),
+    events,
+  };
 }

@@ -11,6 +11,8 @@ import { currentBotInfo, issueAgentBindCode, unbindAgentTelegram } from "@/lib/t
 const saveSchema = z.object({
   action: z.literal("save"),
   telegramNotifyEnabled: z.boolean(),
+  // 老页面没有这个字段，缺省时不改
+  invoiceNotifyEnabled: z.boolean().optional(),
   mailDeliveryEnabled: z.boolean(),
   mailFromName: z.string().max(80),
   mailReplyTo: z.string().max(200),
@@ -36,6 +38,7 @@ async function snapshot(agentId: number) {
     telegramBound: Boolean(agent.telegramChatId),
     telegramUsername: agent.telegramUsername,
     telegramNotifyEnabled: agent.telegramNotifyEnabled,
+    invoiceNotifyEnabled: agent.invoiceNotifyEnabled,
     mailDeliveryEnabled: agent.mailDeliveryEnabled,
     mailFromName: agent.mailFromName,
     mailReplyTo: agent.mailReplyTo,
@@ -91,6 +94,9 @@ export async function POST(req: Request) {
     .update(agents)
     .set({
       telegramNotifyEnabled: parsed.data.telegramNotifyEnabled,
+      ...(parsed.data.invoiceNotifyEnabled === undefined
+        ? {}
+        : { invoiceNotifyEnabled: parsed.data.invoiceNotifyEnabled }),
       mailDeliveryEnabled: parsed.data.mailDeliveryEnabled,
       mailFromName: cleanDisplayName(parsed.data.mailFromName),
       mailReplyTo: parsed.data.mailReplyTo.trim(),

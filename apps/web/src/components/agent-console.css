@@ -567,7 +567,11 @@ button.km-acp-row {
 }
 
 .km-acp-order-table {
-  min-width: 680px;
+  min-width: 760px;
+}
+
+.km-acp-order-table .c-invoice .none {
+  color: var(--km-fg-muted);
 }
 
 .km-acp-order-table .c-prod .product {
@@ -1353,6 +1357,7 @@ button.km-acp-row {
       "prod status"
       "order pay"
       "order earn"
+      "order invoice"
       "act act";
     gap: 0.3rem 0.75rem;
     padding: 0.9rem 0.15rem;
@@ -1369,9 +1374,13 @@ button.km-acp-row {
   .km-acp-order-table .c-pay { grid-area: pay; }
   .km-acp-order-table .c-earn { grid-area: earn; }
   .km-acp-order-table .c-status { grid-area: status; text-align: right; }
+  .km-acp-order-table .c-invoice { grid-area: invoice; text-align: right; }
+  .km-acp-order-table .c-invoice.is-none { display: none; }
+  .km-acp-order-table .c-invoice .hint { margin-left: auto; }
 
   .km-acp-order-table .c-pay::before,
-  .km-acp-order-table .c-earn::before {
+  .km-acp-order-table .c-earn::before,
+  .km-acp-order-table .c-invoice::before {
     content: attr(data-label) " ";
     color: var(--km-fg-muted);
     font-size: 0.72rem;

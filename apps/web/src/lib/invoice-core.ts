@@ -5,8 +5,8 @@ import type { FeeRule } from "./payments/fees";
 export const INVOICE_SURCHARGE_RATE = 0.1;
 export const INVOICE_TITLE_MAX = 120;
 export const INVOICE_NOTE_MAX = 200;
-/** 纳税人识别号、统一社会信用代码常见为 15、18 或 20 位。 */
-export const INVOICE_TAX_NO_RE = /^[0-9A-Z]{15,20}$/;
+/** 纳税人识别号、统一社会信用代码为 15、18 或 20 位。和 Folio 一致，16、17、19 位会被 Folio 拒收。 */
+export const INVOICE_TAX_NO_RE = /^(?:[0-9A-Z]{15}|[0-9A-Z]{18}|[0-9A-Z]{20})$/;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -102,7 +102,7 @@ export function normalizeInvoiceRequest(input: {
   if (title.length > INVOICE_TITLE_MAX) throw new Error("发票抬头过长");
   if (!taxNo) throw new Error("请填写纳税人识别号");
   if (!INVOICE_TAX_NO_RE.test(taxNo)) {
-    throw new Error("纳税人识别号须为 15–20 位字母或数字");
+    throw new Error("纳税人识别号须为 15、18 或 20 位字母或数字");
   }
   if (!note) throw new Error("请填写发票备注");
   if (note.length > INVOICE_NOTE_MAX) throw new Error("发票备注过长");

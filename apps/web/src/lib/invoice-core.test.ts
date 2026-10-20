@@ -138,7 +138,7 @@ describe("normalizeInvoiceRequest", () => {
         note: "备注",
         email: "a@b.com",
       }),
-    ).toThrow("纳税人识别号须为 15–20 位字母或数字");
+    ).toThrow("纳税人识别号须为 15、18 或 20 位字母或数字");
     expect(() =>
       normalizeInvoiceRequest({
         requested: true,
@@ -156,5 +156,29 @@ describe("normalizeInvoiceRequest", () => {
         fallbackEmail: "a@b.com",
       }),
     ).toThrow("请填写有效收票邮箱");
+  });
+});
+
+describe("纳税人识别号长度", () => {
+  const input = (taxNo: string) => ({
+    requested: true,
+    title: "某某公司",
+    taxNo,
+    note: "备注",
+    email: "billing" + String.fromCharCode(64) + "example.com",
+  });
+
+  it("15、18、20 位通过", () => {
+    for (const length of [15, 18, 20]) {
+      expect(normalizeInvoiceRequest(input("9".repeat(length - 1) + "X")).taxNo).toHaveLength(length);
+    }
+  });
+
+  it("16、17、19 位拒绝（Folio 不收）", () => {
+    for (const length of [14, 16, 17, 19, 21]) {
+      expect(() => normalizeInvoiceRequest(input("9".repeat(length)))).toThrow(
+        "纳税人识别号须为 15、18 或 20 位字母或数字",
+      );
+    }
   });
 });

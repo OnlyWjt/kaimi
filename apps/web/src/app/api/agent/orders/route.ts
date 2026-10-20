@@ -3,6 +3,7 @@ import { and, desc, eq, gte, inArray, like, lte, sql, type SQL } from "drizzle-o
 import { db } from "@/db";
 import { storeOrders } from "@/db/schema";
 import {
+  agentInvoiceStatus,
   agentOrderStatus,
   ATTENTION_FULFILL_STATUSES,
   parseAgentOrderKeyword,
@@ -14,6 +15,7 @@ import {
 import { requireAgent } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { decryptSecret } from "@/lib/crypto";
+import { readFolioConfig } from "@/lib/folio/sign";
 import { getPublicBaseUrl } from "@/lib/public-url";
 import { storeOrderQueryUrl } from "@/lib/store-order-links";
 
@@ -64,7 +66,7 @@ export async function GET(req: Request) {
   const viewWhere = viewCondition(view);
   const where = and(...base, ...(viewWhere ? [viewWhere] : []));
 
-  const [list, [{ total }], [{ attention }], origin] = await Promise.all([
+  const [list, [{ total }], [{ attention }], origin, folio] = await Promise.all([
     db.query.storeOrders.findMany({
       where,
       orderBy: [desc(storeOrders.id)],
@@ -78,6 +80,7 @@ export async function GET(req: Request) {
       .from(storeOrders)
       .where(and(eq(storeOrders.agentId, session.agentId), viewCondition("attention"))),
     getPublicBaseUrl(req),
+    readFolioConfig(),
   ]);
 
   return NextResponse.json({
@@ -111,6 +114,7 @@ export async function GET(req: Request) {
         statusLabel: status.label,
         statusTone: status.tone,
         statusHint: status.hint,
+        invoiceStatus: agentInvoiceStatus(order, folio.enabled),
         feeReconcileStatus: order.feeReconcileStatus,
         deliveryMailStatus: order.deliveryMailStatus,
         canResendMail: order.fulfillStatus === "delivered" && PAID.includes(order.payStatus),

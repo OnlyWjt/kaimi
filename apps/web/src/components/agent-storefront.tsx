@@ -453,7 +453,7 @@ export function AgentStorefront({
         setBuyError(t.detail.invoiceTaxNoRequired);
         return;
       }
-      if (!/^[0-9A-Z]{15,20}$/.test(taxNo)) {
+      if (!/^(?:[0-9A-Z]{15}|[0-9A-Z]{18}|[0-9A-Z]{20})$/.test(taxNo)) {
         setBuyError(t.detail.invoiceTaxNoInvalid);
         return;
       }
