@@ -2,11 +2,13 @@ import nodemailer from "nodemailer";
 import { db } from "@/db";
 import { agents, issuedCdks, storeOrders } from "@/db/schema";
 import { publicShopName } from "@/lib/agent-names";
-import { loadAgentContacts } from "@/lib/agent-contact";
-import { afterSalesMailLines } from "@/lib/agent-contact-core";
 import { getSetting, setSetting } from "@/lib/config";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
+import { formatBeijingDateTime } from "@/lib/datetime";
 import { buildMailFrom, isValidMailFrom, mailDisplayName } from "@/lib/mail-core";
+import { renderShopMail } from "@/lib/mail-template";
+import type { MailContext, MailTemplateKey, RenderedMail } from "@/lib/mail-template-core";
+import { getPublicBaseUrl } from "@/lib/public-url";
 import { storeOrderQueryUrl } from "@/lib/store-order-links";
 import { and, eq, gte, inArray, lt, or, sql } from "drizzle-orm";
 
@@ -106,6 +108,23 @@ export async function sendTestMail(to: string) {
   });
 }
 
+/** 模板编辑页的「发测试邮件」。agentId 给了就用那家店的发件人名称和回复邮箱。只要求平台开了邮件发送。 */
+export async function sendTemplateTestMail(input: { agentId: number | null; to: string; mail: RenderedMail }) {
+  const { settings, mailer } = await transporter();
+  if (!settings.enabled) throw new Error("平台还没启用邮件发送");
+  const agent = input.agentId ? await db.query.agents.findFirst({ where: eq(agents.id, input.agentId) }) : null;
+  const shop = agent ? publicShopName(agent) : "";
+  const displayName = mailDisplayName(agent?.mailFromName || "") || mailDisplayName(settings.fromName) || shop;
+  await mailer.sendMail({
+    from: buildMailFrom(displayName, settings.from || settings.user),
+    replyTo: agent && validReplyTo(agent.mailReplyTo) ? agent.mailReplyTo.trim() : undefined,
+    to: input.to.trim(),
+    subject: `[测试] ${input.mail.subject}`,
+    text: input.mail.text,
+    html: input.mail.html,
+  });
+}
+
 const MAIL_ATTEMPTS = 5;
 const MAIL_RETRY_MS = 3 * 24 * 60 * 60 * 1000;
 const MAIL_SENDING_STALE_MS = 2 * 60 * 1000;
@@ -194,20 +213,39 @@ export async function sendDeliveryMail(orderId: number) {
     const from = buildMailFrom(displayName, settings.from || settings.user);
     const replyTo = agent && validReplyTo(agent.mailReplyTo) ? agent.mailReplyTo.trim() : undefined;
     // 邀请好友卡片：店铺开了邀请有礼、这个买家有邀请码时才有。出错不影响发货邮件。
-    const inviteLines = await import("@/lib/referrals")
-      .then(({ referralInviteMailLines }) => referralInviteMailLines(order))
-      .catch(() => [] as string[]);
-    // 售后联系方式放在卡密后面：买家有问题先找店主，不要去支付渠道投诉。
-    const afterSalesLines = agent ? afterSalesMailLines(await loadAgentContacts(agent.id)) : [];
-    const body = [shop, `订单号 ${order.orderNo}`, "", ...lines, ...afterSalesLines, ...inviteLines]
-      .filter((line, index) => line || index > 0)
-      .join("\n");
+    const invite = await import("@/lib/referrals")
+      .then(({ referralInviteMailBlock }) => referralInviteMailBlock(order))
+      .catch(() => null);
+    const origin = await getPublicBaseUrl();
+    let queryUrl = "";
+    if (origin && order.queryTokenEncrypted) {
+      try {
+        queryUrl = storeOrderQueryUrl(origin, order.orderNo, decryptSecret(order.queryTokenEncrypted));
+      } catch {
+        queryUrl = "";
+      }
+    }
+    // 标题、正文按代理 / 平台的模板来；售后联系区块由模板模块补上
+    const mail = await renderShopMail("delivery", order.agentId, {
+      vars: {
+        shop: shop || "订单",
+        order_no: order.orderNo,
+        product: order.productNameSnapshot,
+        quantity: String(order.quantity || 1),
+        paid_at: formatBeijingDateTime(order.paidAt),
+        buyer_email: order.customerEmail,
+        query_url: queryUrl,
+      },
+      items: lines,
+      invite,
+    });
     await mailer.sendMail({
       from,
       replyTo,
       to: order.customerEmail,
-      subject: `${shop || "订单"} ${order.orderNo}`,
-      text: body,
+      subject: mail.subject,
+      text: mail.text,
+      html: mail.html,
     });
     await writeDeliveryMail(orderId, "sent", "");
   } catch (error) {
@@ -226,8 +264,8 @@ export type ShopMailResult = { sent: true } | { sent: false; reason: string };
 export async function sendShopMail(input: {
   agentId: number;
   to: string;
-  subject: (shop: string) => string;
-  lines: (shop: string) => string[];
+  template: MailTemplateKey;
+  context: (shop: string) => Omit<MailContext, "afterSales">;
 }): Promise<ShopMailResult> {
   const settings = await readMailSettings();
   if (!settings.enabled || !settings.orderEnabled || !settings.host) {
@@ -244,8 +282,7 @@ export async function sendShopMail(input: {
     from: buildMailFrom(displayName, settings.from || settings.user),
     replyTo: validReplyTo(agent.mailReplyTo) ? agent.mailReplyTo.trim() : undefined,
     to: input.to.trim(),
-    subject: input.subject(shop),
-    text: [shop, "", ...input.lines(shop)].join("\n"),
+    ...(await renderShopMail(input.template, agent.id, input.context(shop))),
   });
   return { sent: true };
 }
@@ -295,7 +332,7 @@ export async function sendOrderLinksMail(input: {
     orderBy: (table, { desc }) => [desc(table.id)],
     limit: 20,
   });
-  const lines = orders.flatMap((order) => {
+  const links = orders.flatMap((order) => {
     if (!order.queryTokenEncrypted) return [];
     let token = "";
     try {
@@ -304,9 +341,9 @@ export async function sendOrderLinksMail(input: {
       return [];
     }
     const url = storeOrderQueryUrl(input.baseUrl, order.orderNo, token);
-    return [`${order.productNameSnapshot}  订单号 ${order.orderNo}`, url, ""];
+    return [{ product: order.productNameSnapshot, orderNo: order.orderNo, url }];
   });
-  if (!lines.length) return 0;
+  if (!links.length) return 0;
   const { settings, mailer } = await transporter();
   const shop = publicShopName(agent);
   const displayName = mailDisplayName(agent.mailFromName || "") || mailDisplayName(settings.fromName) || shop;
@@ -314,16 +351,12 @@ export async function sendOrderLinksMail(input: {
     from: buildMailFrom(displayName, settings.from || settings.user),
     replyTo: validReplyTo(agent.mailReplyTo) ? agent.mailReplyTo.trim() : undefined,
     to: email,
-    subject: `${shop || "订单"} 查单链接`,
-    text: [
-      shop,
-      "下面是你在本店的订单，点链接查看卡密和发货状态。不是你本人操作的请忽略这封邮件。",
-      "",
-      ...lines,
-      ...afterSalesMailLines(await loadAgentContacts(agent.id)),
-    ].join("\n"),
+    ...(await renderShopMail("order_links", agent.id, {
+      vars: { shop: shop || "订单", buyer_email: email },
+      orders: links,
+    })),
   });
-  return lines.length / 3;
+  return links.length;
 }
 
 /**

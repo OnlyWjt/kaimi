@@ -54,6 +54,7 @@ import {
   sendReferralCouponNotice,
   sendReferralCouponReminders,
 } from "@/lib/referrals-mail";
+import type { InviteBlock } from "@/lib/mail-template-core";
 
 export { ReferralError, referralEmailHash } from "@/lib/referrals-shared";
 export {
@@ -790,30 +791,23 @@ async function notifyAgentReferral(agentId: number, text: (shop: string) => stri
   }
 }
 
-/** 发货邮件末尾的「邀请好友」一段。没开活动、没邀请码、没配公网地址就返回空。 */
-export async function referralInviteMailLines(order: {
+/** 发货邮件里的「邀请好友」区块。没开活动、没邀请码、没配公网地址就返回 null。 */
+export async function referralInviteMailBlock(order: {
   id: number;
   agentId: number;
   customerEmail: string;
   fulfillStatus: string;
   referralProcessedAt: string | null;
-}) {
+}): Promise<InviteBlock | null> {
   const origin = await getPublicBaseUrl();
-  if (!origin) return [];
+  if (!origin) return null;
   // 发货邮件和邀请处理是同时触发的，先把邀请码补上（幂等）
   if (order.fulfillStatus === "delivered" && !order.referralProcessedAt) {
     await processDeliveredOrderReferral(order.id);
   }
   const view = await buyerReferralView(order, origin);
-  if (!view?.invite) return [];
-  return [
-    "",
-    "————————",
-    "邀请好友，得邀请券",
-    view.invite.rule,
-    view.invite.link,
-    `好友没点链接的话，下单时填邀请码 ${view.invite.code} 也行。`,
-  ];
+  if (!view?.invite) return null;
+  return { rule: view.invite.rule, link: view.invite.link, code: view.invite.code };
 }
 
 export async function runReferralJobs() {

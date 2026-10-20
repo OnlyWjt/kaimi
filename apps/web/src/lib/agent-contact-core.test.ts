@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   afterSalesContacts,
-  afterSalesMailLines,
   contactGate,
   contactHref,
   contactValueError,
@@ -81,18 +80,6 @@ describe("afterSalesContacts / mail", () => {
       item("telegram", "@kaimi_help"),
     ]);
     expect(list.map((c) => c.type)).toEqual(["telegram", "email"]);
-  });
-  it("邮件段落带默认名称和自定义名称", () => {
-    expect(afterSalesMailLines([item("qq", "123456"), item("wechat", "kaimi_help", "售后微信")])).toEqual([
-      "",
-      "售后联系",
-      "卡密或账号有任何问题，请直接联系店主处理：",
-      "QQ：123456",
-      "售后微信：kaimi_help",
-    ]);
-  });
-  it("没有联系方式时邮件不加段落", () => {
-    expect(afterSalesMailLines([])).toEqual([]);
   });
   it("Telegram 链接和用户名都能生成跳转", () => {
     expect(contactHref(item("telegram", "@kaimi_help"))).toBe("https://t.me/kaimi_help");
