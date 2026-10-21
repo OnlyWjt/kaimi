@@ -18,6 +18,8 @@ import {
   batchRowStateFromOrder,
   batchSubmitFailureState,
   canRetryBatchRow,
+  mergeBatchPrechecks,
+  PRECHECK_PLAN_LIMIT,
   takeRedeemCodes,
   type BatchRowState,
 } from "@/lib/recharge-batch-core";
@@ -27,6 +29,7 @@ type Row = {
   code: string;
   codeMasked: string;
   state: BatchRowState;
+  planKey: string;
   planName: string;
   message: string;
   orderNo: string;
@@ -86,6 +89,8 @@ export function BatchRedeemForm({
   const [session, setSession] = useState("");
   const [email, setEmail] = useState("");
   const [preview, setPreview] = useState<SessionPreview | null>(null);
+  /** 预检判定这个账号兑不了的套餐：planKey → 原因。换 Session 就作废。 */
+  const [blockedPlans, setBlockedPlans] = useState<Record<string, string>>({});
   const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -94,7 +99,9 @@ export function BatchRedeemForm({
 
   const parsed = useMemo(() => takeRedeemCodes(codeText, limit), [codeText, limit]);
   const sessionOk = Boolean(preview?.ok && preview.source === "cardplatform");
-  const readyCodes = rows.filter((row) => row.state === "ready").map((row) => row.code);
+  const readyCodes = rows
+    .filter((row) => row.state === "ready" && !blockedPlans[row.planKey])
+    .map((row) => row.code);
   const credentialReady = Boolean(session.trim()) && sessionOk;
 
   const stats = useMemo(() => {
@@ -103,11 +110,13 @@ export function BatchRedeemForm({
       if (row.state === "success") out.ok += 1;
       else if (row.state === "failed" || row.state === "invalid") out.bad += 1;
       else if (row.state === "unknown") out.unsure += 1;
+      // 预检判定账号兑不了的那几张不提交，不算「待兑换」。
+      else if (row.state === "ready" && blockedPlans[row.planKey]) continue;
       else if (row.state === "ready" || row.state === "pending") out.wait += 1;
       else out.run += 1;
     }
     return out;
-  }, [rows]);
+  }, [rows, blockedPlans]);
 
   useEffect(() => {
     if (!orderRef?.orderNo || !orderRef.queryToken) return;
@@ -198,6 +207,7 @@ export function BatchRedeemForm({
         code: item.code,
         codeMasked: item.codeMasked || item.code,
         state,
+        planKey: item.planKey || "",
         planName: item.planName || "",
         message: item.ok ? "" : item.error,
         // 校验通过说明这张还没用过，之前那笔失败单的单号是旧的，别再挂着。
@@ -241,29 +251,54 @@ export function BatchRedeemForm({
     }
   }
 
+  /**
+   * 每种套餐挑一张去预检。同一个账号，Plus 能兑不代表点数、续费也能兑，
+   * 以前只拿第一张去问，混着套餐的一批要到提交后才一张张失败。
+   */
+  function precheckPicks() {
+    const byPlan = new Map<string, Row>();
+    for (const row of rows) {
+      if (row.state === "ready" && !byPlan.has(row.planKey)) byPlan.set(row.planKey, row);
+    }
+    const picks = [...byPlan.values()].slice(0, PRECHECK_PLAN_LIMIT);
+    if (picks.length) return picks.map((row) => ({ code: row.code, planKey: row.planKey, planName: row.planName }));
+    const code = rows[0]?.code || parsed.codes[0] || "";
+    return code ? [{ code, planKey: rows[0]?.planKey || "", planName: rows[0]?.planName || "" }] : [];
+  }
+
   async function precheckSession() {
-    const firstCode = readyCodes[0] || rows[0]?.code || parsed.codes[0] || "";
+    const picks = precheckPicks();
     if (!session.trim()) {
       setError("请先粘贴 Session");
       return;
     }
-    if (!firstCode) {
+    if (!picks.length) {
       setError("请先校验卡密");
       return;
     }
     setChecking(true);
     setError("");
     setPreview(null);
+    setBlockedPlans({});
     try {
-      const res = await fetch("/api/recharge/session-check", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session: session.trim(), code: firstCode }),
-      });
-      const data = (await readRedeemJson(res)) as SessionPreview;
+      const results: { planKey: string; planName: string; data: SessionPreview }[] = [];
+      for (const pick of picks) {
+        const res = await fetch("/api/recharge/session-check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session: session.trim(), code: pick.code }),
+        });
+        const data = (await readRedeemJson(res)) as SessionPreview;
+        results.push({ planKey: pick.planKey, planName: pick.planName, data });
+        // Session 本身不行，换哪种套餐问结论都一样，别再多打卡台。
+        if (!data.ok && data.verdict !== "block") break;
+      }
+      const merged = mergeBatchPrechecks(results);
+      const data = merged.preview;
       setPreview(data);
-      if (data.ok && data.email) setEmail(data.email);
-      if (!data.ok && !data.errors?.length) {
+      setBlockedPlans(merged.blocked);
+      if (data?.ok && data.email) setEmail(data.email);
+      if (data && !data.ok && !data.errors?.length) {
         setError(redeemApiError(data, "Session 预检未通过"));
       }
     } catch (reason) {
@@ -419,6 +454,10 @@ export function BatchRedeemForm({
     }
   }
 
+  function skipReason(row: Row) {
+    return row.state === "ready" ? blockedPlans[row.planKey] || "" : "";
+  }
+
   function reset() {
     setRows([]);
     setChecked(false);
@@ -426,6 +465,7 @@ export function BatchRedeemForm({
     setSession("");
     setEmail("");
     setPreview(null);
+    setBlockedPlans({});
     setError("");
     setNote("");
   }
@@ -485,6 +525,7 @@ export function BatchRedeemForm({
             onChange={(value) => {
               setSession(value);
               setPreview(null);
+              setBlockedPlans({});
             }}
           />
 
@@ -576,14 +617,15 @@ export function BatchRedeemForm({
                   <div className="km-rx-row-head">
                     <span className="font-mono">{row.codeMasked}</span>
                     {row.planName ? <span className="km-rx-row-plan">{row.planName}</span> : null}
-                    <span className={`km-rx-row-badge ${badgeClass(row.state)}`}>
-                      {publicStatusLabel(row.state, "batch")}
+                    <span className={`km-rx-row-badge ${skipReason(row) ? "km-badge km-badge-bad" : badgeClass(row.state)}`}>
+                      {skipReason(row) ? "跳过" : publicStatusLabel(row.state, "batch")}
                     </span>
                   </div>
-                  {row.accountEmail || row.message || row.state === "unknown" ? (
+                  {row.accountEmail || row.message || row.state === "unknown" || skipReason(row) ? (
                     <div className="km-rx-row-detail">
                       {row.accountEmail ? <p>账号 {row.accountEmail}</p> : null}
                       {row.message ? <p>{row.message}</p> : null}
+                      {skipReason(row) ? <p className="km-rx-row-warn">这个账号兑不了，不会提交：{skipReason(row)}</p> : null}
                       {row.state === "unknown" ? <p className="km-rx-row-warn">正在确认，请不要重复提交。</p> : null}
                     </div>
                   ) : null}

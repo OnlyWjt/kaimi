@@ -17,6 +17,7 @@ const errorSchema = {
             "CDK_INVALID",
             "CDK_IN_FLIGHT",
             "REDEEM_BLOCKED",
+            "UPSTREAM_RATE_LIMITED",
             "INTERNAL",
           ],
         },
@@ -456,7 +457,7 @@ export const openApiSpec = {
     },
     "/sessions/check": {
       post: {
-        summary: "兑换前让卡台按卡密预检买家的 Session，不消耗卡密、不开通",
+        summary: "兑换前让卡台按卡密预检买家的 Session，并判断账号能不能兑这一档；不消耗卡密、不开通",
         requestBody: {
           required: true,
           content: {
@@ -476,11 +477,44 @@ export const openApiSpec = {
           "200": ok({
             type: "object",
             properties: {
-              ok: { type: "boolean" },
+              ok: { type: "boolean", description: "卡台预检通过且账号符合这张卡密的兑换条件" },
               email: { type: ["string", "null"] },
-              plan_hint: { type: ["string", "null"] },
+              plan_hint: { type: ["string", "null"], description: "老字段，同 current_plan" },
               has_active_subscription: { type: ["boolean", "null"] },
-              error_code: { type: ["string", "null"], enum: [null, "SESSION_INVALID", "CARDPLATFORM_ERROR"] },
+              current_plan: {
+                type: ["string", "null"],
+                description: "账号当前套餐：free / go / plus / pro_5x / pro_20x / pro_50x；认不出时为卡台原值",
+              },
+              subscription: {
+                type: ["object", "null"],
+                properties: {
+                  active: { type: ["boolean", "null"] },
+                  will_renew: { type: ["boolean", "null"] },
+                  delinquent: { type: ["boolean", "null"], description: "有未结清账单" },
+                  recovery_required: { type: ["boolean", "null"] },
+                  expires_at: { type: ["string", "null"], description: "当前订阅到期时间（ISO 8601），卡台没给时为 null" },
+                },
+              },
+              target_plan: { type: ["string", "null"], description: "这张卡密的套餐键" },
+              target_plan_name: { type: ["string", "null"] },
+              payment_country: { type: ["string", "null"] },
+              quote: {
+                type: ["object", "null"],
+                description: "卡台对这一档的实时订阅报价，仅供参考；点数、续费档没有报价",
+                properties: {
+                  currency: { type: "string" },
+                  amount_minor: { type: "integer" },
+                  minor_unit_exponent: { type: "integer", description: "JPY / CLP 为 0，不能固定除以 100" },
+                  amount: { type: "string", description: "已按 minor_unit_exponent 换算好的金额" },
+                  tax: { type: ["string", "null"], enum: [null, "inclusive", "exclusive"] },
+                },
+              },
+              error_code: {
+                type: ["string", "null"],
+                description:
+                  "SESSION_INVALID（格式不对）、卡台原因码（GPT_SESSION_INVALID 等）、本站资格判断（GPT_PLAN_ALREADY_ACTIVE、GPT_CREDIT_REQUIRES_SUBSCRIPTION、GPT_RENEW_TARGET_NOT_PRO、GPT_RENEW_SUBSCRIPTION_EXPIRED、PROMOTION_NOT_ELIGIBLE、GPT_PRICE_UNCONFIRMED），卡台没给码时为 CARDPLATFORM_ERROR",
+              },
+              retryable: { type: ["boolean", "null"], description: "原样重试有没有可能通过；资格不符为 false" },
               errors: { type: "array", items: { type: "string" } },
               warnings: { type: "array", items: { type: "string" } },
             },

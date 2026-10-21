@@ -13,7 +13,8 @@ const schema = z.object({
 });
 
 /**
- * 兑换前校验买家的 Session：转发卡台兑换预检，和店铺兑换页的「校验 Session」是同一个检查。
+ * 兑换前校验买家的 Session：转发卡台兑换预检，再按卡密套餐判断账号资格（点数要已有订阅、
+ * 续费要账号就在对应档、半价要有活动资格…），和店铺兑换页的「校验 Session」是同一个检查。
  * 权限 redeem:write。预检不消耗卡密，也不会开通。
  *
  * 校验没过是正常结果，HTTP 200、data.ok=false；只有参数错、卡密不是本店的才返回错误。
@@ -42,5 +43,11 @@ export async function POST(req: Request) {
       return openFail("CDK_INVALID", "卡密无效或不是本店卖出的");
     }
   }
-  return openOk(sessionCheckPayload(await verifySessionForRedeem(session, code)));
+  const checked = await verifySessionForRedeem(session, code);
+  // 卡台预检按出口 IP 限流，所有店铺共用本站这一个出口。被限流不是买家 Session 的问题，
+  // 回 200 + ok=false 会让调用方叫买家重贴，所以单独回 429 让他退避。
+  if (checked.httpStatus === 429 || checked.errorCode === "GPT_PREFLIGHT_RATE_LIMITED") {
+    return openFail("UPSTREAM_RATE_LIMITED", checked.errors[0] || "卡台预检太频繁，请稍后再试");
+  }
+  return openOk(sessionCheckPayload(checked));
 }

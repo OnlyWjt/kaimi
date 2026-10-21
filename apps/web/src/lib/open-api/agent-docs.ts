@@ -33,6 +33,7 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
             ["CONFLICT", "409", "同一个 Idempotency-Key 正在处理，或被用到了不同的请求上"],
             ["RATE_LIMITED", "429", "这把 Key 超过每分钟次数"],
             ["REDEEM_BLOCKED", "429", "这把 Key 兑换失败过多，暂时封禁。不影响店铺前台"],
+            ["UPSTREAM_RATE_LIMITED", "429", "卡台预检太频繁，等一会再试，不是买家 Session 的问题"],
             ["INTERNAL", "500", "服务端错误"],
           ],
         },
@@ -237,7 +238,7 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
       id: "session-check",
       title: "POST /sessions/check  校验 Session",
       blocks: [
-        { kind: "p", text: "权限 redeem:write，和提交兑换同一把 Key。买家提交兑换前，拿他贴的 Session 和要兑的卡密让卡台预检一次，和店铺兑换页的「校验 Session」是同一个检查。预检不消耗卡密，也不会开通；不对就当场让买家重贴，不用等兑换失败。" },
+        { kind: "p", text: "权限 redeem:write，和提交兑换同一把 Key。买家提交兑换前，拿他贴的 Session 和要兑的卡密让卡台预检一次，再判断这个账号能不能兑这一档，和店铺兑换页的「校验 Session」是同一个检查。预检不消耗卡密，也不会开通；不对就当场让买家重贴或换账号，不用等兑换失败。" },
         {
           kind: "table",
           headers: ["字段", "必填", "说明"],
@@ -246,7 +247,21 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
             ["code", "是", "要兑换的卡密，必须是本店卖出的"],
           ],
         },
-        { kind: "p", text: "校验没过是正常结果：HTTP 200，data.ok 为 false，errors 里的话可以直接给买家看。只有参数不对、卡密不是本店卖出的才返回错误。拿不属于本店的卡密反复调用，会和提交兑换一样计入失败次数并被暂时封禁。Session 含登录凭证，本站不保存也不记日志。" },
+        { kind: "p", text: "校验没过是正常结果：HTTP 200，data.ok 为 false，errors 里的话可以直接给买家看；按 error_code 分支，不要匹配文案。只有参数不对、卡密不是本店卖出的、卡台限流（429 UPSTREAM_RATE_LIMITED）才返回错误。拿不属于本店的卡密反复调用，会和提交兑换一样计入失败次数并被暂时封禁。Session 含登录凭证，本站不保存也不记日志。" },
+        {
+          kind: "table",
+          headers: ["error_code", "怎么处理"],
+          rows: [
+            ["SESSION_INVALID / GPT_SESSION_INVALID", "Session 格式不对或已过期，让买家重新复制"],
+            ["GPT_PLAN_ALREADY_ACTIVE", "账号这一档还在有效期内，不能重复开通"],
+            ["GPT_CREDIT_REQUIRES_SUBSCRIPTION", "点数卡要求账号已有生效中的 Plus / Pro"],
+            ["GPT_RENEW_TARGET_NOT_PRO / GPT_RENEW_SUBSCRIPTION_EXPIRED", "续费卡要求账号当前就在对应档且未到期，换账号或改买新开档"],
+            ["PROMOTION_NOT_ELIGIBLE", "账号不符合 Plus 半价资格"],
+            ["GPT_PRICE_UNCONFIRMED", "卡台暂时拿不到这一档的报价，稍后再预检"],
+            ["CARDPLATFORM_ERROR", "卡台没给原因码，errors 里是卡台原话"],
+          ],
+        },
+        { kind: "p", text: "上面这些资格问题，提交兑换时也会再判一次并直接判失败、卡密不动；预检只是让买家早点知道。warnings 是提示不是拦截，比如账号有欠费账单、当前已有别的订阅。quote 是卡台对这一档的实时订阅报价，仅供参考，amount 已按 minor_unit_exponent 换算好。" },
         {
           kind: "code",
           text: `curl -X POST ${base}/sessions/check \\
@@ -262,9 +277,16 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
     "email": "buyer@example.com",
     "plan_hint": "free",
     "has_active_subscription": false,
+    "current_plan": "free",
+    "subscription": { "active": false, "will_renew": false, "delinquent": false, "recovery_required": false, "expires_at": null },
+    "target_plan": "plus",
+    "target_plan_name": "Plus",
+    "payment_country": "PH",
+    "quote": { "currency": "PHP", "amount_minor": 98214, "minor_unit_exponent": 2, "amount": "982.14", "tax": "exclusive" },
     "error_code": null,
+    "retryable": null,
     "errors": [],
-    "warnings": ["当前账号没有有效订阅。"]
+    "warnings": []
   },
   "request_id": "req_..."
 }`,
