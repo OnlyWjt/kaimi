@@ -11,13 +11,15 @@ const schema = z.object({
   planKey: z.string().optional(),
 });
 
-/** 预检 Session：本地格式 + 卡台 preflight，通过后才能兑换 */
+/** 预检 Session：本地格式 + 卡台 preflight + 按卡密套餐判断资格，通过后才能兑换 */
 export async function POST(req: Request) {
   const limited = enforceRateLimit(req, "session-check", 15);
   if (limited) return limited;
   try {
     const body = schema.parse(await req.json());
     const checked = await verifySessionForRedeem(body.session, body.code);
+    const upstreamLimited =
+      checked.httpStatus === 429 || checked.errorCode === "GPT_PREFLIGHT_RATE_LIMITED";
 
     return NextResponse.json(
       {
@@ -29,11 +31,15 @@ export async function POST(req: Request) {
         planKey: body.planKey,
         summary: checked.summary,
         error_code: checked.errorCode,
+        retryable: checked.retryable,
         errors: checked.errors,
         warnings: checked.warnings,
         source: checked.source,
+        verdict: checked.eligibility?.verdict,
+        // 卡台报价是代理的成本线，这条接口直接回浏览器，一个字都不能带。
+        target: checked.target,
       },
-      { status: checked.ok ? 200 : 400 },
+      { status: checked.ok ? 200 : upstreamLimited ? 429 : 400 },
     );
   } catch (err) {
     const message = publicErrorMessage(err, "预检失败", "recharge/session-check");

@@ -7,6 +7,8 @@ import { RedeemRejectedError } from "@/lib/redeem-guard-core";
 import { publicErrorMessage } from "@/lib/public-error";
 import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
 import { MAILBOX_REDEEM_REMOVED } from "@/lib/recharge-types";
+import { assessEligibility } from "@/lib/cardplatform/preflight-core";
+import { CardplatformError } from "@/lib/cardplatform/client";
 
 const schema = z.object({
   code: z.string().min(REDEEM_CODE_MIN_LENGTH),
@@ -42,8 +44,28 @@ export async function POST(req: Request) {
         email: body.credential?.email || body.email || "",
       },
     });
+    // 这条接口直接回浏览器：卡台报价是代理的成本线，资格结果里的 quote 和原始的 quotes / promotions 都要去掉。
+    const { quote: _quote, ...eligibility } = assessEligibility(
+      preflight.account,
+      preflight.redeemable.planKey,
+    );
+    if (eligibility.verdict === "block") {
+      return NextResponse.json(
+        { error: eligibility.reasons.join(" "), error_code: eligibility.code, eligibility },
+        { status: 400 },
+      );
+    }
+    // 卡台响应带 { code, data } 信封，以前整个摊开会把 data 套一层，账号字段全在 data 里拿不到。
+    const data = preflight.preflight.data;
+    const {
+      quotes: _quotes,
+      promotions: _promotions,
+      quote_error: _quoteError,
+      ...account
+    } = (data && typeof data === "object" ? data : preflight.preflight) as Record<string, unknown>;
     return NextResponse.json({
-      ...preflight.preflight,
+      ...account,
+      eligibility,
       ok: true,
       email: preflight.accountEmail,
       redemption_token: preflight.redemptionToken,
@@ -53,9 +75,13 @@ export async function POST(req: Request) {
     if (error instanceof RedeemRejectedError) {
       await recordRedeemFailure({ ip, outcome: error.outcome, route: "public-cdk-preflight" });
     }
+    const card = error instanceof CardplatformError ? error : null;
     return NextResponse.json(
-      { error: publicErrorMessage(error, "预检失败", "public/cdk/preflight") },
-      { status: 400 },
+      {
+        error: publicErrorMessage(error, "预检失败", "public/cdk/preflight"),
+        error_code: card?.errorCode || undefined,
+      },
+      { status: card?.httpStatus === 429 ? 429 : 400 },
     );
   }
 }

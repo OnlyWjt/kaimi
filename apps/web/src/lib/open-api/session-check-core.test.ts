@@ -22,10 +22,57 @@ describe("sessionCheckPayload", () => {
       email: "buyer@example.com",
       plan_hint: "free",
       has_active_subscription: false,
+      current_plan: null,
+      subscription: null,
+      target_plan: null,
+      target_plan_name: null,
+      payment_country: null,
+      quote: null,
       error_code: null,
+      retryable: null,
       errors: [],
       warnings: ["当前账号没有有效订阅。"],
     });
+  });
+
+  it("exposes the account, target plan and formatted quote", () => {
+    const quote = { country: "PH", currency: "PHP", upstreamPlan: "plus", amountMinor: 98214, minorUnitExponent: 2, tax: "exclusive" };
+    const payload = sessionCheckPayload(
+      result({
+        planHint: "免费版",
+        account: {
+          email: "buyer@example.com",
+          currentPlanRaw: "free",
+          currentPlan: "free",
+          subscription: { active: false, willRenew: false, recoveryRequired: false, delinquent: false, purchaseOrigin: "", expiresAt: "" },
+          preflightToken: "t",
+          preflightExpiresAt: "",
+          paymentCountry: "PH",
+          paymentCurrency: "PHP",
+          quotes: { plus: quote },
+          quoteError: "",
+          promotions: {},
+        },
+        target: { planKey: "plus", planName: "Plus", paymentCountry: "" },
+        eligibility: { verdict: "ok", code: null, reasons: [], warnings: [], quote },
+      }),
+    );
+    expect(payload).toMatchObject({
+      plan_hint: "free",
+      current_plan: "free",
+      subscription: { active: false, will_renew: false, delinquent: false, recovery_required: false, expires_at: null },
+      target_plan: "plus",
+      target_plan_name: "Plus",
+      payment_country: "PH",
+      quote: { currency: "PHP", amount_minor: 98214, minor_unit_exponent: 2, amount: "982.14", tax: "exclusive" },
+    });
+  });
+
+  it("passes eligibility blocks through as non-retryable", () => {
+    const payload = sessionCheckPayload(
+      result({ ok: false, errorCode: "GPT_CREDIT_REQUIRES_SUBSCRIPTION", retryable: false, errors: ["要先有订阅"] }),
+    );
+    expect(payload).toMatchObject({ ok: false, error_code: "GPT_CREDIT_REQUIRES_SUBSCRIPTION", retryable: false });
   });
 
   it("keeps the card platform error code and message", () => {

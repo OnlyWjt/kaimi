@@ -137,3 +137,72 @@ export async function mapPool<T, R>(
   );
   return results;
 }
+
+/** 批量预检最多拿几种套餐去问卡台。再多的那几种提交时照样会判资格，只是不提前告诉你。 */
+export const PRECHECK_PLAN_LIMIT = 6;
+
+export type BatchPrecheck = {
+  ok: boolean;
+  verdict?: "ok" | "warn" | "block";
+  errors?: string[];
+  warnings?: string[];
+  error?: string;
+  target?: { planKey: string; planName: string; paymentCountry: string };
+};
+
+/**
+ * 一批里每种套餐各预检一张，合成一个结果给界面看。
+ *
+ * Session 本身不行（格式错、过期、卡台报错）是整批的事，直接用那一条；只是某几种套餐
+ * 账号不够格（点数要已有订阅、续费要在对应档…）就把这几种挑出来跳过，其余照常兑。
+ * blocked 是 planKey → 原因，界面据此把那几张从「可提交」里拿掉。
+ */
+export function mergeBatchPrechecks<T extends BatchPrecheck>(
+  results: { planKey: string; planName: string; data: T }[],
+): { preview: T | null; blocked: Record<string, string> } {
+  if (!results.length) return { preview: null, blocked: {} };
+  const sessionFail = results.find((item) => !item.data.ok && item.data.verdict !== "block");
+  if (sessionFail) return { preview: sessionFail.data, blocked: {} };
+
+  const many = results.length > 1;
+  const label = (item: { planName: string; planKey: string }, text: string) =>
+    many ? `${item.planName || item.planKey}：${text}` : text;
+  const blocked: Record<string, string> = {};
+  const blockedNotes: string[] = [];
+  for (const item of results) {
+    if (item.data.ok) continue;
+    const reason = (item.data.errors?.length ? item.data.errors : [item.data.error || "账号不符合兑换条件"]).join(" ");
+    blocked[item.planKey] = reason;
+    // 原因里本来就带套餐名（「Codex 点数要求…」），只有一种套餐时不再加前缀。
+    blockedNotes.push(many ? `${item.planName || item.planKey} 的卡密不能兑：${reason}` : reason);
+  }
+  const passing = results.filter((item) => item.data.ok);
+  const first = passing[0];
+  if (!first) {
+    const base = results[0]!.data;
+    return { preview: { ...base, ok: false, errors: blockedNotes }, blocked };
+  }
+  const warnings = new Set<string>();
+  for (const item of passing) {
+    for (const warning of item.data.warnings ?? []) warnings.add(label(item, warning));
+  }
+  for (const item of results) {
+    if (!item.data.ok) warnings.add(`${item.planName || item.planKey} 的卡密不提交：${blocked[item.planKey]}`);
+  }
+  return {
+    preview: {
+      ...first.data,
+      ok: true,
+      errors: [],
+      warnings: [...warnings],
+      target: many
+        ? {
+            planKey: "",
+            planName: passing.map((item) => item.planName || item.planKey).join("、"),
+            paymentCountry: "",
+          }
+        : first.data.target,
+    },
+    blocked,
+  };
+}

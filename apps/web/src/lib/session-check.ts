@@ -1,5 +1,12 @@
 import { preflightRedeemableCdk } from "@/lib/cardplatform/redeem";
-import { nestedString } from "@/lib/cardplatform/issued-redemption";
+import { CardplatformError } from "@/lib/cardplatform/client";
+import {
+  accountPlanLabel,
+  assessEligibility,
+  preflightRetryable,
+  type PreflightAccount,
+  type PreflightEligibility,
+} from "@/lib/cardplatform/preflight-core";
 
 export type SessionSummary = {
   email?: string;
@@ -18,9 +25,17 @@ export type SessionCheckResult = {
   planHint?: string;
   summary?: SessionSummary;
   errorCode?: string;
+  /** 卡台返回的 HTTP 状态；429 时上层要原样回 429。 */
+  httpStatus?: number;
+  /** 原样再试有没有可能过（限流、卡台暂时不可用）。 */
+  retryable?: boolean;
   errors: string[];
   warnings: string[];
   source: "local" | "cardplatform";
+  /** 卡台预检通过后才有：账号现状和这张卡密的资格判断。 */
+  account?: PreflightAccount;
+  target?: { planKey: string; planName: string; paymentCountry: string };
+  eligibility?: PreflightEligibility;
 };
 
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -115,8 +130,8 @@ export function checkChatGPTSession(raw: string): SessionCheckResult {
 }
 
 /**
- * 兑换前完整预检：本地格式 → 卡台 /api/v1/cdk/preflight。
- * 只有卡台 ok 才算通过。
+ * 兑换前完整预检：本地格式 → 卡台 /api/v1/cdk/preflight → 按卡密套餐判断账号资格。
+ * 卡台 ok 且资格没被拦下才算通过。
  */
 export async function verifySessionForRedeem(
   raw: string,
@@ -138,44 +153,51 @@ export async function verifySessionForRedeem(
       code: code.trim(),
       account: { mode: "session", session: raw.trim(), email: local.email },
     });
-    const email =
-      preflight.accountEmail ||
-      nestedString(preflight.preflight, "email", "account_email") ||
-      local.email;
-    const planHint =
-      nestedString(preflight.preflight, "plan_type", "plan", "plan_key") ||
-      local.planHint;
-    const warnings: string[] = [];
-    const subscription = preflight.preflight.has_active_subscription;
-    if (subscription === false) {
-      warnings.push("当前账号没有有效订阅。");
-    }
-
+    const { account, redeemable } = preflight;
+    const eligibility = assessEligibility(account, redeemable.planKey);
+    const email = preflight.accountEmail || local.email;
+    const ok = eligibility.verdict !== "block";
+    const planLabel =
+      account.currentPlan || account.currentPlanRaw
+        ? accountPlanLabel(account.currentPlan, account.currentPlanRaw)
+        : local.planHint;
     return {
-      ok: true,
+      ok,
       email,
       name: local.name,
       hasAccessToken: true,
-      planHint,
+      planHint: planLabel,
       summary: {
         email,
-        plan_type: planHint,
-        has_active_subscription:
-          typeof subscription === "boolean" ? subscription : undefined,
+        plan_type: planLabel,
+        has_active_subscription: account.subscription.active ?? undefined,
+        expires_at: account.subscription.expiresAt || undefined,
       },
-      errors: [],
-      warnings,
+      errorCode: ok ? undefined : (eligibility.code ?? "PRECHECK_REJECTED"),
+      retryable: ok ? undefined : false,
+      errors: eligibility.reasons,
+      warnings: eligibility.warnings,
       source: "cardplatform",
+      account,
+      target: {
+        planKey: redeemable.planKey,
+        planName: redeemable.planName,
+        paymentCountry: redeemable.paymentCountry || account.paymentCountry,
+      },
+      eligibility,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : "卡台 Session 预检失败";
+    const card = err instanceof CardplatformError ? err : null;
     return {
       ok: false,
       email: local.email,
       name: local.name,
       hasAccessToken: local.hasAccessToken,
       planHint: local.planHint,
-      errorCode: "CARDPLATFORM_ERROR",
+      errorCode: card?.errorCode || "CARDPLATFORM_ERROR",
+      httpStatus: card?.httpStatus || undefined,
+      retryable: preflightRetryable(card?.errorCode, card?.httpStatus),
       errors: [message],
       warnings: [],
       source: "cardplatform",

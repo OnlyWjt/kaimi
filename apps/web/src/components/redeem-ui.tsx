@@ -100,22 +100,33 @@ export type SessionPreview = {
   source?: string;
   error?: string;
   error_code?: string;
+  retryable?: boolean;
+  /** ok / warn / block：卡台预检通过后按卡密套餐判断的资格。 */
+  verdict?: "ok" | "warn" | "block";
+  target?: { planKey: string; planName: string; paymentCountry: string };
 };
 
 /** Session 预检的结果框。 */
 export function SessionCheckResult({ preview }: { preview: SessionPreview }) {
   const plan = preview.summary?.plan_type || preview.planHint;
   const active = preview.summary?.has_active_subscription;
+  // Session 本身没问题、是账号不符合这张卡的条件：照样把账号现状亮出来，买家才知道为什么不行。
+  const ineligible = !preview.ok && preview.verdict === "block";
+  const title = preview.ok
+    ? "Session 预检通过"
+    : ineligible
+      ? "这个账号不能兑换这张卡密"
+      : "Session 预检未通过";
   return (
     <div className={`km-rx-check km-submit-reveal ${preview.ok ? "km-rx-check-pass" : "km-rx-check-fail"}`}>
-      <p className="km-rx-check-title">{preview.ok ? "Session 预检通过" : "Session 预检未通过"}</p>
-      {preview.ok ? (
+      <p className="km-rx-check-title">{title}</p>
+      {preview.ok || ineligible ? (
         <dl className="km-rx-meta">
           {preview.email ? <MetaItem label="账号" value={preview.email} /> : null}
           {preview.name ? <MetaItem label="显示名" value={preview.name} /> : null}
           {plan ? <MetaItem label="当前订阅" value={String(plan)} /> : null}
           {typeof active === "boolean" ? <MetaItem label="有效订阅" value={active ? "是" : "否"} /> : null}
-          {preview.summary?.expires_at ? <MetaItem label="到期" value={String(preview.summary.expires_at)} /> : null}
+          {preview.summary?.expires_at ? <MetaItem label="到期" value={formatExpiry(preview.summary.expires_at)} /> : null}
         </dl>
       ) : null}
       {preview.errors?.map((msg) => (
@@ -130,6 +141,14 @@ export function SessionCheckResult({ preview }: { preview: SessionPreview }) {
       ))}
     </div>
   );
+}
+
+/** ISO 时间按买家本地时区显示到天；解析不了就原样给。 */
+function formatExpiry(value: string) {
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) return value;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
 }
 
 function MetaItem({ label, value }: { label: string; value: string }) {

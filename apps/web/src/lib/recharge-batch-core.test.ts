@@ -8,7 +8,9 @@ import {
   canRetryBatchRow,
   clampRedeemCodes,
   mapPool,
+  mergeBatchPrechecks,
   normalizeBatchRedeemLimit,
+  type BatchPrecheck,
   parseRedeemCodes,
   takeRedeemCodes,
 } from "./recharge-batch-core";
@@ -234,5 +236,49 @@ describe("mapPool", () => {
 
   it("空批不会卡住", async () => {
     expect(await mapPool([], 6, async () => 1)).toEqual([]);
+  });
+});
+
+describe("mergeBatchPrechecks", () => {
+  const pass: BatchPrecheck = { ok: true, verdict: "ok", errors: [], warnings: [] };
+  it("keeps a single plan result as is", () => {
+    const merged = mergeBatchPrechecks([{ planKey: "plus", planName: "Plus", data: { ...pass, warnings: ["w"] } }]);
+    expect(merged.preview).toMatchObject({ ok: true, warnings: ["w"] });
+    expect(merged.blocked).toEqual({});
+  });
+
+  it("skips plans the account cannot redeem and lets the rest through", () => {
+    const merged = mergeBatchPrechecks([
+      { planKey: "plus", planName: "Plus", data: pass },
+      {
+        planKey: "credit250",
+        planName: "Codex 点数 250",
+        data: { ok: false, verdict: "block", errors: ["要先有订阅。"], warnings: [] } as BatchPrecheck,
+      },
+    ]);
+    expect(merged.blocked).toEqual({ credit250: "要先有订阅。" });
+    expect(merged.preview?.ok).toBe(true);
+    expect(merged.preview?.warnings).toEqual(["Codex 点数 250 的卡密不提交：要先有订阅。"]);
+    expect(merged.preview?.target?.planName).toBe("Plus");
+  });
+
+  it("fails the whole batch when every plan is blocked", () => {
+    const block: BatchPrecheck = { ok: false, verdict: "block", errors: ["不够格"], warnings: [] };
+    const merged = mergeBatchPrechecks([
+      { planKey: "a", planName: "A", data: block },
+      { planKey: "b", planName: "B", data: block },
+    ]);
+    expect(merged.preview).toMatchObject({ ok: false, errors: ["A 的卡密不能兑：不够格", "B 的卡密不能兑：不够格"] });
+    expect(Object.keys(merged.blocked)).toEqual(["a", "b"]);
+  });
+
+  it("treats a session failure as the answer for the whole batch", () => {
+    const bad: BatchPrecheck = { ok: false, errors: ["Session 过期"], warnings: [] };
+    const merged = mergeBatchPrechecks([
+      { planKey: "plus", planName: "Plus", data: pass },
+      { planKey: "pro_5x", planName: "Pro 5x", data: bad },
+    ]);
+    expect(merged.preview).toBe(bad);
+    expect(merged.blocked).toEqual({});
   });
 });

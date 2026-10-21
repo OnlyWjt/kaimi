@@ -17,6 +17,8 @@ import {
   nestedString,
 } from "./issued-redemption";
 import { mapCardplatformStatus, parseCardplatformRequestId } from "./status";
+import { CardplatformError } from "./client";
+import { parsePreflight, preflightErrorMessage } from "./preflight-core";
 import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
 
 export {
@@ -107,7 +109,7 @@ export async function previewRedeemableCdk(
 
   const { client, accountId } = await resolveRedeemClient(trimmed);
   const result = await client.previewCdk(issued?.code || trimmed);
-  if (!result.ok) throw new Error(cardplatformMessage(result.payload));
+  if (!result.ok) throw publicCdkError(result);
   const redemptionToken = nestedString(
     result.payload,
     "redemption_token",
@@ -150,22 +152,31 @@ export async function preflightRedeemableCdk(input: {
     redemption_token: preview.redemptionToken,
     credential: cardplatformCredential(input.account),
   });
-  if (!result.ok) throw new Error(cardplatformMessage(result.payload));
-  const preflightToken = nestedString(
-    result.payload,
-    "preflight_token",
-    "token",
-  );
+  if (!result.ok) throw publicCdkError(result);
+  const account = parsePreflight(result.payload);
+  const preflightToken =
+    account.preflightToken || nestedString(result.payload, "preflight_token", "token");
   if (!preflightToken) throw new Error("卡台未返回预检令牌");
   return {
     ...preview,
     preflight: result.payload,
+    account,
     preflightToken,
-    accountEmail:
-      nestedString(result.payload, "email", "account_email") ||
-      input.account.email ||
-      "",
+    accountEmail: account.email || input.account.email || "",
   };
+}
+
+/**
+ * 卡台公开兑换接口的失败。带上 error_code 和 HTTP 状态往上抛：调用方要按码区分
+ * 「Session 坏了」「套餐还有效」「被限流」，只剩一句 msg 就只能统一报卡台错误。
+ */
+function publicCdkError(result: { status: number; payload: Record<string, unknown> }) {
+  const errorCode = nestedString(result.payload, "error_code");
+  return new CardplatformError({
+    message: preflightErrorMessage(errorCode, cardplatformMessage(result.payload)),
+    httpStatus: result.status,
+    errorCode,
+  });
 }
 
 export async function pollCardplatformResult(requestId: string) {

@@ -38,6 +38,7 @@ import {
   nestedString,
 } from "@/lib/cardplatform/issued-redemption";
 import { injectRedeemCardPolicy } from "@/lib/cardplatform/policy";
+import { assessEligibility } from "@/lib/cardplatform/preflight-core";
 import { recordUpstreamResult } from "@/lib/order-timeline";
 import { recordRedeemFailure } from "@/lib/redeem-guard";
 
@@ -131,6 +132,17 @@ export class RedeemInFlightError extends Error {
 }
 
 /** 预检之后抢锁失败。卡还在别人手里，这张失败单不能把别人的锁放掉。 */
+/**
+ * 账号不符合这张卡密的兑换条件（点数要已有订阅、续费要在对应档…）。卡和 Session 都是真的，
+ * 不是猜码，不能计入防刷失败次数，否则一批点数卡兑给免费号就能把代理自己的 IP 封掉。
+ */
+class RedeemIneligibleError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RedeemIneligibleError";
+  }
+}
+
 class RedeemLockLostError extends Error {
   constructor() {
     super("该卡密已在兑换中");
@@ -242,6 +254,14 @@ export async function driveRechargeOrder(input: {
     });
     accountId = prepared.redeemable.accountId;
     redemptionToken = prepared.redemptionToken;
+    // 和「预检 Session」按钮同一套判断。开放 API、批量兑换不一定先点过预检，
+    // 这里不拦的话，点数兑给免费号、续费兑给 Plus 号都要等卡台付款失败才知道。
+    const eligibility = assessEligibility(prepared.account, prepared.redeemable.planKey);
+    if (eligibility.verdict === "block") {
+      throw new RedeemIneligibleError(
+        eligibility.reasons.join(" ") || "账号不符合这张卡密的兑换条件",
+      );
+    }
     if (opened.issuedId) {
       const claimedAt = new Date().toISOString();
       const [claimed] = await db
@@ -356,7 +376,7 @@ export async function driveRechargeOrder(input: {
       message,
       "cardplatform",
     );
-    if (!unknown && !lostLock) {
+    if (!unknown && !lostLock && !(error instanceof RedeemIneligibleError)) {
       await recordRedeemFailure({
         ip: opened.order.clientIp || "",
         email: opened.order.accountEmail || opened.order.email,
