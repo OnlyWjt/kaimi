@@ -77,6 +77,18 @@ describe("parsePreflight", () => {
     expect(account({ expires_at: "2026-12-05T09:54:27.922Z" }).subscription.expiresAt).toBe("");
   });
 
+  it("remembers whether the expiry is a time point or a bare date", () => {
+    expect(account({ active_until: 1760000000 }).subscription.expiryHasTime).toBe(true);
+    expect(
+      account({ current_period_end: "2026-10-22T14:14:48+00:00" }).subscription.expiryHasTime,
+    ).toBe(true);
+    expect(account({ current_period_end: "2026-10-22" }).subscription).toMatchObject({
+      expiresAt: "2026-10-22",
+      expiryHasTime: false,
+    });
+    expect(parsePreflight(FREE_ACCOUNT).subscription.expiryHasTime).toBe(false);
+  });
+
   it("maps ChatGPT plan names onto our plan keys", () => {
     expect(account({ currentPlan: "prolite" }).currentPlan).toBe("pro_5x");
     expect(account({ currentPlan: "pro" }).currentPlan).toBe("pro_20x");

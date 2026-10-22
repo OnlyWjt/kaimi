@@ -36,6 +36,8 @@ export type PreflightAccount = {
     purchaseOrigin: string;
     /** 当前订阅到期时间（ISO）。卡台字段名还没在付费号上核对过，几个常见名字都认；空串 = 没给。 */
     expiresAt: string;
+    /** 卡台给到了时间点（true），还是只有日期（false）。只给日期时显示层不要补 00:00。 */
+    expiryHasTime: boolean;
   };
   preflightToken: string;
   preflightExpiresAt: string;
@@ -121,18 +123,31 @@ export function basePlanKey(planKey: string) {
   return planKey.trim().toLowerCase().split(":")[0] ?? "";
 }
 
-/** 秒、毫秒或 ISO 字符串统一成 ISO；认不出返回空串。 */
-export function normalizeTimestamp(value: unknown) {
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * 卡台给的时间归一成 ISO，同时记住它给到的是时间点还是只有日期。
+ * 只给日期时不要补 00:00，那是编出来的；显示层照原样给日期。
+ */
+export function parseExpiry(value: unknown): { iso: string; hasTime: boolean } {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-    return new Date(value < 1e12 ? value * 1000 : value).toISOString();
+    return { iso: new Date(value < 1e12 ? value * 1000 : value).toISOString(), hasTime: true };
   }
   if (typeof value === "string" && value.trim()) {
     const text = value.trim();
-    if (/^\d+$/.test(text)) return normalizeTimestamp(Number(text));
+    if (DATE_ONLY.test(text)) return { iso: text, hasTime: false };
+    if (/^\d+$/.test(text)) return parseExpiry(Number(text));
     const at = Date.parse(text);
-    return Number.isFinite(at) ? new Date(at).toISOString() : "";
+    return Number.isFinite(at)
+      ? { iso: new Date(at).toISOString(), hasTime: true }
+      : { iso: "", hasTime: false };
   }
-  return "";
+  return { iso: "", hasTime: false };
+}
+
+/** 秒、毫秒或 ISO 字符串统一成 ISO；认不出返回空串。 */
+export function normalizeTimestamp(value: unknown) {
+  return parseExpiry(value).iso;
 }
 
 // 不认裸的 expires_at：卡台的兑换会话、令牌也叫这个名字，认进来会把 15 分钟后的令牌过期当成订阅到期。
@@ -163,6 +178,11 @@ export function parsePreflight(payload: Record<string, unknown>): PreflightAccou
       tax: str(row.tax),
     };
   }
+  const expiry =
+    EXPIRY_FIELDS.map((key) => parseExpiry(data[key])).find((item) => item.iso) ?? {
+      iso: "",
+      hasTime: false,
+    };
   const promotions: Record<string, PreflightPromotion> = {};
   for (const [key, value] of Object.entries(asRecord(data.promotions))) {
     const row = asRecord(value);
@@ -178,8 +198,8 @@ export function parsePreflight(payload: Record<string, unknown>): PreflightAccou
       recoveryRequired: bool(data.subscription_recovery_required),
       delinquent: bool(data.subscription_is_delinquent),
       purchaseOrigin: str(data.subscription_purchase_origin),
-      expiresAt:
-        EXPIRY_FIELDS.map((key) => normalizeTimestamp(data[key])).find(Boolean) ?? "",
+      expiresAt: expiry.iso,
+      expiryHasTime: expiry.hasTime,
     },
     preflightToken: str(data.preflight_token),
     preflightExpiresAt: str(data.preflight_expires_at),
