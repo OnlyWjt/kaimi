@@ -1,5 +1,7 @@
 "use client";
 
+import { formatBeijingDateTime } from "@/lib/datetime";
+
 /** 兑换页（单张 / 批量）共用的小部件。 */
 
 const STEPS = ["校验卡密", "填写账号", "开通"] as const;
@@ -93,6 +95,8 @@ export type SessionPreview = {
     plan_type?: string;
     has_active_subscription?: boolean;
     expires_at?: string;
+    /** 卡台只给了日期时传 false，页面照原样显示日期，不补 00:00。 */
+    expires_at_has_time?: boolean;
     account_id?: string;
   };
   errors?: string[];
@@ -126,7 +130,15 @@ export function SessionCheckResult({ preview }: { preview: SessionPreview }) {
           {preview.name ? <MetaItem label="显示名" value={preview.name} /> : null}
           {plan ? <MetaItem label="当前订阅" value={String(plan)} /> : null}
           {typeof active === "boolean" ? <MetaItem label="有效订阅" value={active ? "是" : "否"} /> : null}
-          {preview.summary?.expires_at ? <MetaItem label="到期" value={formatExpiry(preview.summary.expires_at)} /> : null}
+          {preview.summary?.expires_at ? (
+            <MetaItem
+              label="到期"
+              value={formatExpiry(
+                preview.summary.expires_at,
+                preview.summary.expires_at_has_time !== false,
+              )}
+            />
+          ) : null}
         </dl>
       ) : null}
       {preview.errors?.map((msg) => (
@@ -143,12 +155,13 @@ export function SessionCheckResult({ preview }: { preview: SessionPreview }) {
   );
 }
 
-/** ISO 时间按买家本地时区显示到天；解析不了就原样给。 */
-function formatExpiry(value: string) {
-  const at = new Date(value);
-  if (Number.isNaN(at.getTime())) return value;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+/**
+ * 订阅到期：卡台给到时间点就按北京时间显示到分钟，只给日期就照原样给。
+ * 不看浏览器时区，代理在哪儿看到的都一样。
+ */
+function formatExpiry(value: string, hasTime: boolean) {
+  if (!hasTime) return value;
+  return formatBeijingDateTime(value).slice(0, 16);
 }
 
 function MetaItem({ label, value }: { label: string; value: string }) {

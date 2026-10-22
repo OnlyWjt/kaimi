@@ -278,7 +278,7 @@ export function agentApiDocs(origin: string, options?: { includeDraw?: boolean }
     "plan_hint": "free",
     "has_active_subscription": false,
     "current_plan": "free",
-    "subscription": { "active": false, "will_renew": false, "delinquent": false, "recovery_required": false, "expires_at": null },
+    "subscription": { "active": false, "will_renew": false, "delinquent": false, "recovery_required": false, "expires_at": null, "expires_at_has_time": null },
     "target_plan": "plus",
     "target_plan_name": "Plus",
     "payment_country": "PH",

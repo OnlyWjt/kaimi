@@ -13,6 +13,8 @@ export type SessionSummary = {
   plan_type?: string;
   has_active_subscription?: boolean;
   expires_at?: string;
+  /** 卡台只给到日期时传 false，显示层不要补时间。 */
+  expires_at_has_time?: boolean;
   account_id?: string;
   [key: string]: unknown;
 };
@@ -172,6 +174,7 @@ export async function verifySessionForRedeem(
         plan_type: planLabel,
         has_active_subscription: account.subscription.active ?? undefined,
         expires_at: account.subscription.expiresAt || undefined,
+        expires_at_has_time: account.subscription.expiryHasTime,
       },
       errorCode: ok ? undefined : (eligibility.code ?? "PRECHECK_REJECTED"),
       retryable: ok ? undefined : false,

@@ -493,6 +493,10 @@ export const openApiSpec = {
                   delinquent: { type: ["boolean", "null"], description: "有未结清账单" },
                   recovery_required: { type: ["boolean", "null"] },
                   expires_at: { type: ["string", "null"], description: "当前订阅到期时间（ISO 8601），卡台没给时为 null" },
+                  expires_at_has_time: {
+                    type: ["boolean", "null"],
+                    description: "true 表示 expires_at 是具体时间点；false 表示卡台只给了日期，应按日期解读，不要算作零点；没有到期时间时为 null",
+                  },
                 },
               },
               target_plan: { type: ["string", "null"], description: "这张卡密的套餐键" },

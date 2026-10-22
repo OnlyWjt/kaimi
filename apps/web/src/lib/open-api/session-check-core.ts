@@ -30,6 +30,10 @@ export function sessionCheckPayload(result: SessionCheckResult) {
           delinquent: account.subscription.delinquent,
           recovery_required: account.subscription.recoveryRequired,
           expires_at: account.subscription.expiresAt || null,
+          /** false 表示卡台只给了日期，expires_at 就是那一天，不是零点；没有到期时间时为 null。 */
+          expires_at_has_time: account.subscription.expiresAt
+            ? account.subscription.expiryHasTime
+            : null,
         }
       : null,
     target_plan: result.target?.planKey || null,
