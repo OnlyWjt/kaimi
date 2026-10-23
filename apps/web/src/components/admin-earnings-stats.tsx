@@ -323,7 +323,7 @@ export function AdminEarningsStats() {
           <div>
             <h2 className="text-xl font-semibold">收益统计</h2>
             <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-              平台毛利 = 代理成本 + 开票加价 − 上游进价 − 平台手续费。没配进价的单不计入毛利。
+              平台毛利 = 代理成本 + 平台开票收入 − 上游进价 − 平台手续费。平台开票收入不含分给代理的部分。没配进价的单不计入毛利。
             </p>
           </div>
           <a href={exportHref} className="km-btn km-btn-ghost km-btn-sm">
@@ -477,7 +477,7 @@ export function AdminEarningsStats() {
         <p className="text-sm text-[var(--km-fg-muted)]">
           {totals.profitUnknownCount
             ? `${totals.profitUnknownCount} 单还没配上游进价，这几单的毛利没有加进合计。`
-            : `平台毛利 ${yuan(totals.profitCents)} = 代理成本 ${yuan(totals.basisCostCents)} + 开票加价 ${yuan(totals.basisInvoiceCents)} − 上游 ${yuan(totals.basisUpstreamCents)} − 平台手续费 ${yuan(totals.basisPlatformFeeCents)}`}
+            : `平台毛利 ${yuan(totals.profitCents)} = 代理成本 ${yuan(totals.basisCostCents)} + 平台开票收入 ${yuan(totals.basisInvoiceCents)} − 上游 ${yuan(totals.basisUpstreamCents)} − 平台手续费 ${yuan(totals.basisPlatformFeeCents)}`}
           {totals.backfillCount
             ? ` 另有 ${totals.backfillCount} 单按当前进价补录，毛利 ${yuan(totals.backfillProfitCents)}，未计入。`
             : ""}

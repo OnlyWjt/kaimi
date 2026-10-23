@@ -88,6 +88,10 @@ function orderInputSchema(forOrder: boolean) {
       ...(forOrder
         ? {
             customer_email: { type: "string", format: "email" },
+            invoice_rate_pct: {
+              type: "integer",
+              description: "可选。给买家看的开票税点（询价返回的 invoice_rate_pct）；和店铺当前税点不一致时拒单，避免买家按旧价看、按新价付",
+            },
             region_confirmed: { type: "boolean", description: "region_confirmation_required 为 true 时必须为 true" },
             return_url: {
               type: "string",
@@ -301,6 +305,10 @@ export const openApiSpec = {
               discount_cents: { type: "integer" },
               goods_cents: { type: "integer" },
               invoice_surcharge_cents: { type: "integer" },
+              invoice_rate_pct: {
+                type: "integer",
+                description: "本店当前开票税点（%）。没开通自定义税点的店固定 10。",
+              },
               pay_cents: { type: "integer" },
               coupon_code: { type: "string" },
               currency: { type: "string" },
@@ -364,6 +372,7 @@ export const openApiSpec = {
               discount_cents: { type: "integer" },
               coupon_code: { type: "string" },
               invoice_surcharge_cents: { type: "integer" },
+              invoice_rate_pct: { type: "integer", description: "下单时的开票税点（%）；不开票为 0" },
               gross_cents: { type: "integer" },
               currency: { type: "string" },
               customer_email: { type: "string" },

@@ -11,6 +11,8 @@
 export type EarningDetailRow = {
   grossCents: number;
   costCents: number;
+  /** 开票分成（扣税后），老规则单是 0。 */
+  invoiceShareCents?: number | null;
   estimatedFeeCents: number;
   actualFeeCents: number | null;
   earningCents: number;
@@ -52,6 +54,8 @@ export function buildEarningsTotals(
     orderCount: rows.length,
     grossCents: sum((row) => row.grossCents),
     costCents: sum((row) => row.costCents),
+    // 和「客户实付」「代理成本」同一口径：明细里每一行都算，冲回另看「已冲正」
+    invoiceShareCents: sum((row) => row.invoiceShareCents ?? 0),
     estimatedFeeCents: sum((row) => row.estimatedFeeCents),
     actualFeeCents: sum((row) => row.actualFeeCents ?? 0),
     feeDifferenceCents: sum((row) =>

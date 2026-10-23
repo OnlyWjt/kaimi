@@ -47,6 +47,7 @@ export async function GET(req: Request) {
       earningCents: sql<number>`coalesce(sum(case when ${agentEarnings.status} != 'reversed' then ${agentEarnings.earningCents} else 0 end), 0)`,
       reversedCents: sql<number>`coalesce(sum(case when ${agentEarnings.status} = 'reversed' then ${agentEarnings.earningCents} else 0 end), 0)`,
       reversedCount: sql<number>`coalesce(sum(case when ${agentEarnings.status} = 'reversed' then 1 else 0 end), 0)`,
+      invoiceShareCents: sql<number>`coalesce(sum(case when ${agentEarnings.status} != 'reversed' then ${agentEarnings.invoiceShareCents} else 0 end), 0)`,
       pendingCents: sql<number>`coalesce(sum(case when ${agentEarnings.status} in ('pending', 'settling') then ${agentEarnings.earningCents} else 0 end), 0)`,
     })
     .from(agentEarnings)
@@ -65,6 +66,11 @@ export async function GET(req: Request) {
       // Detail preserves the stored legacy column; it is not a totalFeeCents alias.
       paymentFeeCents: agentEarnings.paymentFeeCents,
       earningCents: agentEarnings.earningCents,
+      /** 开票分成（扣税后），老规则单是 0。 */
+      invoiceShareCents: agentEarnings.invoiceShareCents,
+      invoiceAgentTaxCents: storeOrders.invoiceAgentTaxCents,
+      invoiceRatePct: storeOrders.invoiceRatePct,
+      invoiceSplit: storeOrders.invoiceSplit,
       earningStatus: agentEarnings.status,
       feeReconcileStatus: storeOrders.feeReconcileStatus,
       listGoodsCents: storeOrders.listGoodsCents,
@@ -90,6 +96,7 @@ export async function GET(req: Request) {
         earningCents: Number(summary?.earningCents || 0),
         reversedCents: Number(summary?.reversedCents || 0),
         reversedCount: Number(summary?.reversedCount || 0),
+        invoiceShareCents: Number(summary?.invoiceShareCents || 0),
         pendingCents: Number(summary?.pendingCents || 0),
       },
       list: list.slice(0, limit),

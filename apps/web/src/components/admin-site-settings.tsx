@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { loadAdminSection, postAdminAction } from "@/components/admin-api";
 import { AdminFolioSettings } from "@/components/admin-folio-settings";
+import { AdminInvoiceRateSettings } from "@/components/admin-invoice-rate-settings";
 import { AdminMailSettings, AdminTelegramBindings } from "@/components/admin-mail-settings";
 import { AdminMailTemplates } from "@/components/admin-mail-templates";
 import { CardIntegration } from "@/components/card-integration";
@@ -176,6 +177,7 @@ export function AdminNotify() {
       <AdminMailSettings />
       <AdminMailTemplates />
       <AdminFolioSettings />
+      <AdminInvoiceRateSettings />
       <AdminTelegramBindings />
     </div>
   );

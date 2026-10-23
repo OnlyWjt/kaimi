@@ -64,6 +64,10 @@ export const agents = sqliteTable(
     telegramNotifyEnabled: integer("telegram_notify_enabled", { mode: "boolean" }).notNull().default(true),
     /** 开票完成通知（Folio 回调后发 TG）。和下单通知分开开关。 */
     invoiceNotifyEnabled: integer("invoice_notify_enabled", { mode: "boolean" }).notNull().default(true),
+    /** 超管单独给这个代理开的「自定义开票税点」。关着时一律按 10% 老规则。 */
+    invoiceRateCustomEnabled: integer("invoice_rate_custom_enabled", { mode: "boolean" }).notNull().default(false),
+    /** 代理自己设的开票税点，整数 6–17。只在开关打开时生效。 */
+    invoiceRatePct: integer("invoice_rate_pct").notNull().default(10),
     mailDeliveryEnabled: integer("mail_delivery_enabled", { mode: "boolean" }).notNull().default(true),
     mailFromName: text("mail_from_name").notNull().default(""),
     mailReplyTo: text("mail_reply_to").notNull().default(""),
@@ -415,8 +419,18 @@ export const storeOrders = sqliteTable(
     invoiceEmail: text("invoice_email").notNull().default(""),
     /** 开票金额 = 实付。只在勾选开票时写入，否则为 0。 */
     invoiceAmountCents: integer("invoice_amount_cents").notNull().default(0),
-    /** 开票加价，归平台。代理 GMV / 收益底数要扣掉这一段。 */
+    /** 开票加价总额 = 实付 − 商品额。老规则全归平台；自定义税点时平台和代理分。 */
     invoiceSurchargeCents: integer("invoice_surcharge_cents").notNull().default(0),
+    /** 下单时的开票税点（%）。不开票为 0；本功能上线前的开票单也是 0，按 10% 算的。 */
+    invoiceRatePct: integer("invoice_rate_pct").notNull().default(0),
+    /** 下单时代理开着自定义税点：加价按 6% 平台 + 余下归代理分，整单手续费代理出。 */
+    invoiceSplit: integer("invoice_split", { mode: "boolean" }).notNull().default(false),
+    /** 开票加价里代理那份，扣税前。 */
+    invoiceAgentShareCents: integer("invoice_agent_share_cents").notNull().default(0),
+    /** 从代理那份里扣下的税，留在平台。 */
+    invoiceAgentTaxCents: integer("invoice_agent_tax_cents").notNull().default(0),
+    /** 下单时的扣税比例（万分比），只用来展示。 */
+    invoiceAgentTaxBp: integer("invoice_agent_tax_bp").notNull().default(0),
     couponId: integer("coupon_id"),
     couponCodeSnapshot: text("coupon_code_snapshot").notNull().default(""),
     couponKindSnapshot: text("coupon_kind_snapshot").notNull().default(""),
@@ -718,6 +732,8 @@ export const agentEarnings = sqliteTable(
     orderId: integer("order_id").notNull(),
     agentId: integer("agent_id").notNull(),
     grossCents: integer("gross_cents").notNull(),
+    /** 开票分成（扣税后）。earning = gross + invoice_share − cost − agent_fee。 */
+    invoiceShareCents: integer("invoice_share_cents").notNull().default(0),
     costCents: integer("cost_cents").notNull(),
     /** 代理承担的手续费，和 payment_fee_cents 写同一个数。 */
     agentFeeCents: integer("agent_fee_cents").notNull().default(0),

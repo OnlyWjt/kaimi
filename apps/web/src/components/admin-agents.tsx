@@ -30,6 +30,9 @@ type AgentRow = {
   hiddenPlans?: Array<{ planKey: string; name: string } & RegionFields>;
   /** 有没有有效的微信 / QQ / TG 售后联系方式 */
   hasSupportContact?: boolean;
+  /** 超管开通的自定义开票税点 */
+  invoiceRateCustomEnabled?: boolean;
+  invoiceRatePct?: number;
 };
 
 type CatalogPlan = {
@@ -67,6 +70,8 @@ function AgentActionMenu({
   onReset,
   onName,
   onStatus,
+  invoiceCustom,
+  onInvoiceRate,
 }: {
   open: boolean;
   busy: boolean;
@@ -78,6 +83,8 @@ function AgentActionMenu({
   onReset: () => void;
   onName: () => void;
   onStatus: () => void;
+  invoiceCustom: boolean;
+  onInvoiceRate: () => void;
 }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -121,6 +128,7 @@ function AgentActionMenu({
     { label: "复制开户说明", action: onCopy },
     { label: busy ? "重置中…" : "重置密码", action: onReset, disabled: busy },
     { label: "真实姓名", action: onName },
+    { label: invoiceCustom ? "关闭自定义税点" : "开通自定义税点", action: onInvoiceRate },
   ];
 
   return (
@@ -355,6 +363,30 @@ export function AdminAgents() {
       return;
     }
     toast(next === "active" ? "已启用" : "已停用");
+    await load();
+  }
+
+  async function toggleInvoiceRate(agent: AgentRow) {
+    const next = !agent.invoiceRateCustomEnabled;
+    const confirmed = await ask({
+      title: next ? "开通自定义开票税点" : "关闭自定义开票税点",
+      message: next
+        ? `开通后「${agent.displayName}」能在「店铺装修」里把开票税点调到 6%–17%（从 10% 开始）。平台固定拿商品额的 6%，超出部分扣税后归代理；这类开票单的整单手续费由代理承担。只影响开通之后下的单。`
+        : `关闭后「${agent.displayName}」的开票单恢复 10%、加价全归平台，代理设的税点清空，下次开通从 10% 开始。已下的单不变。`,
+      confirmLabel: next ? "开通" : "关闭",
+    });
+    if (!confirmed) return;
+    const response = await fetch(`/api/admin/agents/${agent.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invoiceRateCustomEnabled: next }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      toast(data.error || "修改失败", "err");
+      return;
+    }
+    toast(next ? "已开通自定义税点" : "已关闭自定义税点");
     await load();
   }
 
@@ -709,6 +741,7 @@ export function AdminAgents() {
                 <th className="py-3 pr-4">代理</th>
                 <th className="py-3 pr-4">店铺</th>
                 <th className="py-3 pr-4">可售套餐</th>
+                <th className="whitespace-nowrap py-3 pr-4">开票税点</th>
                 <th className="whitespace-nowrap py-3 pr-6">状态</th>
                 <th className="whitespace-nowrap py-3">操作</th>
               </tr>
@@ -716,7 +749,7 @@ export function AdminAgents() {
             <tbody>
               {pageAgents.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-[var(--km-fg-muted)]">
+                  <td colSpan={6} className="py-8 text-center text-[var(--km-fg-muted)]">
                     {list.length === 0 ? "还没有代理，点右上角「新建代理」" : "没有符合条件的代理。"}
                   </td>
                 </tr>
@@ -756,6 +789,16 @@ export function AdminAgents() {
                       </span>
                     ) : null}
                   </td>
+                  <td className="whitespace-nowrap py-3 pr-4">
+                    {agent.invoiceRateCustomEnabled ? (
+                      <span title="代理自定义，平台拿 6%">
+                        {agent.invoiceRatePct ?? 10}%
+                        <span className="ml-1 text-xs text-[var(--km-fg-muted)]">自定义</span>
+                      </span>
+                    ) : (
+                      <span className="text-[var(--km-fg-muted)]">10%</span>
+                    )}
+                  </td>
                   <td className="whitespace-nowrap py-3 pr-6">
                     {agent.status === "active" ? "启用" : "停用"}
                     {agent.status === "active" && agent.hasSupportContact === false ? (
@@ -780,6 +823,8 @@ export function AdminAgents() {
                       onReset={() => void resetPassword(agent)}
                       onName={() => void editRealName(agent)}
                       onStatus={() => void toggleStatus(agent)}
+                      invoiceCustom={Boolean(agent.invoiceRateCustomEnabled)}
+                      onInvoiceRate={() => void toggleInvoiceRate(agent)}
                     />
                   </td>
                 </tr>

@@ -30,6 +30,11 @@ type Invoice = {
   issuedAt: string | null;
   pdfUrl: string;
   refundAction: string;
+  surchargeCents: number;
+  ratePct: number;
+  split: boolean;
+  agentShareCents: number;
+  agentTaxCents: number;
   canPush: boolean;
   canResendNotice: boolean;
   events: InvoiceEvent[];
@@ -51,6 +56,22 @@ type Detail = {
   redemptions: Redemption[];
   invoice: Invoice | null;
 };
+
+function yuanText(cents: number) {
+  return `¥${(cents / 100).toFixed(2)}`;
+}
+
+/** 自定义税点单拆开给管理员看：平台留多少、代理拿多少、扣了多少税。 */
+function invoiceSplitText(invoice: Invoice) {
+  const total = `${invoice.ratePct}% ${yuanText(invoice.surchargeCents)}`;
+  if (!invoice.split) return `${total}，全归平台`;
+  const platform = invoice.surchargeCents - invoice.agentShareCents;
+  const tax = invoice.agentTaxCents;
+  const platformText = tax
+    ? `平台实得 ${yuanText(platform + tax)}（6% ${yuanText(platform)} + 代扣税 ${yuanText(tax)}）`
+    : `平台 ${yuanText(platform)}`;
+  return `${total}：${platformText}，代理到手 ${yuanText(invoice.agentShareCents - tax)}`;
+}
 
 const CHANNEL_LABEL: Record<string, string> = {
   alipay: "支付宝",
@@ -269,6 +290,7 @@ function InvoiceBlock({
       ? "未推送"
       : "未推送（对接未开启）";
   const facts: Array<[string, string]> = [
+    ["开票加价", invoiceSplitText(invoice)],
     ["推送 Folio", invoice.pushedAt ? `${push} · ${formatLocalMonthDayTime(invoice.pushedAt)}` : push],
     ["Folio 发票", invoice.folioInvoiceId ? `#${invoice.folioInvoiceId}` : "—"],
     ["发票号码", invoice.invoiceNo || "—"],

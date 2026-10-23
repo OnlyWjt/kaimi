@@ -32,6 +32,10 @@ type PeriodRow = {
   totalFeeCents: number;
   agentFeeCents: number;
   earningCents: number;
+  invoiceShareCents?: number;
+  invoiceAgentTaxCents?: number;
+  invoiceRatePct?: number;
+  invoiceSplit?: boolean;
   earningStatus?: string;
   feeReconcileStatus?: string;
   listGoodsCents?: number;
@@ -49,6 +53,7 @@ type PeriodPayload = {
     earningCents: number;
     reversedCents?: number;
     reversedCount?: number;
+    invoiceShareCents?: number;
     pendingCents: number;
   };
   list: PeriodRow[];
@@ -683,14 +688,30 @@ function PeriodKpis({
   );
 }
 
+function invoiceShareTitle(item: PeriodRow) {
+  if (!item.invoiceSplit) return undefined;
+  const tax = item.invoiceAgentTaxCents || 0;
+  return `税点 ${item.invoiceRatePct || 0}%，平台留 6%${tax ? `，已扣税 ${moneyYuanAbs(tax)}` : ""}`;
+}
+
 function PeriodDetail({ paged }: { paged: PagedApi<PeriodRow, PeriodPayload> }) {
   const { state } = paged;
+  // 没有自定义税点开票单的代理不多一列 0。看整段时间的合计，翻页时不会忽隐忽现。
+  const showInvoice =
+    (state.first?.summary.invoiceShareCents ?? 0) !== 0 ||
+    state.rows.some((item) => item.invoiceSplit || (item.invoiceShareCents || 0) !== 0);
+  // 这一列存的是商品额（券后、不含开票加价）。有开票分成时写清楚，免得以为加价被算了两遍。
+  const goodsLabel = showInvoice ? "商品额" : "实付";
   return (
     <section className="km-panel space-y-4">
       <div className="km-acp-section-title">
         <div>
           <h2>成交明细</h2>
-          <p>收益 = 实付 − 代理成本 − 代理承担手续费。开票加价、平台承担手续费归平台，不计入收益。</p>
+          <p>
+            {showInvoice
+              ? "收益 = 商品额 + 开票分成 − 代理成本 − 代理承担手续费。商品额不含开票加价；开票分成是税点超出 6% 的部分扣税后到手的钱。按 10% 老规则开票的单，开票加价归平台。"
+              : "收益 = 实付 − 代理成本 − 代理承担手续费。开票加价、平台承担手续费归平台，不计入收益。"}
+          </p>
         </div>
       </div>
       {state.status === "loading" ? <Muted>加载中…</Muted> : null}
@@ -706,7 +727,8 @@ function PeriodDetail({ paged }: { paged: PagedApi<PeriodRow, PeriodPayload> }) 
                   <th>订单</th>
                   <th>收益</th>
                   <th>套餐</th>
-                  <th>实付</th>
+                  <th>{goodsLabel}</th>
+                  {showInvoice ? <th>开票分成</th> : null}
                   <th>成本</th>
                   <th>代理承担手续费</th>
                   <th>通道总手续费</th>
@@ -734,6 +756,11 @@ function PeriodDetail({ paged }: { paged: PagedApi<PeriodRow, PeriodPayload> }) 
                       >
                         {moneyYuanAbs(item.grossCents)}
                       </td>
+                      {showInvoice ? (
+                        <td title={invoiceShareTitle(item)}>
+                          {item.invoiceSplit ? moneyYuanAbs(item.invoiceShareCents || 0) : "—"}
+                        </td>
+                      ) : null}
                       <td>{moneyYuanAbs(item.agentCostCents || 0)}</td>
                       <td>{moneyYuanAbs(item.agentFeeCents)}</td>
                       <td>{moneyYuanAbs(item.totalFeeCents)}</td>
@@ -767,13 +794,22 @@ function PeriodDetail({ paged }: { paged: PagedApi<PeriodRow, PeriodPayload> }) 
                         <dd>{item.productName}</dd>
                       </div>
                       <div>
-                        <dt>实付</dt>
+                        <dt>{goodsLabel}</dt>
                         <dd>{moneyYuanAbs(item.grossCents)}</dd>
                       </div>
                       {item.couponDiscountCents ? (
                         <div>
                           <dt>券优惠</dt>
                           <dd>{moneyYuanAbs(item.couponDiscountCents)}</dd>
+                        </div>
+                      ) : null}
+                      {item.invoiceSplit ? (
+                        <div>
+                          <dt>开票分成</dt>
+                          <dd>
+                            {moneyYuanAbs(item.invoiceShareCents || 0)}
+                            <small> {invoiceShareTitle(item)}</small>
+                          </dd>
                         </div>
                       ) : null}
                       <div>

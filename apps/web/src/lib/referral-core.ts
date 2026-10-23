@@ -2,7 +2,7 @@
  * 店铺邀请返券的纯函数：邮箱归一化、码生成、立减封底、有效邀请判断。
  * 设计见 docs/agent-store-referral-coupon-design.md。
  */
-import { quoteStorePayment } from "./invoice-core";
+import { quoteStorePayment, type InvoicePolicy } from "./invoice-core";
 import type { FeeRule } from "./payments/fees";
 
 /** 去掉 0 O 1 I L，买家口头念、手抄都不容易错。 */
@@ -77,13 +77,30 @@ export function maxReferralDiscount(input: {
   listGoodsCents: number;
   costTotalCents: number;
   feeRule: FeeRule;
-}) {
+  /**
+   * 结账时传这单开不开票、代理的开票规则。开票单取「不开票上限」和「开票上限」里小的那个：
+   * 自定义税点 6% 时代理出整单手续费又没有分成，能减的少几分；税点高时也不让开票分成去补更大的券，
+   * 同一张券开不开票减的一样多。不传按不开票算（设置页估上限用）。
+   */
+  invoiceRequested?: boolean;
+  invoicePolicy?: InvoicePolicy;
+}): number {
+  const plain = discountCap(input, false);
+  if (!input.invoiceRequested) return plain;
+  return Math.min(plain, discountCap(input, true));
+}
+
+function discountCap(
+  input: { listGoodsCents: number; costTotalCents: number; feeRule: FeeRule; invoicePolicy?: InvoicePolicy },
+  invoiceRequested: boolean,
+) {
   const earning = (discount: number) =>
     quoteStorePayment({
       goodsCents: input.listGoodsCents - discount,
       costTotalCents: input.costTotalCents,
-      invoiceRequested: false,
+      invoiceRequested,
       feeRule: input.feeRule,
+      invoicePolicy: input.invoicePolicy,
     }).earningCents;
   if (input.listGoodsCents <= 0 || earning(0) < 0) return 0;
   let lo = 0;
@@ -142,6 +159,8 @@ export function referralCouponDiscount(input: {
   listGoodsCents: number;
   costTotalCents: number;
   feeRule: FeeRule;
+  invoiceRequested?: boolean;
+  invoicePolicy?: InvoicePolicy;
 }): ReferralDiscountResult {
   const amount = input.rewards[input.planKey];
   if (!amount) return { ok: false, error: "这张邀请券不能用在这个商品上" };

@@ -40,6 +40,7 @@ export async function GET(
       couponCode: storeOrders.couponCodeSnapshot,
       couponDiscountCents: storeOrders.couponDiscountCents,
       goodsCents: agentEarnings.grossCents,
+      invoiceShareCents: agentEarnings.invoiceShareCents,
       costCents: agentEarnings.costCents,
       agentFeeCents: agentEarnings.agentFeeCents,
       earningCents: agentEarnings.earningCents,

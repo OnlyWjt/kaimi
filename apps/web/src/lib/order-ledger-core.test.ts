@@ -144,6 +144,9 @@ describe("verifyLedger", () => {
     const stored: StoredOrderLedger = {
       grossCents: 14500,
       invoiceSurchargeCents: 0,
+      invoiceSplit: false,
+      invoiceAgentShareCents: 0,
+      invoiceAgentTaxCents: 0,
       agentCostTotalCents: 12500,
       upstreamCostTotalCents: 12000,
       feeRatePpm: 7000,
@@ -156,6 +159,7 @@ describe("verifyLedger", () => {
     };
     const mismatches = verifyLedger(stored, {
       grossCents: 14500,
+      invoiceShareCents: 0,
       costCents: 12500,
       agentFeeCents: 102,
       earningCents: 1897,
@@ -167,6 +171,9 @@ describe("verifyLedger", () => {
     const stored: StoredOrderLedger = {
       grossCents: 14500,
       invoiceSurchargeCents: 0,
+      invoiceSplit: false,
+      invoiceAgentShareCents: 0,
+      invoiceAgentTaxCents: 0,
       agentCostTotalCents: 12500,
       upstreamCostTotalCents: 12000,
       feeRatePpm: 7000,
@@ -180,6 +187,7 @@ describe("verifyLedger", () => {
     expect(
       verifyLedger(stored, {
         grossCents: 14500,
+        invoiceShareCents: 0,
         costCents: 12500,
         agentFeeCents: 102,
         earningCents: 1898,

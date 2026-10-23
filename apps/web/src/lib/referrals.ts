@@ -27,6 +27,7 @@ import { yuanTextFromCents } from "@/lib/money";
 import { getPublicBaseUrl } from "@/lib/public-url";
 import { isLocalAccountPlan } from "@/lib/finished-account-core";
 import type { FeeRule } from "@/lib/payments/fees";
+import type { InvoicePolicy } from "@/lib/invoice-core";
 import {
   REFERRAL_COUPON_CODE_LENGTH,
   REFERRAL_INVITE_CODE_LENGTH,
@@ -335,6 +336,8 @@ export function applyReferralCoupon(input: {
   listGoodsCents: number;
   costTotalCents: number;
   feeRule: FeeRule;
+  invoiceRequested?: boolean;
+  invoicePolicy?: InvoicePolicy;
 }) {
   if (!input.customerEmail?.trim()) {
     throw new Error("先填下单邮箱，再使用邀请券");
@@ -350,6 +353,8 @@ export function applyReferralCoupon(input: {
     listGoodsCents: input.listGoodsCents,
     costTotalCents: input.costTotalCents,
     feeRule: input.feeRule,
+    invoiceRequested: input.invoiceRequested,
+    invoicePolicy: input.invoicePolicy,
   });
   if (!result.ok) throw new Error(result.error);
   return result;

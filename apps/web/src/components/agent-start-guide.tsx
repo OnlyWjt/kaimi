@@ -95,7 +95,7 @@ export function AgentStartGuide() {
         <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm leading-relaxed">
           <p className="font-medium">商店收益</p>
           <p className="mt-1 text-[var(--km-fg-muted)]">
-            收益 = 券后商品额 − 代理成本 − 代理承担的支付手续费。客户开票产生的加价归平台，不计入代理收益。
+            收益 = 券后商品额 − 代理成本 − 代理承担的支付手续费。客户开票产生的加价默认归平台；平台给你开通自定义税点后，超出 6% 的部分扣税后计入你的收益。
           </p>
         </div>
         <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm leading-relaxed">

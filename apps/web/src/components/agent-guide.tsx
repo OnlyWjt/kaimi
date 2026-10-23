@@ -150,6 +150,7 @@ export function AgentGuide({ slug }: { slug: string }) {
           </p>
           <p className="text-sm text-[var(--km-fg-muted)]">
             客户勾选开票后，实付会再上浮 10%（开票服务费）。这笔加价归平台、不计入你的佣金；发票金额和收益都按折后货款算，加价上多出来的通道费也归平台。
+            平台给你开通自定义税点后，可以在「店铺装修」里把税点调到 6%–17%：平台固定收商品额的 6%，超出部分扣税后进你的收益，这类开票单的通道费按整单实付由你承担。
           </p>
           <div className="rounded-xl bg-[var(--km-bg-muted)] px-3 py-3 text-sm">
             <p className="font-medium">举个例子</p>

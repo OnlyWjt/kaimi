@@ -327,3 +327,106 @@
     display: none;
   }
 }
+
+/* 开票税点：左边是带 % 的小输入框 + 保存，右边是按 ¥100 算的分账票面。代理台和后台共用。 */
+.km-rate-layout {
+  display: grid;
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (min-width: 768px) {
+  .km-rate-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 20rem);
+    gap: 1.5rem;
+  }
+}
+
+.km-rate-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.6rem;
+}
+
+.km-rate-input {
+  position: relative;
+  width: 7.5rem;
+}
+
+.km-rate-input .km-input {
+  height: 100%;
+  padding-right: 2rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.km-rate-input > span {
+  position: absolute;
+  top: 50%;
+  right: 0.8rem;
+  transform: translateY(-50%);
+  color: var(--km-fg-muted);
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+.km-rate-big {
+  font-size: 1.6rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.km-rate-receipt {
+  border: 1px solid var(--km-border);
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--km-bg-muted) 70%, var(--km-bg-elevated));
+  padding: 0.85rem 1rem 0.9rem;
+}
+
+.km-rate-receipt > p {
+  margin: 0 0 0.55rem;
+  color: var(--km-fg-muted);
+  font-size: 0.75rem;
+}
+
+.km-rate-receipt dl {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+}
+
+.km-rate-receipt dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.km-rate-receipt dt {
+  color: var(--km-fg-muted);
+}
+
+.km-rate-receipt dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.km-rate-receipt dl > div.is-total {
+  align-items: baseline;
+  margin-top: 0.15rem;
+  border-top: 1px dashed var(--km-border);
+  padding-top: 0.55rem;
+  font-weight: 600;
+}
+
+.km-rate-receipt dl > div.is-total dt {
+  color: var(--km-fg);
+}
+
+.km-rate-receipt dl > div.is-total dd {
+  font-size: 1rem;
+}

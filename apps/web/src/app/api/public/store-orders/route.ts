@@ -28,6 +28,8 @@ const schema = z.object({
   invoiceTaxNo: z.string().max(32).optional(),
   invoiceNote: z.string().max(200).optional(),
   invoiceEmail: z.string().max(254).optional(),
+  /** 页面上显示的开票税点，和店铺当前税点不一致就拒单。 */
+  expectedInvoiceRatePct: z.number().int().min(0).max(100).optional(),
   couponCode: z.string().trim().max(20).optional(),
   regionConfirmed: z.boolean().optional(),
   referralCode: z.string().trim().max(16).optional(),
