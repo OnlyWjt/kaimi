@@ -8,6 +8,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { clientIp } from "@/lib/rate-limit";
+import { INVOICE_DEFAULT_RATE_PCT } from "@/lib/invoice-core";
 
 const updateSchema = z
   .object({
@@ -16,6 +17,8 @@ const updateSchema = z
     status: z.enum(["active", "disabled"]).optional(),
     notes: z.string().trim().max(500).optional(),
     newPassword: z.string().min(8).max(128).optional(),
+    /** 开通后代理能自己设 6%–17% 开票税点，平台固定拿 6%。 */
+    invoiceRateCustomEnabled: z.boolean().optional(),
   })
   .refine((value) => Object.values(value).some((item) => item !== undefined), {
     message: "至少提供一个修改项",
@@ -61,6 +64,13 @@ export async function PATCH(
         ...(data.realName !== undefined ? { realName: data.realName } : {}),
         ...(data.status !== undefined ? { status: data.status } : {}),
         ...(data.notes !== undefined ? { notes: data.notes } : {}),
+        ...(data.invoiceRateCustomEnabled !== undefined
+          ? {
+              invoiceRateCustomEnabled: data.invoiceRateCustomEnabled,
+              // 关闭时恢复默认税点：下次再开通从 10% 开始，不会突然按上次存的 17% 收
+              ...(data.invoiceRateCustomEnabled ? {} : { invoiceRatePct: INVOICE_DEFAULT_RATE_PCT }),
+            }
+          : {}),
         updatedAt: now,
       })
       .where(eq(agents.id, id));
@@ -88,6 +98,22 @@ export async function PATCH(
         .where(eq(users.agentId, id));
     }
   });
+
+  if (
+    data.invoiceRateCustomEnabled !== undefined &&
+    data.invoiceRateCustomEnabled !== existing.invoiceRateCustomEnabled
+  ) {
+    await writeAuditLog({
+      actor: session,
+      action: data.invoiceRateCustomEnabled
+        ? "admin.agent.invoice_rate_enable"
+        : "admin.agent.invoice_rate_disable",
+      targetType: "agent",
+      targetId: id,
+      metadata: { invoiceRatePct: existing.invoiceRatePct },
+      ip: clientIp(req),
+    });
+  }
 
   if (data.newPassword !== undefined) {
     await writeAuditLog({

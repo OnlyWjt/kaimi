@@ -107,6 +107,8 @@ export async function GET(
     discount_cents: order.couponDiscountCents,
     coupon_code: order.couponCodeSnapshot,
     invoice_surcharge_cents: order.invoiceSurchargeCents,
+    /** 下单时的开票税点；不开票为 0。本功能上线前的开票单按 10% 算的。 */
+    invoice_rate_pct: order.invoiceRequested ? order.invoiceRatePct || 10 : 0,
     gross_cents: order.grossCents,
     currency: order.currency,
     customer_email: order.customerEmail,

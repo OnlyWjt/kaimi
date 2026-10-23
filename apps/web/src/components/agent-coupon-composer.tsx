@@ -481,7 +481,7 @@ export function AgentCouponComposer({ couponId }: { couponId?: number }) {
             </div>
           </dl>
           <p className="mt-3 text-xs text-[var(--km-fg-muted)]">
-            按当前售价买 1 张、支付宝通道费估算。开票加价归平台、不计入收益。
+            按当前售价买 1 张、买家开票、支付宝通道费估算。开通了自定义税点时，预估收益已含开票分成。
           </p>
         </aside>
       </form>

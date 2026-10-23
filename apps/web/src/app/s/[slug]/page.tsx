@@ -9,6 +9,7 @@ import { getStoreSalesGate } from "@/lib/ops-health";
 import { agentContactGate, loadAgentContacts } from "@/lib/agent-contact";
 import { afterSalesContacts, contactHref, contactTypeLabel } from "@/lib/agent-contact-core";
 import { getMaxOrderQuantity } from "@/lib/store-quantity";
+import { effectiveInvoiceRatePct } from "@/lib/invoice-core";
 
 export default async function AgentStorePage({
   params,
@@ -119,6 +120,7 @@ export default async function AgentStorePage({
         channels={channels}
         maxQuantity={await getMaxOrderQuantity()}
         redeemUrl={await getAgentRedeemUrl(agent.currentSlug)}
+        invoiceRatePct={effectiveInvoiceRatePct(agent)}
       />
     </main>
   );

@@ -1,5 +1,6 @@
 import { AgentShopIdentity } from "@/components/agent-shop-identity";
 import { AgentStorefrontSettings } from "@/components/agent-storefront-settings";
+import { AgentInvoiceRate } from "@/components/agent-invoice-rate";
 import { requireAgentConsoleProfile } from "@/lib/agent-console";
 
 export default async function AgentStorefrontPage() {
@@ -23,6 +24,7 @@ export default async function AgentStorefrontPage() {
         </div>
       </header>
       <AgentShopIdentity initialSlug={profile.currentSlug} initialThemeId={profile.themeId} />
+      <AgentInvoiceRate />
       <AgentStorefrontSettings />
     </>
   );

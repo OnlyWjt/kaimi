@@ -27,9 +27,15 @@ import { requireCallbackBaseUrl, requirePublicBaseUrl } from "@/lib/public-url";
 import { resolveProductName, rowToSettings } from "@/lib/agent-storefront-config";
 import { getMaxOrderQuantity, resolveOrderQuantity } from "@/lib/store-quantity";
 import {
+  INVOICE_DEFAULT_RATE_PCT,
+  LEGACY_INVOICE_POLICY,
+  assertInvoiceRateUnchanged,
+  invoicePolicyFor,
   normalizeInvoiceRequest,
   quoteStorePayment,
+  type InvoicePolicy,
 } from "@/lib/invoice-core";
+import { getAgentInvoiceTaxBp } from "@/lib/invoice-policy";
 import { computeOrderLedger } from "@/lib/order-ledger-core";
 import { isLocalAccountPlan } from "@/lib/finished-account-core";
 import { accountSupportsPaymentCountry } from "@/lib/cardplatform/issue-target";
@@ -166,9 +172,17 @@ async function resolveStoreCheckout(input: {
     ),
   });
   if (!channelConfig) throw new Error("这个支付方式暂时不可用，换一个试试。");
+  // 税点存坏了只拦开票单（在 quoteCheckoutAmounts 里），不开票的单照常卖
+  let invoicePolicy: InvoicePolicy | null = null;
+  try {
+    invoicePolicy = invoicePolicyFor(agent, await getAgentInvoiceTaxBp());
+  } catch (error) {
+    console.warn(`[store-order] 代理 ${agent.id} 开票规则无效：${error instanceof Error ? error.message : error}`);
+  }
 
   return {
     agent,
+    invoicePolicy,
     offer,
     localAccount,
     quantity,
@@ -198,6 +212,10 @@ async function quoteCheckoutAmounts(input: {
   customerEmail?: string;
 }) {
   const checkout = await resolveStoreCheckout(input);
+  if (input.invoiceRequested && !checkout.invoicePolicy) {
+    throw new Error("这家店暂时不能开票，请取消开票或联系店主。");
+  }
+  const invoicePolicy = checkout.invoicePolicy ?? LEGACY_INVOICE_POLICY;
   const listGoodsCents = checkout.listGoodsCents;
   let goodsCents = listGoodsCents;
   let discountCents = 0;
@@ -215,6 +233,8 @@ async function quoteCheckoutAmounts(input: {
         listGoodsCents,
         costTotalCents: checkout.agentCostTotalCents,
         feeRule: checkout.feeRule,
+        invoiceRequested: Boolean(input.invoiceRequested),
+        invoicePolicy,
       });
       goodsCents = applied.goodsCents;
       discountCents = applied.discountCents;
@@ -230,6 +250,8 @@ async function quoteCheckoutAmounts(input: {
         costTotalCents: checkout.agentCostTotalCents,
         feeRule: checkout.feeRule,
         spec: specFromRecord(loaded),
+        invoiceRequested: Boolean(input.invoiceRequested),
+        invoicePolicy,
       });
       goodsCents = applied.goodsCents;
       discountCents = applied.discountCents;
@@ -240,6 +262,7 @@ async function quoteCheckoutAmounts(input: {
     costTotalCents: checkout.agentCostTotalCents,
     invoiceRequested: Boolean(input.invoiceRequested),
     feeRule: checkout.feeRule,
+    invoicePolicy,
   });
   if (quote.earningCents < 0) {
     if (coupon || referralCoupon) {
@@ -249,7 +272,7 @@ async function quoteCheckoutAmounts(input: {
       `套餐 ${checkout.offer.planKey} 扣手续费后代理收益为负：零售 ${checkout.offer.retailPriceCents}，成本 ${checkout.costCents}，数量 ${checkout.quantity}，手续费 ${quote.feeCents}`,
     );
   }
-  return { checkout, coupon, referralCoupon, listGoodsCents, goodsCents, discountCents, quote };
+  return { checkout, invoicePolicy, coupon, referralCoupon, listGoodsCents, goodsCents, discountCents, quote };
 }
 
 export async function quoteStoreCheckout(input: {
@@ -268,6 +291,8 @@ export async function quoteStoreCheckout(input: {
     goodsCents: priced.goodsCents,
     surchargeCents: priced.quote.surchargeCents,
     payCents: priced.quote.payCents,
+    /** 这家店当前的开票税点（%），结账页提示用。 */
+    invoiceRatePct: priced.checkout.invoicePolicy?.ratePct ?? INVOICE_DEFAULT_RATE_PCT,
     couponCode: priced.coupon?.code || priced.referralCoupon?.code || "",
     /** 邀请券：结账页显示「邀请券 立减 ¥x」。 */
     couponKind: priced.referralCoupon ? "referral" : priced.coupon ? "store" : "",
@@ -293,9 +318,19 @@ export async function createStoreOrder(input: {
   returnUrl?: string;
   /** 邀请链接带进来的邀请码；不是这家店的当没带，是否算有效邀请等发货后再判。 */
   referralCode?: string;
+  /**
+   * 买家页面上显示的开票税点。和代理现在的税点对不上（页面开着时代理改了税点）就拒单，
+   * 免得买家按旧价看、按新价付。不传不核对。
+   */
+  expectedInvoiceRatePct?: number;
 }) {
   await assertStoreSalesOpen();
   const priced = await quoteCheckoutAmounts(input);
+  assertInvoiceRateUnchanged({
+    invoiceRequested: Boolean(input.invoiceRequested),
+    expectedRatePct: input.expectedInvoiceRatePct,
+    currentRatePct: priced.invoicePolicy.ratePct,
+  });
   const { checkout, coupon, referralCoupon, listGoodsCents, discountCents, quote } = priced;
   const referralCodeId = await resolveCheckoutReferralCode(checkout.agent.id, input.referralCode);
   const { agent, offer, localAccount, quantity, costCents, displayName, channelConfig } =
@@ -360,11 +395,16 @@ export async function createStoreOrder(input: {
         costTotalCents: checkout.agentCostTotalCents,
         invoiceRequested: true,
         feeRule: checkout.feeRule,
+        invoicePolicy: priced.invoicePolicy,
       })
     : quote;
+  const invoiceSnapshot = invoiceQuote.snapshot;
   const ledger = computeOrderLedger({
     grossCents: invoiceQuote.payCents,
-    invoiceSurchargeCents: invoiceQuote.surchargeCents,
+    invoiceSurchargeCents: invoiceSnapshot.invoiceSurchargeCents,
+    invoiceSplit: invoiceSnapshot.invoiceSplit,
+    invoiceAgentShareCents: invoiceSnapshot.invoiceAgentShareCents,
+    invoiceAgentTaxCents: invoiceSnapshot.invoiceAgentTaxCents,
     agentCostTotalCents: checkout.agentCostTotalCents,
     upstreamCostTotalCents: checkout.upstreamCostTotalCents,
     feeRule: checkout.feeRule,
@@ -420,7 +460,7 @@ export async function createStoreOrder(input: {
         invoiceNote: invoice.note,
         invoiceEmail: invoice.email,
         invoiceAmountCents: invoice.requested ? invoiceQuote.payCents : 0,
-        invoiceSurchargeCents: invoiceQuote.surchargeCents,
+        ...invoiceSnapshot,
         couponId: coupon?.id ?? null,
         couponCodeSnapshot: coupon?.code ?? referralCoupon?.code ?? "",
         couponKindSnapshot: coupon?.kind ?? (referralCoupon ? "referral" : ""),

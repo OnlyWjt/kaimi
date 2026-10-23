@@ -761,7 +761,7 @@ export function AdminReconciliation() {
                         </tbody>
                       </table>
                       <p className="mt-3 text-xs text-[var(--km-fg-muted)]">
-                        共 {storeCount} 笔，收益合计 {formatYuan(storeCents)}。开票加价归平台，不计入代理收益。
+                        共 {storeCount} 笔，收益合计 {formatYuan(storeCents)}。收益已含开通了自定义税点的代理的开票分成，其余开票加价归平台。
                       </p>
                     </>
                   ) : (

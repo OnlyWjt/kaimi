@@ -14,6 +14,8 @@ export type StatsEarningRow = {
   platformFeeCents?: number | null;
   platformProfitCents?: number | null;
   invoiceSurchargeCents?: number | null;
+  /** 收益行上的开票分成（代理到手）。平台开票收入 = 加价 − 这个数。 */
+  invoiceShareCents?: number | null;
   payStatus?: string;
   upstreamCostSource?: string;
   earningCents: number;
@@ -177,6 +179,11 @@ function namedBucket(
   return next;
 }
 
+/** 平台从开票加价里留下的钱：老规则是全部加价；自定义税点是 6% 加上从代理那份扣的税。 */
+function platformInvoiceCents(row: StatsEarningRow) {
+  return (row.invoiceSurchargeCents ?? 0) - (row.invoiceShareCents ?? 0);
+}
+
 function addEarning(target: Money, row: StatsEarningRow) {
   if (row.status === "reversed") {
     target.reversedCents += row.earningCents;
@@ -189,7 +196,7 @@ function addEarning(target: Money, row: StatsEarningRow) {
   target.feeCents += row.totalFeeCents ?? row.paymentFeeCents;
   target.upstreamCents += row.upstreamCents ?? 0;
   target.platformFeeCents += row.platformFeeCents ?? 0;
-  target.invoiceCents += row.invoiceSurchargeCents ?? 0;
+  target.invoiceCents += platformInvoiceCents(row);
   if (row.status === "pending" || row.status === "settling") {
     target.pendingCents += row.earningCents;
   }
@@ -210,7 +217,7 @@ function addEarning(target: Money, row: StatsEarningRow) {
   }
   target.profitCents += row.platformProfitCents;
   target.basisCostCents += row.costCents;
-  target.basisInvoiceCents += row.invoiceSurchargeCents ?? 0;
+  target.basisInvoiceCents += platformInvoiceCents(row);
   target.basisUpstreamCents += row.upstreamCents ?? 0;
   target.basisPlatformFeeCents += row.platformFeeCents ?? 0;
 }

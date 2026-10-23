@@ -23,6 +23,8 @@ import {
   type CouponWarning,
 } from "@/lib/coupon-core";
 import { getMaxOrderQuantity } from "@/lib/store-quantity";
+import { loadAgentInvoicePolicy } from "@/lib/invoice-policy";
+import type { InvoicePolicy } from "@/lib/invoice-core";
 import type { PaymentChannel } from "@/lib/payments/fees";
 import { isUniqueViolation } from "@/lib/db-errors";
 
@@ -136,10 +138,12 @@ export async function listAgentCoupons(agentId: number): Promise<CouponRow[]> {
     list.push(link.planKey);
     byCoupon.set(link.couponId, list);
   }
-  const [plans, channels, maxQuantity] = await Promise.all([
+  const [plans, channels, maxQuantity, invoicePolicy] = await Promise.all([
     loadAgentPlans(agentId),
     loadFeeChannels(),
     getMaxOrderQuantity(),
+    // 税点存坏了只是少一条开票提示，不能让券列表打不开
+    loadAgentInvoicePolicy(agentId).catch(() => undefined),
   ]);
   const previewPlans = plans.map((plan) => ({
     planKey: plan.planKey,
@@ -170,6 +174,7 @@ export async function listAgentCoupons(agentId: number): Promise<CouponRow[]> {
         maxQuantity,
         channels,
         plans: previewPlans,
+        invoicePolicy,
       }),
     };
   });
@@ -186,10 +191,12 @@ export async function previewAgentCoupon(
 ) {
   const draft = parseCouponDraft(body);
   await assertCouponPlanKeys(agentId, draft.planKeys);
-  const [plans, channels, maxQuantity] = await Promise.all([
+  const [plans, channels, maxQuantity, invoicePolicy] = await Promise.all([
     loadAgentPlans(agentId),
     loadFeeChannels(),
     getMaxOrderQuantity(),
+    // 税点存坏了只是少一条开票提示，不能让券列表打不开
+    loadAgentInvoicePolicy(agentId).catch(() => undefined),
   ]);
   const previewPlans = plans.map((plan) => ({
     planKey: plan.planKey,
@@ -204,6 +211,7 @@ export async function previewAgentCoupon(
     maxQuantity,
     channels,
     plans: previewPlans,
+    invoicePolicy,
   });
   const feeRule = channels[0]?.feeRule ?? { ratePpm: 0, fixedFeeCents: 0 };
   const tickets: CouponPreviewTicket[] = draft.planKeys.flatMap((planKey) => {
@@ -218,6 +226,7 @@ export async function previewAgentCoupon(
           listCents: plan.retailPriceCents,
           costCents: plan.costPriceCents,
           feeRule,
+          invoicePolicy,
         }),
       },
     ];
@@ -379,17 +388,25 @@ export function applyCheckoutCoupon(input: {
   costTotalCents: number;
   feeRule: { ratePpm: number; fixedFeeCents: number };
   spec: CouponSpec;
+  invoiceRequested?: boolean;
+  invoicePolicy?: InvoicePolicy;
 }) {
   const applied = applyCoupon(input.listGoodsCents, input.spec);
   if (!applied.ok) throw new Error(applied.error);
-  if (
+  const below = (invoiceRequested: boolean) =>
     couponBelowCost({
       goodsCents: applied.goodsCents,
       costTotalCents: input.costTotalCents,
       feeRule: input.feeRule,
-    })
-  ) {
+      invoiceRequested,
+      invoicePolicy: input.invoicePolicy,
+    });
+  if (below(false)) {
     throw new Error("这张券用在当前商品上后，扣完通道费会低于成本");
+  }
+  // 自定义税点的开票单代理出整单手续费，不开票能用的券开票时可能差几分
+  if (input.invoiceRequested && below(true)) {
+    throw new Error("这张券不能和开票一起用，取消开票后可以使用");
   }
   return applied;
 }

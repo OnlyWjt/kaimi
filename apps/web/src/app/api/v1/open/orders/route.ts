@@ -26,6 +26,8 @@ const createSchema = z.object({
   invoice_tax_no: z.string().max(32).optional(),
   invoice_note: z.string().max(200).optional(),
   invoice_email: z.string().max(254).optional(),
+  /** 给买家看的开票税点（询价返回的 invoice_rate_pct）。和店铺当前税点不一致就拒单。 */
+  invoice_rate_pct: z.number().int().min(0).max(100).optional(),
   return_url: z.string().max(500).optional(),
 });
 
@@ -112,6 +114,7 @@ export async function POST(req: Request) {
       invoiceTaxNo: body.invoice_tax_no,
       invoiceNote: body.invoice_note,
       invoiceEmail: body.invoice_email,
+      expectedInvoiceRatePct: body.invoice_rate_pct,
       returnUrl,
     });
     return finish(

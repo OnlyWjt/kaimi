@@ -1,4 +1,4 @@
-import { quoteStorePayment } from "./invoice-core";
+import { quoteStorePayment, type InvoicePolicy } from "./invoice-core";
 import { yuanTextFromCents } from "./money";
 import type { FeeRule, PaymentChannel } from "./payments/fees";
 
@@ -111,12 +111,15 @@ export function couponBelowCost(input: {
   goodsCents: number;
   costTotalCents: number;
   feeRule: FeeRule;
+  invoiceRequested?: boolean;
+  invoicePolicy?: InvoicePolicy;
 }) {
   const quote = quoteStorePayment({
     goodsCents: input.goodsCents,
     costTotalCents: input.costTotalCents,
-    invoiceRequested: false,
+    invoiceRequested: Boolean(input.invoiceRequested),
     feeRule: input.feeRule,
+    invoicePolicy: input.invoicePolicy,
   });
   return quote.earningCents < 0;
 }
@@ -156,6 +159,8 @@ export function quoteCouponTicket(input: {
   listCents: number;
   costCents: number;
   feeRule: FeeRule;
+  /** 代理当前的开票规则。不传按老规则 10%。 */
+  invoicePolicy?: InvoicePolicy;
 }): CouponTicketQuote {
   const applied = applyCoupon(input.listCents, input.spec);
   const goodsCents = applied.ok ? applied.goodsCents : input.listCents;
@@ -164,6 +169,7 @@ export function quoteCouponTicket(input: {
     costTotalCents: input.costCents,
     invoiceRequested: true,
     feeRule: input.feeRule,
+    invoicePolicy: input.invoicePolicy,
   });
   return {
     applied: applied.ok,
@@ -305,6 +311,8 @@ export function previewCouponWarnings(input: {
   channels: Array<{ channel: PaymentChannel; feeRule: FeeRule }>;
   planKeys: string[];
   maxQuantity: number;
+  /** 开通了自定义税点时，开票单代理出整单手续费，要单独检查。 */
+  invoicePolicy?: InvoicePolicy;
 }): CouponWarning[] {
   const warnings: CouponWarning[] = [];
   const selected = new Set(input.planKeys);
@@ -342,7 +350,26 @@ export function previewCouponWarnings(input: {
           costTotalCents: plan.costPriceCents * quantity,
           feeRule: channel.feeRule,
         });
-        if (quote.earningCents >= 0) continue;
+        if (quote.earningCents >= 0) {
+          if (!input.invoicePolicy?.split) continue;
+          const invoiceQuote = quoteStorePayment({
+            goodsCents: applied.goodsCents,
+            costTotalCents: plan.costPriceCents * quantity,
+            invoiceRequested: true,
+            feeRule: channel.feeRule,
+            invoicePolicy: input.invoicePolicy,
+          });
+          if (invoiceQuote.earningCents >= 0) continue;
+          warnings.push({
+            planKey: plan.planKey,
+            planName: plan.planName,
+            channel: channel.channel,
+            quantity,
+            reason: "below_cost",
+            message: `${plan.planName} · ${CHANNEL_LABEL[channel.channel]}：买 ${quantity} 张并开票时，扣完整单通道费会低于成本，买家开票时用不了这张券（开票税点 ${input.invoicePolicy.ratePct}%）`,
+          });
+          continue;
+        }
         warnings.push({
           planKey: plan.planKey,
           planName: plan.planName,

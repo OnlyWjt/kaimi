@@ -47,6 +47,8 @@ export async function POST(req: Request) {
       discount_cents: quote.discountCents,
       goods_cents: quote.goodsCents,
       invoice_surcharge_cents: quote.surchargeCents,
+      /** 这家店当前的开票税点（%），invoice_requested 为 false 时也返回。 */
+      invoice_rate_pct: quote.invoiceRatePct,
       pay_cents: quote.payCents,
       coupon_code: quote.couponCode,
       /** store = 代理手建的券；referral = 邀请券；空 = 没用券。 */

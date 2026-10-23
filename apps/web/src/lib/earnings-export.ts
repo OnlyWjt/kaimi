@@ -11,6 +11,7 @@ export type EarningsExportSummary = {
   orderCount: number;
   grossCents: number;
   costCents: number;
+  invoiceShareCents?: number;
   estimatedFeeCents: number;
   actualFeeCents: number;
   feeDifferenceCents: number;
@@ -36,6 +37,8 @@ export type EarningsExportDetail = {
   paymentChannel: string;
   grossCents: number;
   costCents: number;
+  /** 开票分成（扣税后），老规则单是 0。 */
+  invoiceShareCents?: number;
   upstreamCostCents?: number | null;
   platformFeeCents?: number | null;
   platformProfitCents?: number | null;
@@ -137,6 +140,8 @@ export async function buildEarningsWorkbook(input: {
     { header: "已结算", key: "settled", width: 16 },
     { header: "已冲正", key: "reversed", width: 16 },
     { header: "账务调整", key: "adjustment", width: 16 },
+    // 新列一律加在最后，按列位置读这张表的脚本不会错位
+    { header: "开票分成", key: "invoiceShare", width: 16 },
   ]);
   summary.addRow({
     periodStart: safeText(formatUtcDate(input.summary.periodStart)),
@@ -145,6 +150,7 @@ export async function buildEarningsWorkbook(input: {
     orderCount: input.summary.orderCount,
     gross: yuan(input.summary.grossCents),
     cost: yuan(input.summary.costCents),
+    invoiceShare: yuan(input.summary.invoiceShareCents || 0),
     estimatedFee: yuan(input.summary.estimatedFeeCents),
     actualFee: yuan(input.summary.actualFeeCents),
     feeDifference: yuan(input.summary.feeDifferenceCents),
@@ -157,6 +163,7 @@ export async function buildEarningsWorkbook(input: {
   formatMoneyColumns(summary, [
     "gross",
     "cost",
+    "invoiceShare",
     "estimatedFee",
     "actualFee",
     "feeDifference",
@@ -198,6 +205,7 @@ export async function buildEarningsWorkbook(input: {
     { header: "收益状态", key: "earningStatus", width: 14 },
     { header: "结算单号", key: "settlementNo", width: 24 },
     { header: "卡密状态", key: "cdkStatus", width: 14 },
+    { header: "开票分成", key: "invoiceShare", width: 16 },
   ]);
   for (const item of input.details) {
     details.addRow({
@@ -215,6 +223,7 @@ export async function buildEarningsWorkbook(input: {
       paymentChannel: safeText(item.paymentChannel),
       gross: yuan(item.grossCents),
       cost: yuan(item.costCents),
+      invoiceShare: yuan(item.invoiceShareCents || 0),
       upstream: item.upstreamCostCents == null ? null : yuan(item.upstreamCostCents),
       platformFee: yuan(item.platformFeeCents || 0),
       platformProfit:
@@ -233,6 +242,7 @@ export async function buildEarningsWorkbook(input: {
   formatMoneyColumns(details, [
     "gross",
     "cost",
+    "invoiceShare",
     "upstream",
     "platformFee",
     "platformProfit",

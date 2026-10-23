@@ -54,6 +54,8 @@ export async function GET() {
       status: agents.status,
       currentSlug: agents.currentSlug,
       notes: agents.notes,
+      invoiceRateCustomEnabled: agents.invoiceRateCustomEnabled,
+      invoiceRatePct: agents.invoiceRatePct,
       username: users.username,
       lastLoginAt: users.lastLoginAt,
       createdAt: agents.createdAt,

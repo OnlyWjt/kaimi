@@ -74,6 +74,7 @@ export async function GET(req: Request) {
       platformFeeCents: storeOrders.platformFeeCents,
       platformProfitCents: storeOrders.platformProfitCents,
       invoiceSurchargeCents: storeOrders.invoiceSurchargeCents,
+      invoiceShareCents: agentEarnings.invoiceShareCents,
       payStatus: storeOrders.payStatus,
       upstreamCostSource: storeOrders.upstreamCostSource,
       earningCents: agentEarnings.earningCents,

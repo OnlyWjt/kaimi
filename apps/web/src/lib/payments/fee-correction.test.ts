@@ -24,6 +24,9 @@ const { agentEarningAdjustments, agentEarnings, agents, storeOrders } = schema;
 const BASE = {
   grossCents: 10000,
   invoiceSurchargeCents: 0,
+  invoiceSplit: false,
+  invoiceAgentShareCents: 0,
+  invoiceAgentTaxCents: 0,
   agentCostTotalCents: 7000,
   upstreamCostTotalCents: 6000,
   feeRatePpm: 6000,

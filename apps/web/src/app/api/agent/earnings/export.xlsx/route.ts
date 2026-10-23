@@ -65,6 +65,7 @@ export async function GET(req: Request) {
       paymentChannel: storeOrders.paymentChannel,
       grossCents: agentEarnings.grossCents,
       costCents: agentEarnings.costCents,
+      invoiceShareCents: agentEarnings.invoiceShareCents,
       estimatedFeeCents: storeOrders.estimatedPaymentFeeCents,
       actualFeeCents: storeOrders.actualPaymentFeeCents,
       feeReconcileStatus: storeOrders.feeReconcileStatus,

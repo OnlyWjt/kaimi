@@ -6,7 +6,7 @@ import { readApiJson } from "@/lib/http-error";
 import { contactHref } from "@/lib/agent-contact-core";
 import { RegionBadge } from "@/components/region-badge";
 import { regionDisplay } from "@/lib/cardplatform/regions";
-import { invoiceSurchargeCents } from "@/lib/invoice-core";
+import { INVOICE_DEFAULT_RATE_PCT, invoiceSurchargeAtRate } from "@/lib/invoice-core";
 import { yuanTextFromCents } from "@/lib/money";
 import { THEME_CHOICES } from "@/lib/themes";
 import {
@@ -73,6 +73,7 @@ export function AgentStorefront({
   channels = [],
   maxQuantity = 5,
   redeemUrl = DEFAULT_AGENT_REDEEM_URL,
+  invoiceRatePct = INVOICE_DEFAULT_RATE_PCT,
 }: {
   config: StorefrontConfig;
   /** 预览模式：显示主题色板、不真的下单 */
@@ -81,6 +82,8 @@ export function AgentStorefront({
   channels?: Channel[];
   maxQuantity?: number;
   redeemUrl?: string;
+  /** 这家店的开票税点（%）。只用来估价和提示，实付以服务端下单为准。 */
+  invoiceRatePct?: number;
 }) {
   const [themeId, setThemeId] = useState<ThemeId>(
     isThemeId(config.themeId) ? config.themeId : "snow",
@@ -192,7 +195,7 @@ export function AgentStorefront({
   const listGoodsCents = activeSpec ? activeSpec.priceCents * qty : 0;
   const goodsCents =
     couponQuote && couponQuote.discountCents > 0 ? couponQuote.goodsCents : listGoodsCents;
-  const surchargeCents = wantInvoice && goodsCents > 0 ? invoiceSurchargeCents(goodsCents) : 0;
+  const surchargeCents = wantInvoice && goodsCents > 0 ? invoiceSurchargeAtRate(goodsCents, invoiceRatePct) : 0;
   const totalCents = goodsCents + surchargeCents;
   const specMaxQty = Math.min(maxQty, activeSpec?.stock ?? maxQty);
 
@@ -297,6 +300,8 @@ export function AgentStorefront({
                 couponCode: code,
                 // 邀请券只能本人用，要带上邮箱核对
                 customerEmail: buyerEmail.trim() || undefined,
+                // 开票单的券后价可能不同（自定义税点的店开票时代理出整单手续费），按实际要不要开票查
+                invoiceRequested: wantInvoice,
               }),
             }),
           );
@@ -312,7 +317,7 @@ export function AgentStorefront({
       })();
     }, 350);
     return () => window.clearTimeout(handle);
-  }, [live, slug, activeSpec, couponCode, channel, qty, buyerEmail]);
+  }, [live, slug, activeSpec, couponCode, channel, qty, buyerEmail, wantInvoice]);
 
   useEffect(() => {
     if (!active && !invoiceOpen) return;
@@ -506,6 +511,7 @@ export function AgentStorefront({
             invoiceTaxNo: wantInvoice ? invoiceTaxNo.trim() : undefined,
             invoiceNote: wantInvoice ? invoiceNote.trim() : undefined,
             invoiceEmail: wantInvoice ? invoiceEmail.trim() : undefined,
+            expectedInvoiceRatePct: wantInvoice ? invoiceRatePct : undefined,
             couponCode: couponCode.trim() || undefined,
             regionConfirmed: regionChoices >= 2 ? regionConfirmed : undefined,
             referralCode: referralCode || undefined,
@@ -1243,7 +1249,7 @@ export function AgentStorefront({
             onClick={(event) => event.stopPropagation()}
           >
             <h2 id="km-sf-invoice-title">{t.detail.invoiceAskTitle}</h2>
-            <p className="km-sf-invoice-warn">{t.detail.invoiceAskSub}</p>
+            <p className="km-sf-invoice-warn">{t.detail.invoiceAskSub(invoiceRatePct)}</p>
             <label className={`km-sf-invoice-check-card${wantInvoice ? " is-on" : ""}`}>
               <input
                 type="checkbox"
@@ -1290,11 +1296,13 @@ export function AgentStorefront({
                   {t.detail.invoiceAmountHint(
                     yuanTextFromCents(goodsCents),
                     yuanTextFromCents(surchargeCents),
+                    invoiceRatePct,
                   )}
                   {couponQuote && couponQuote.discountCents > 0
                     ? ` · ${t.detail.couponOff(yuanTextFromCents(couponQuote.discountCents))}`
                     : ""}
                 </p>
+                {couponError ? <p className="km-sf-error">{couponError}</p> : null}
                 <p className="km-sf-field-label">{t.detail.invoiceEmail}</p>
                 <input
                   className="km-input"

@@ -933,6 +933,8 @@ async function ensureAgentDrawSchema() {
 
 export async function ensureSchema() {
   await client.executeMultiple(DDL);
+  // 后面的迁移会整行读订单，新列要先补上。
+  await ensureInvoiceRateSchema();
   await client.executeMultiple(`
     UPDATE agent_earning_adjustments
     SET created_at = replace(created_at, ' ', 'T') || '.000Z'
@@ -1280,6 +1282,7 @@ export async function ensureSchema() {
   await ensureSetting("draw_agent_notice", "");
   await ensureSetting("draw_finished_reserve", "0");
   await ensureSetting("cardplatform_region_whitelist", "US,CL");
+  await ensureSetting("invoice_agent_tax_bp", "100");
   // 售后联系方式必填：首次上线这一版时给已有代理 3 天宽限，之后没填的店停止接单。只写一次。
   await ensureSetting(CONTACT_ENFORCE_SETTING, graceDeadlineFrom());
 
@@ -1737,6 +1740,26 @@ async function ensureRedeemGuardSchema() {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS mail_templates_agent_key_uq ON mail_templates(agent_id, template_key);
   `);
+}
+
+/** 代理自定义开票税点：代理开关和税点、订单上的分成快照、收益行上的开票分成。重复列忽略。 */
+async function ensureInvoiceRateSchema() {
+  for (const sqlText of [
+    "ALTER TABLE agents ADD COLUMN invoice_rate_custom_enabled INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE agents ADD COLUMN invoice_rate_pct INTEGER NOT NULL DEFAULT 10",
+    "ALTER TABLE store_orders ADD COLUMN invoice_rate_pct INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE store_orders ADD COLUMN invoice_split INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE store_orders ADD COLUMN invoice_agent_share_cents INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE store_orders ADD COLUMN invoice_agent_tax_cents INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE store_orders ADD COLUMN invoice_agent_tax_bp INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE agent_earnings ADD COLUMN invoice_share_cents INTEGER NOT NULL DEFAULT 0",
+  ]) {
+    try {
+      await client.execute(sqlText);
+    } catch (error) {
+      if (!/duplicate column/i.test(String(error))) throw error;
+    }
+  }
 }
 
 /** 开票接入 Folio：订单上的开票状态、回调事件、nonce。全是 IF NOT EXISTS / 重复列忽略。 */

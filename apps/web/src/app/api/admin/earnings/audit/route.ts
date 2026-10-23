@@ -45,6 +45,7 @@ export async function GET() {
       agentName: agents.displayName,
       earningId: agentEarnings.id,
       earningGross: agentEarnings.grossCents,
+      earningInvoiceShare: agentEarnings.invoiceShareCents,
       earningCost: agentEarnings.costCents,
       earningAgentFee: agentEarnings.agentFeeCents,
       earningCents: agentEarnings.earningCents,
@@ -79,6 +80,7 @@ export async function GET() {
       const earning = row.earningId
         ? {
             grossCents: row.earningGross ?? 0,
+            invoiceShareCents: row.earningInvoiceShare ?? 0,
             costCents: row.earningCost ?? 0,
             agentFeeCents: row.earningAgentFee ?? 0,
             earningCents: row.earningCents ?? 0,
@@ -96,7 +98,8 @@ export async function GET() {
       if (
         mismatches.some((item) => item.code.startsWith("earning_row_")) &&
         !(row.earningCents != null && row.earningCents + correctionCents === expectedEarning &&
-          row.earningGross === order.grossCents - order.invoiceSurchargeCents &&
+          row.earningGross === ledger.goodsCents &&
+          row.earningInvoiceShare === ledger.invoiceAgentNetCents &&
           row.earningCost === order.agentCostTotalCents)
       ) {
         kinds.push("order_earning_row_mismatch");

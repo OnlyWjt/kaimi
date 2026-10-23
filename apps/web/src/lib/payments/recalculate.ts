@@ -64,6 +64,8 @@ type PlannedChange = {
   platformProfitCents: number | null;
   grossCents: number;
   invoiceSurchargeCents: number;
+  invoiceAgentShareCents: number;
+  invoiceAgentTaxCents: number;
   agentCostTotalCents: number;
   earningCents: number;
   feeSource: string;
@@ -194,6 +196,8 @@ export async function recalculateEstimatedFees(
       platformProfitCents: ledger.platformProfitCents,
       grossCents: order.grossCents,
       invoiceSurchargeCents: order.invoiceSurchargeCents,
+      invoiceAgentShareCents: order.invoiceAgentShareCents,
+      invoiceAgentTaxCents: order.invoiceAgentTaxCents,
       agentCostTotalCents: order.agentCostTotalCents,
       earningCents,
       feeSource:
@@ -281,6 +285,8 @@ export async function recalculateEstimatedFees(
             ...earningSnapshotFromOrder({
               grossCents: change.grossCents,
               invoiceSurchargeCents: change.invoiceSurchargeCents,
+              invoiceAgentShareCents: change.invoiceAgentShareCents,
+              invoiceAgentTaxCents: change.invoiceAgentTaxCents,
               agentCostTotalCents: change.agentCostTotalCents,
               agentFeeCents: change.agentFeeCents,
               finalPaymentFeeCents: change.feeCents,

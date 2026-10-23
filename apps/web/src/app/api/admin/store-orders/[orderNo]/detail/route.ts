@@ -114,6 +114,12 @@ async function loadInvoiceBlock(order: typeof storeOrders.$inferSelect) {
     issuedAt: order.invoiceIssuedAt,
     pdfUrl: order.invoicePdfUrl,
     refundAction: order.folioRefundAction,
+    surchargeCents: order.invoiceSurchargeCents,
+    /** 0 = 本功能上线前的单，按 10% 算的。 */
+    ratePct: order.invoiceRatePct || 10,
+    split: order.invoiceSplit,
+    agentShareCents: order.invoiceAgentShareCents,
+    agentTaxCents: order.invoiceAgentTaxCents,
     canPush:
       config.enabled &&
       order.payStatus === "paid" &&

@@ -70,6 +70,7 @@ export async function GET(req: Request) {
       paymentChannel: storeOrders.paymentChannel,
       grossCents: agentEarnings.grossCents,
       costCents: agentEarnings.costCents,
+      invoiceShareCents: agentEarnings.invoiceShareCents,
       upstreamCostCents: storeOrders.upstreamCostTotalCents,
       platformFeeCents: storeOrders.platformFeeCents,
       platformProfitCents: storeOrders.platformProfitCents,
