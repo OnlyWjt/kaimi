@@ -18,6 +18,7 @@ import {
   webhookEventForStatus,
   type WebhookEventName,
 } from "./webhooks-core";
+import { productOfPlanKey } from "@/lib/cardplatform/product";
 
 /** 给订阅了该事件的代理回调地址各排一条投递。沙箱订单也走这里，负载里 livemode=false。 */
 export async function enqueueAgentWebhook(
@@ -108,6 +109,7 @@ export async function enqueueRedemptionWebhook(orderNo: string) {
     status: order.fulfillStatus,
     message: order.message,
     plan_key: order.upstreamPlan,
+    product: productOfPlanKey(order.upstreamPlan),
     ...(await redemptionRegionFields(order.issuedCdkId)),
     created_at: order.createdAt,
   });
@@ -131,6 +133,7 @@ export async function enqueueStoreOrderWebhook(
     pay_status: order.payStatus,
     fulfill_status: order.fulfillStatus,
     plan_key: order.planKeySnapshot,
+    product: order.productSnapshot || productOfPlanKey(order.planKeySnapshot),
     payment_country: order.paymentCountrySnapshot,
     product_name: order.productNameSnapshot,
     quantity: order.quantity,

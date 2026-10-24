@@ -20,6 +20,17 @@ import { mapCardplatformStatus, parseCardplatformRequestId } from "./status";
 import { CardplatformError } from "./client";
 import { parsePreflight, preflightErrorMessage } from "./preflight-core";
 import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
+import {
+  CARD_PRODUCTS,
+  isAmbiguousBareKey,
+  isCardProduct,
+  localPlanKey,
+  productOfPlanKey,
+  redeemCredential,
+  resolveCardProduct,
+  xCredentialEmail,
+  type CardProduct,
+} from "./product";
 
 export {
   mapCardplatformStatus,
@@ -30,6 +41,8 @@ export {
 
 export type RedeemableCdk = {
   code: string;
+  /** 卡密属于哪条产品线，决定兑换要什么凭证。 */
+  product: CardProduct;
   planKey: string;
   planName: string;
   /** 本站卡密且套餐有地区概念时才有值。空串 = 菲区。 */
@@ -38,10 +51,6 @@ export type RedeemableCdk = {
   accountId: number;
   issued: NonNullable<Awaited<ReturnType<typeof findIssuedCdkByCode>>> | null;
 };
-
-export function cardplatformCredential(account: AgentCredential) {
-  return { mode: "session" as const, session: String(account.session || "") };
-}
 
 async function planInfoFor(planKey: string) {
   if (!planKey) return null;
@@ -59,6 +68,7 @@ async function planInfoFor(planKey: string) {
     paymentCountry: plan.regionCapable ? plan.paymentCountry : "",
     regionLabel: plan.regionCapable ? plan.regionLabel : "",
     regionCapable: plan.regionCapable,
+    product: isCardProduct(plan.product) ? plan.product : productOfPlanKey(plan.planKey),
   };
 }
 
@@ -117,14 +127,29 @@ export async function previewRedeemableCdk(
   );
   if (!redemptionToken) throw new Error("卡台未返回兑换令牌");
 
+  // 本站发出的卡按本站 plan_key 定产品；别处的卡看卡台 preview 的 product，再按键推。
+  // 卡台回的是裸键，X / Grok 要换成本站带前缀的键才能查到套餐名。
+  const upstreamPlan = nestedString(result.payload, "plan", "plan_key");
+  const namedProduct = nestedString(result.payload, "product").toLowerCase();
+  if (!issued && !isCardProduct(namedProduct) && isAmbiguousBareKey(upstreamPlan)) {
+    throw new Error("无法识别这张卡密是 X 订阅码还是 Grok，请联系卖家确认后再兑换");
+  }
+  // 本站发出的卡以套餐表上的产品线为准，表里找不到才按键推。
+  const issuedPlan = issued ? await planInfoFor(issued.planKey) : null;
+  const product = issued
+    ? issuedPlan?.product ?? productOfPlanKey(issued.planKey)
+    : resolveCardProduct(namedProduct, upstreamPlan);
   const planKey =
     issued?.planKey ||
-    nestedString(result.payload, "plan", "plan_key", "product") ||
+    (product === "gpt"
+      ? upstreamPlan || nestedString(result.payload, "product")
+      : localPlanKey(product, upstreamPlan)) ||
     "";
-  const planInfo = await planInfoFor(planKey);
+  const planInfo = issuedPlan ?? (await planInfoFor(planKey));
   return {
     redeemable: {
       code: issued?.code || trimmed,
+      product,
       planKey,
       planName: planInfo?.name || planKey || "卡台套餐",
       paymentCountry: issued && planInfo?.regionCapable ? issued.paymentCountry : "",
@@ -146,23 +171,35 @@ export async function preflightRedeemableCdk(input: {
   const preview = await previewRedeemableCdk(input.code, {
     allowInFlight: input.allowInFlight,
   });
+  const { product } = preview.redeemable;
+  const checked = redeemCredential(product, String(input.account.session || ""));
+  if (!checked.ok) throw new Error(checked.error);
+  const credential = { mode: "session" as const, session: checked.session };
   const { client } = await resolveRedeemClient(preview.redeemable.code);
   const result = await client.preflightCdk({
     code: preview.redeemable.code,
     redemption_token: preview.redemptionToken,
-    credential: cardplatformCredential(input.account),
+    credential,
   });
   if (!result.ok) throw publicCdkError(result);
   const account = parsePreflight(result.payload);
   const preflightToken =
     account.preflightToken || nestedString(result.payload, "preflight_token", "token");
-  if (!preflightToken) throw new Error("卡台未返回预检令牌");
+  // Grok 预检只查账号、不发票，兑换时直接带 credential。
+  if (!preflightToken && CARD_PRODUCTS[product].preflightToken) {
+    throw new Error("卡台未返回预检令牌");
+  }
   return {
     ...preview,
     preflight: result.payload,
     account,
     preflightToken,
-    accountEmail: account.email || input.account.email || "",
+    credential,
+    accountEmail:
+      account.email ||
+      (product === "x" ? xCredentialEmail(checked.session) : "") ||
+      input.account.email ||
+      "",
   };
 }
 
@@ -208,6 +245,7 @@ export function summarizePreview(input: {
     ok: true as const,
     codeMasked: maskCode(input.redeemable.code),
     status: "未使用",
+    product: input.redeemable.product,
     planKey: input.redeemable.planKey,
     planName: input.redeemable.planName,
     paymentCountry: input.redeemable.paymentCountry,

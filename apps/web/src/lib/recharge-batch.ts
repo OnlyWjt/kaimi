@@ -20,11 +20,14 @@ import { REDEEM_BATCH_CONCURRENCY, mapPool } from "@/lib/recharge-batch-core";
 import { assertRedeemCodeKnown, recordRedeemFailure } from "@/lib/redeem-guard";
 import { BATCH_STOPPED_MESSAGE, RedeemRejectedError, createBatchGuessGuard } from "@/lib/redeem-guard-core";
 import type { AgentCredential } from "@/lib/recharge-types";
+import type { CardProduct } from "@/lib/cardplatform/product";
 
 export type BatchPreviewRow = {
   code: string;
   codeMasked: string;
   ok: boolean;
+  /** 卡密的产品线。一批只能是同一种，凭证只填一次。 */
+  product?: CardProduct;
   planKey: string;
   planName: string;
   /** 这张卡已经在兑换或已兑换过时给出对应的 RC 单号，界面接着查就行，不用重提。 */
@@ -94,6 +97,7 @@ export async function previewRedeemCodes(
         ...base,
         ok: true,
         codeMasked: summary.codeMasked,
+        product: summary.product,
         planKey: summary.planKey,
         planName: summary.planName,
         error: "",

@@ -6,6 +6,8 @@
  * 满足时兑换必然失败，提前在预检拦下，卡密就不会被锁住再退回来。
  */
 
+import { productOfPlanKey } from "./product";
+
 export type PreflightQuote = {
   country: string;
   currency: string;
@@ -41,6 +43,8 @@ export type PreflightAccount = {
   };
   preflightToken: string;
   preflightExpiresAt: string;
+  /** Grok 预检不发预检票，只给这一句拦截原因（登录态失效 / 已有订阅等）。空串 = 没拦。 */
+  blockingReason: string;
   paymentCountry: string;
   paymentCurrency: string;
   /** 键是本站套餐键（plus / pro_20x…），不是 quote 里的上游套餐名。 */
@@ -202,6 +206,7 @@ export function parsePreflight(payload: Record<string, unknown>): PreflightAccou
       expiryHasTime: expiry.hasTime,
     },
     preflightToken: str(data.preflight_token),
+    blockingReason: str(data.blocking_reason),
     preflightExpiresAt: str(data.preflight_expires_at),
     paymentCountry: str(data.payment_country).toUpperCase(),
     paymentCurrency: str(data.payment_currency).toUpperCase(),
@@ -234,6 +239,18 @@ const APP_STORE_ORIGIN = /apple|ios|google|android|play_?store|app_?store/i;
  * 最终由卡台兑换结果说了算。
  */
 export function assessEligibility(account: PreflightAccount, planKey: string): PreflightEligibility {
+  // 下面的档位规则都是 ChatGPT 的。X / Grok 只认卡台给的拦截原因。
+  const product = productOfPlanKey(planKey);
+  if (product !== "gpt") {
+    const reason = account.blockingReason;
+    return {
+      verdict: reason ? "block" : "ok",
+      code: reason ? "PRECHECK_BLOCKED" : null,
+      reasons: reason ? [reason] : [],
+      warnings: [],
+      quote: null,
+    };
+  }
   const base = basePlanKey(planKey);
   const reasons: string[] = [];
   const warnings: string[] = [];

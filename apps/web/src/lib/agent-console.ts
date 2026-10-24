@@ -3,6 +3,7 @@ import { cache } from "react";
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { agentPlanPrices, agents, platformPlans, users } from "@/db/schema";
+import { arrangeStorefrontPlans } from "@/lib/cardplatform/product";
 import { loadUnreadAnnouncement } from "@/lib/announcements";
 import { agentContactGate } from "@/lib/agent-contact";
 import {
@@ -42,14 +43,19 @@ export async function listAgentConsolePlans(agentId: number): Promise<AgentPlanR
       agentHidden: agentPlanPrices.agentHidden,
       cardplatformSellable: platformPlans.cardplatformSellable,
       fulfillmentKind: platformPlans.fulfillmentKind,
+      product: platformPlans.product,
+      sortOrder: platformPlans.sortOrder,
+      category: platformPlans.category,
     })
     .from(agentPlanPrices)
     .innerJoin(platformPlans, eq(platformPlans.id, agentPlanPrices.planId))
     .where(and(eq(agentPlanPrices.agentId, agentId), eq(platformPlans.enabled, true)))
     .orderBy(asc(platformPlans.sortOrder), asc(platformPlans.id));
 
-  return rows.map((row) => ({
+  return arrangeStorefrontPlans(rows).map((row) => ({
     planKey: row.planKey,
+    product: row.product,
+    sortOrder: row.sortOrder,
     name: row.name,
     costPriceCents: row.costOverrideCents ?? row.globalCostPriceCents,
     maxRetailPriceCents: row.maxRetailPriceCents,

@@ -34,6 +34,10 @@ export type AgentPlanRow = {
   paymentCountry?: string;
   regionLabel?: string;
   regionCapable?: boolean;
+  /** 产品线 gpt / x / grok */
+  product?: string;
+  /** 已按产品线分段的排序值（ChatGPT → X → Grok） */
+  sortOrder?: number;
 };
 
 export type AgentCouponWarning = { message: string; reason: string };

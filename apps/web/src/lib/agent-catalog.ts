@@ -2,6 +2,7 @@ import { and, asc, eq, or } from "drizzle-orm";
 import { db } from "@/db";
 import { agentPlanPrices, paymentChannelConfigs, platformPlans } from "@/db/schema";
 import { groupPlansByBase, regionConfirmationRequired } from "@/lib/cardplatform/regions";
+import { arrangeStorefrontPlans } from "@/lib/cardplatform/product";
 import { LOCAL_ACCOUNT_FULFILLMENT } from "@/lib/finished-account-core";
 import { unusedFinishedAccountCounts } from "@/lib/finished-accounts";
 
@@ -25,6 +26,7 @@ export async function loadAgentSellablePlans(agentId: number) {
       name: platformPlans.name,
       description: platformPlans.description,
       category: platformPlans.category,
+      product: platformPlans.product,
       fulfillmentKind: platformPlans.fulfillmentKind,
       cardplatformSellable: platformPlans.cardplatformSellable,
       retailPriceCents: agentPlanPrices.retailPriceCents,
@@ -63,7 +65,7 @@ export async function loadAgentSellablePlans(agentId: number) {
       .filter((row) => row.fulfillmentKind === LOCAL_ACCOUNT_FULFILLMENT)
       .map((row) => row.planKey),
   );
-  return sellable.map((row) => {
+  return arrangeStorefrontPlans(sellable).map((row) => {
     const localAccount = row.fulfillmentKind === LOCAL_ACCOUNT_FULFILLMENT;
     const baseKey = row.basePlanKey || row.planKey;
     return {

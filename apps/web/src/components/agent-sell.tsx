@@ -18,6 +18,7 @@ import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
 import { retailPriceError, retailPriceRangeHint } from "@/lib/plan-price-core";
 import { groupPlansByBase, planNameWithRegion } from "@/lib/cardplatform/regions";
 import { RegionBadge } from "@/components/region-badge";
+import { cardProductLabel } from "@/lib/cardplatform/product";
 
 function planStatus(plan: AgentPlanRow) {
   if (!plan.enabled) return { label: "未开放", tone: "mute" as const };
@@ -204,11 +205,21 @@ export function AgentSell({
                     paymentCountry: plan.paymentCountry || "",
                     regionLabel: plan.regionLabel || "",
                     regionCapable: Boolean(plan.regionCapable),
-                    sortOrder: 0,
+                    sortOrder: plan.sortOrder ?? 0,
                   })),
-                ).flatMap((group) => {
+                ).flatMap((group, index, groups) => {
                   const grouped = group.plans.some((plan) => plan.regionCapable);
                   const rows = [];
+                  // 店里不止一条产品线时，每条线前面加一行标题，免得 Plus 和 Grok Premium 混在一起。
+                  const product = group.primary.product || "gpt";
+                  const multiProduct = groups.some((item) => (item.primary.product || "gpt") !== product);
+                  if (multiProduct && (index === 0 || (groups[index - 1].primary.product || "gpt") !== product)) {
+                    rows.push(
+                      <tr key={`product-${product}`} className="km-sell-product">
+                        <td colSpan={6}>{cardProductLabel(product)}</td>
+                      </tr>,
+                    );
+                  }
                   if (grouped) {
                     const sellableCount = group.plans.filter(
                       (plan) => planStatus(plan).tone === "ok",

@@ -1,4 +1,17 @@
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { platformPlans } from "@/db/schema";
 import { preflightRedeemableCdk } from "@/lib/cardplatform/redeem";
+import { findIssuedCdkByCode } from "@/lib/cardplatform/issued-redemption";
+import {
+  CARD_PRODUCTS,
+  grokCredential,
+  isCardProduct,
+  productOfPlanKey,
+  xCredential,
+  xCredentialEmail,
+  type CardProduct,
+} from "@/lib/cardplatform/product";
 import { CardplatformError } from "@/lib/cardplatform/client";
 import {
   accountPlanLabel,
@@ -36,7 +49,7 @@ export type SessionCheckResult = {
   source: "local" | "cardplatform";
   /** 卡台预检通过后才有：账号现状和这张卡密的资格判断。 */
   account?: PreflightAccount;
-  target?: { planKey: string; planName: string; paymentCountry: string };
+  target?: { planKey: string; planName: string; paymentCountry: string; product: CardProduct };
   eligibility?: PreflightEligibility;
 };
 
@@ -126,6 +139,41 @@ export function checkChatGPTSessionLocal(raw: string): SessionCheckResult {
   };
 }
 
+/**
+ * 兑换凭证的本地格式校验，按卡密的产品线来：GPT 是 Session JSON，X 是登录 cookie JSON，
+ * Grok 是 sso cookie。只有 GPT 和 X 能从凭证里读出邮箱。
+ */
+export function checkCredentialLocal(product: CardProduct, raw: string): SessionCheckResult {
+  if (product === "gpt") return checkChatGPTSessionLocal(raw);
+  const checked = product === "grok" ? grokCredential(raw) : xCredential(raw);
+  if (!checked.ok) {
+    return { ok: false, hasAccessToken: false, errors: [checked.error], warnings: [], source: "local" };
+  }
+  return {
+    ok: true,
+    email: product === "x" ? xCredentialEmail(checked.session) || undefined : undefined,
+    hasAccessToken: true,
+    errors: [],
+    warnings: [],
+    source: "local",
+  };
+}
+
+/**
+ * 不打卡台先猜卡密的产品线：本站发出的卡看本站套餐键；别处的卡用前端校验卡密时拿到的 product，
+ * 都没有就当 GPT。真正以卡台 preview 为准，预检时还会再核一次。
+ */
+export async function codeProductHint(code: string, hint?: string | null): Promise<CardProduct> {
+  const issued = await findIssuedCdkByCode(code.trim()).catch(() => null);
+  if (issued?.planKey) {
+    const plan = await db.query.platformPlans
+      .findFirst({ where: eq(platformPlans.planKey, issued.planKey) })
+      .catch(() => null);
+    return isCardProduct(plan?.product) ? plan.product : productOfPlanKey(issued.planKey);
+  }
+  return isCardProduct(hint) ? hint : "gpt";
+}
+
 /** @deprecated 兼容旧引用；请用 checkChatGPTSessionLocal / verifySessionForRedeem */
 export function checkChatGPTSession(raw: string): SessionCheckResult {
   return checkChatGPTSessionLocal(raw);
@@ -138,8 +186,10 @@ export function checkChatGPTSession(raw: string): SessionCheckResult {
 export async function verifySessionForRedeem(
   raw: string,
   code?: string,
+  productHint?: string | null,
 ): Promise<SessionCheckResult> {
-  const local = checkChatGPTSessionLocal(raw);
+  const product = code?.trim() ? await codeProductHint(code, productHint) : "gpt";
+  const local = checkCredentialLocal(product, raw);
   if (!local.ok) return local;
   if (!code?.trim()) {
     return {
@@ -156,6 +206,16 @@ export async function verifySessionForRedeem(
       account: { mode: "session", session: raw.trim(), email: local.email },
     });
     const { account, redeemable } = preflight;
+    if (redeemable.product !== product) {
+      return {
+        ...local,
+        ok: false,
+        errorCode: "CREDENTIAL_PRODUCT_MISMATCH",
+        retryable: false,
+        errors: [`这张卡密是 ${CARD_PRODUCTS[redeemable.product].label}，请粘贴对应的登录凭证。`],
+        source: "cardplatform",
+      };
+    }
     const eligibility = assessEligibility(account, redeemable.planKey);
     const email = preflight.accountEmail || local.email;
     const ok = eligibility.verdict !== "block";
@@ -185,6 +245,7 @@ export async function verifySessionForRedeem(
       target: {
         planKey: redeemable.planKey,
         planName: redeemable.planName,
+        product: redeemable.product,
         paymentCountry: redeemable.paymentCountry || account.paymentCountry,
       },
       eligibility,

@@ -5,7 +5,7 @@ export const I18N = {
   zh: {
     nav: { home: "首页", products: "商品中心", query: "订单查询", contact: "联系客服", redeem: "去兑换" },
     redeemTitle: "已有卡密？",
-    redeemSub: "买完后来这里校验卡密，填写 Session 就能开通。",
+    redeemSub: "买完后来这里校验卡密，按提示填写账号凭证就能开通。",
     redeemCta: "去兑换开通",
     searchPlaceholder: "搜索商品名称…",
     queryTitle: "邮箱查单",
@@ -43,7 +43,7 @@ export const I18N = {
     steps: [
       { title: "选商品付款", desc: "支付宝或微信" },
       { title: "立刻拿到卡密", desc: "页面直接显示，也发到邮箱" },
-      { title: "去兑换开通", desc: "校验卡密，填 Session 就开" },
+      { title: "去兑换开通", desc: "校验卡密，填账号凭证就开" },
     ],
     stepsAccount: [
       { title: "选商品付款", desc: "支付宝或微信" },
@@ -148,7 +148,7 @@ export const I18N = {
   en: {
     nav: { home: "Home", products: "Products", query: "Track Order", contact: "Support", redeem: "Redeem" },
     redeemTitle: "Already have a code?",
-    redeemSub: "Validate it here, add your Session, and the plan will be activated.",
+    redeemSub: "Validate it here, add your account credential, and the plan will be activated.",
     redeemCta: "Go redeem",
     searchPlaceholder: "Search products…",
     queryTitle: "Track by email",
@@ -186,7 +186,7 @@ export const I18N = {
     steps: [
       { title: "Pick and pay", desc: "Alipay or WeChat Pay" },
       { title: "Get your code", desc: "Shown on the page and emailed to you" },
-      { title: "Redeem it", desc: "Validate the code and add your Session" },
+      { title: "Redeem it", desc: "Validate the code and add your account credential" },
     ],
     stepsAccount: [
       { title: "Pick and pay", desc: "Alipay or WeChat Pay" },

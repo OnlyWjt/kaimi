@@ -1,3 +1,13 @@
+import {
+  CARD_PRODUCTS,
+  brandedPlanName,
+  localPlanKey,
+  productOfPlanKey,
+  scopePaymentRegions,
+  upstreamIssuePlanKey,
+  type CardProduct,
+} from "./product";
+
 export type CardplatformConfig = {
   siteBase: string;
   apiKey: string;
@@ -15,7 +25,11 @@ export type IssuedCdk = {
 };
 
 export type CardplatformPlan = {
+  /** 本站 plan_key。X / Grok 带产品前缀。 */
   key: string;
+  /** 发码时给卡台的 plan */
+  upstreamKey: string;
+  product: CardProduct;
   name: string;
   enabled: boolean;
   sortOrder: number;
@@ -327,37 +341,23 @@ export class CardplatformClient {
     return plans;
   }
 
-  /** plans 之外多解析 payment_regions。字段缺失或格式不对时 regions 为空。 */
-  async getPlansWithRegions(timeoutMs = 45_000): Promise<{
+  /**
+   * plans 之外多解析 payment_regions。字段缺失或格式不对时 regions 为空。
+   * product 不是 gpt 时带 ?product=，结果按产品线收窄，键换成本站 plan_key。
+   */
+  async getPlansWithRegions(
+    timeoutMs = 45_000,
+    product: CardProduct = "gpt",
+  ): Promise<{
     plans: CardplatformPlan[];
     regions: CardplatformPaymentRegion[];
   }> {
-    const data = await this.request<unknown>("GET", "/gpt-direct/plans", {
-      timeoutMs,
-    });
-    const root = asObject(data);
-    const plans = asObject(root.plans);
-    const registry = Array.isArray(root.registry)
-      ? root.registry.map(asObject)
-      : [];
-    const registryByKey = new Map(
-      registry.map((item) => [String(item.key || ""), item]),
-    );
-    const mapped = Object.entries(plans).map(([key, value]) => {
-      const row = asObject(value);
-      const meta = registryByKey.get(key);
-      return {
-        key,
-        name: String(meta?.label || row.label || row.name || key),
-        enabled: row.enabled !== false,
-        sortOrder: Number(meta?.sort_order || row.sort_order || 0),
-        raw: { ...row, registry: meta },
-      };
-    });
-    return {
-      plans: filterSellablePlans(mapped, registry.length > 0),
-      regions: parsePaymentRegions(root.payment_regions),
-    };
+    const path =
+      product === "gpt"
+        ? "/gpt-direct/plans"
+        : `/gpt-direct/plans?product=${encodeURIComponent(product)}`;
+    const data = await this.request<unknown>("GET", path, { timeoutMs });
+    return parsePlansCatalog(data, product);
   }
 
   /** 对账用：按 updated_after 拉 CDK 兑换订单，回调不可用时同步卡密状态。 */
@@ -620,6 +620,77 @@ export function parsePaymentRegions(value: unknown): CardplatformPaymentRegion[]
   return regions;
 }
 
+/**
+ * 解析 GET /gpt-direct/plans。
+ *
+ * GPT：定价表原样透传了卡台全部档位，注册表里没有的键也留着（新续费档常常先出现在定价表），
+ * 但要剔掉 x_* / grok_* 这些别的产品线的键。
+ * X / Grok：以注册表为准，取定价表里「前缀 + 裸键」那一条；老卡台忽略 product 参数时注册表是 GPT 的，
+ * 一条都对不上，结果为空，不会把 Plus 当成 X 卖出去。
+ */
+export function parsePlansCatalog(
+  data: unknown,
+  product: CardProduct = "gpt",
+): { plans: CardplatformPlan[]; regions: CardplatformPaymentRegion[] } {
+  const root = asObject(data);
+  const priced = asObject(root.plans);
+  const registry = Array.isArray(root.registry)
+    ? root.registry.map(asObject)
+    : [];
+  const regions = parsePaymentRegions(root.payment_regions);
+
+  if (product === "gpt") {
+    const registryByKey = new Map(
+      registry.map((item) => [String(item.key || ""), item]),
+    );
+    const mapped = Object.entries(priced)
+      .filter(([key]) => productOfPlanKey(key) === "gpt")
+      .map(([key, value]) => {
+        const row = asObject(value);
+        const meta = registryByKey.get(key);
+        return {
+          key,
+          upstreamKey: key,
+          product,
+          name: String(meta?.label || row.label || row.name || key),
+          enabled: row.enabled !== false,
+          sortOrder: Number(meta?.sort_order || row.sort_order || 0),
+          raw: { ...row, registry: meta },
+        };
+      });
+    return { plans: filterSellablePlans(mapped, registry.length > 0), regions };
+  }
+
+  const prefix = CARD_PRODUCTS[product].localPrefix;
+  const plans: CardplatformPlan[] = [];
+  const seen = new Set<string>();
+  for (const meta of registry) {
+    const raw = String(meta.key || "").trim().toLowerCase();
+    const bare = raw.startsWith(prefix) ? raw.slice(prefix.length) : raw;
+    if (!bare) continue;
+    const key = localPlanKey(product, bare);
+    if (seen.has(key) || productOfPlanKey(key) !== product) continue;
+    const value = priced[`${prefix}${bare}`];
+    if (value === undefined) continue;
+    seen.add(key);
+    const row = asObject(value);
+    if (row.enabled === false) continue;
+    plans.push({
+      key,
+      upstreamKey: upstreamIssuePlanKey(product, key),
+      product,
+      name: brandedPlanName(product, String(meta.label || row.label || row.name || key)),
+      enabled: true,
+      sortOrder: Number(meta.sort_order || row.sort_order || 0),
+      raw: { ...row, registry: meta },
+    });
+  }
+  plans.sort((a, b) =>
+    a.sortOrder !== b.sortOrder ? a.sortOrder - b.sortOrder : a.key.localeCompare(b.key),
+  );
+  return { plans, regions: scopePaymentRegions(product, regions) };
+}
+
 const NON_CDK_PLAN_PREFIXES = ["claude_"];
 
 export function isCdkSellableKey(key: string) {
@@ -628,10 +699,9 @@ export function isCdkSellableKey(key: string) {
   return !NON_CDK_PLAN_PREFIXES.some((prefix) => normalized.startsWith(prefix));
 }
 
-export function filterSellablePlans(
-  plans: CardplatformPlan[],
-  hasRegistry: boolean,
-): CardplatformPlan[] {
+export function filterSellablePlans<
+  T extends Pick<CardplatformPlan, "key" | "enabled" | "sortOrder" | "raw">,
+>(plans: T[], hasRegistry: boolean): T[] {
   const sellable = plans.filter((plan) => {
     if (!plan.enabled) return false;
     const raw = asObject(plan.raw);

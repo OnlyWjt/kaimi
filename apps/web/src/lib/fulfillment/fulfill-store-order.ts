@@ -269,7 +269,8 @@ export async function fulfillStoreOrder(orderId: number) {
               orderId: order.id,
               agentId: order.agentId,
               planKey: order.planKeySnapshot,
-              paymentCountry: order.paymentCountrySnapshot,
+              // 记实际发给卡台的地区：X / Grok 的老快照可能是空串，发码时已补成 JP / US。
+              paymentCountry: issueTargetFromSnapshot(order).paymentCountry,
               codeEncrypted: encryptSecret(item.code),
               codeHash: item.codeHash,
               codePrefix: item.codePrefix,

@@ -71,6 +71,7 @@ import {
   isRegionIssueError,
   issueTargetFromSnapshot,
 } from "@/lib/cardplatform/issue-target";
+import { CARD_PRODUCT_KEYS, cardProductLabel, type CardProduct } from "@/lib/cardplatform/product";
 import { issuePrefFromAccount } from "@/lib/cardplatform/policy";
 import { planNameWithRegion } from "@/lib/cardplatform/regions";
 import { getSetting, setSetting } from "@/lib/config";
@@ -664,6 +665,8 @@ export async function getAgentDrawState(agentId: number) {
       regionCapable: platformPlans.regionCapable,
       globalCostPriceCents: platformPlans.globalCostPriceCents,
       upstreamPlanKey: platformPlans.upstreamPlanKey,
+      product: platformPlans.product,
+      sortOrder: platformPlans.sortOrder,
       cardplatformSellable: platformPlans.cardplatformSellable,
       fulfillmentKind: platformPlans.fulfillmentKind,
       costOverrideCents: agentPlanPrices.costOverrideCents,
@@ -699,6 +702,8 @@ export async function getAgentDrawState(agentId: number) {
         unitPriceCents: price.unitPriceCents,
         paymentCountry: plan.paymentCountry,
         regionCapable: plan.regionCapable,
+        product: plan.product,
+        sortOrder: plan.sortOrder,
         fulfillmentKind: local ? LOCAL_ACCOUNT_FULFILLMENT : CARDPLATFORM_FULFILLMENT,
         /** 只有成品号有库存数；卡密为 null。 */
         availableStock: local
@@ -707,11 +712,18 @@ export async function getAgentDrawState(agentId: number) {
       },
     ];
   });
-  // 成品号排在卡密后面
+  // 成品号排在卡密后面；卡密按产品线（ChatGPT → X → Grok）、再按卡台排序，地区版挨着基础套餐。
+  const productOrder = (product: string) => {
+    const index = CARD_PRODUCT_KEYS.indexOf(product as CardProduct);
+    return index < 0 ? CARD_PRODUCT_KEYS.length : index;
+  };
   drawable.sort(
     (a, b) =>
       Number(a.fulfillmentKind === LOCAL_ACCOUNT_FULFILLMENT) -
-      Number(b.fulfillmentKind === LOCAL_ACCOUNT_FULFILLMENT),
+        Number(b.fulfillmentKind === LOCAL_ACCOUNT_FULFILLMENT) ||
+      productOrder(a.product) - productOrder(b.product) ||
+      a.sortOrder - b.sortOrder ||
+      a.planKey.localeCompare(b.planKey),
   );
   const ledger = await agentLedgerSummary(agentId);
   const totals = await drawTotalsByAgent(agentId);
@@ -833,6 +845,7 @@ export async function createDrawOrder(
       name: platformPlans.name,
       basePlanKey: platformPlans.basePlanKey,
       upstreamPlanKey: platformPlans.upstreamPlanKey,
+      product: platformPlans.product,
       paymentCountry: platformPlans.paymentCountry,
       regionLabel: platformPlans.regionLabel,
       regionCapable: platformPlans.regionCapable,
@@ -873,7 +886,13 @@ export async function createDrawOrder(
     const account = await getDefaultCardplatformAccount();
     if (!account) throw new DrawError("卡台未就绪", 503);
     if (offer.paymentCountry && !accountSupportsPaymentCountry(account)) {
-      throw new DrawError("当前卡台不支持这个付款地区，请先提菲区", 409);
+      // X / Grok 只能按指定地区发，没有菲区版可以退。
+      throw new DrawError(
+        offer.product === "gpt"
+          ? "当前卡台不支持这个付款地区，请先提菲区"
+          : `当前卡台不支持 ${cardProductLabel(offer.product)} 发卡，请联系平台`,
+        409,
+      );
     }
     cardplatformAccountId = account.id;
   }
@@ -940,6 +959,9 @@ export async function createDrawOrder(
       requestId,
       planId: offer.planId,
       planKeySnapshot: offer.planKey,
+      productSnapshot: offer.product,
+      upstreamPlanKeySnapshot: offer.upstreamPlanKey || offer.planKey,
+      paymentCountrySnapshot: offer.paymentCountry,
       planNameSnapshot: planNameWithRegion(
         offer.name,
         offer.regionCapable,
@@ -1160,10 +1182,15 @@ async function issueDrawOrder(orderId: number, mode: "initial" | "retry" | "job"
   const plan = await db.query.platformPlans.findFirst({
     where: eq(platformPlans.id, order.planId),
   });
+  // 新单按下单快照出卡；老单（快照为空）退回读当时的套餐行。
+  const snapshotted = Boolean(order.productSnapshot);
   const target = issueTargetFromSnapshot({
     planKeySnapshot: order.planKeySnapshot,
-    upstreamPlanKeySnapshot: plan?.upstreamPlanKey || plan?.planKey || order.planKeySnapshot,
-    paymentCountrySnapshot: plan?.paymentCountry || "",
+    productSnapshot: order.productSnapshot || plan?.product,
+    upstreamPlanKeySnapshot: snapshotted
+      ? order.upstreamPlanKeySnapshot
+      : plan?.upstreamPlanKey || plan?.planKey || order.planKeySnapshot,
+    paymentCountrySnapshot: snapshotted ? order.paymentCountrySnapshot : plan?.paymentCountry || "",
   });
   try {
     const { client, account } = await getCardplatformClientById(order.cardplatformAccountId);

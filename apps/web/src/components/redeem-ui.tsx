@@ -1,5 +1,7 @@
 "use client";
 
+import type { ReactNode } from "react";
+import type { CardProduct } from "@/lib/cardplatform/product";
 import { formatBeijingDateTime } from "@/lib/datetime";
 
 /** 兑换页（单张 / 批量）共用的小部件。 */
@@ -49,37 +51,95 @@ export function RedeemSteps({
   );
 }
 
-/** 去哪里拿 Session。 */
-export function SessionGuide() {
-  return (
-    <ol className="km-rx-guide">
-      <li>在浏览器里登录要开通的 ChatGPT 账号</li>
-      <li>
+/** 各产品线兑换要粘贴的凭证：名字、输入框提示、去哪里拿。 */
+const CREDENTIAL_COPY: Record<CardProduct, { name: string; label: string; placeholder: string; guide: ReactNode[] }> = {
+  gpt: {
+    name: "Session",
+    label: "ChatGPT Session",
+    placeholder: '整页 JSON，形如 { "user": {…}, "accessToken": "…" }',
+    guide: [
+      "在浏览器里登录要开通的 ChatGPT 账号",
+      <>
         打开{" "}
         <a href="https://chatgpt.com/api/auth/session" target="_blank" rel="noreferrer">
           chatgpt.com/api/auth/session
         </a>
-      </li>
-      <li>全选复制整页内容，粘贴到上面</li>
+      </>,
+      "全选复制整页内容，粘贴到上面",
+    ],
+  },
+  grok: {
+    name: "Grok 登录凭证",
+    label: "Grok 登录凭证（sso cookie）",
+    placeholder: "sso=eyJ…，也可以只粘 sso 的值",
+    guide: [
+      <>
+        在浏览器里登录要开通的 Grok 账号：{" "}
+        <a href="https://grok.com" target="_blank" rel="noreferrer">
+          grok.com
+        </a>
+      </>,
+      "按 F12 打开开发者工具，进「应用 / Application」→「Cookie」→ https://grok.com",
+      "找到名为 sso 的一项，复制它的值粘贴到上面",
+    ],
+  },
+  x: {
+    name: "X 登录凭证",
+    label: "X 登录凭证",
+    placeholder: '{ "billing_email": "账单邮箱", "auth_token": "…", "ct0": "…" }',
+    guide: [
+      <>
+        在浏览器里登录要开通的 X 账号：{" "}
+        <a href="https://x.com" target="_blank" rel="noreferrer">
+          x.com
+        </a>
+      </>,
+      "按 F12 打开开发者工具，进「应用 / Application」→「Cookie」→ https://x.com，复制 auth_token 和 ct0 的值",
+      "按上面的格式填成 JSON，billing_email 填收账单的邮箱",
+    ],
+  },
+};
+
+/** 凭证的叫法：「Session」「Grok 登录凭证」…，按钮和提示里用。 */
+export function credentialName(product: CardProduct = "gpt") {
+  return CREDENTIAL_COPY[product].name;
+}
+
+/** 去哪里拿兑换凭证。 */
+export function SessionGuide({ product = "gpt" }: { product?: CardProduct }) {
+  return (
+    <ol className="km-rx-guide">
+      {CREDENTIAL_COPY[product].guide.map((step, index) => (
+        <li key={index}>{step}</li>
+      ))}
     </ol>
   );
 }
 
-/** Session 输入框加获取步骤。 */
-export function SessionField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+/** 凭证输入框加获取步骤，按卡密的产品线换文案。 */
+export function SessionField({
+  value,
+  onChange,
+  product = "gpt",
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  product?: CardProduct;
+}) {
+  const copy = CREDENTIAL_COPY[product];
   return (
     <>
       <label className="km-rx-field">
-        <span className="km-rx-field-label">ChatGPT Session</span>
+        <span className="km-rx-field-label">{copy.label}</span>
         <textarea
           className="km-input km-rx-session"
-          placeholder='整页 JSON，形如 { "user": {…}, "accessToken": "…" }'
+          placeholder={copy.placeholder}
           value={value}
           spellCheck={false}
           onChange={(event) => onChange(event.target.value)}
         />
       </label>
-      <SessionGuide />
+      <SessionGuide product={product} />
     </>
   );
 }
@@ -107,20 +167,27 @@ export type SessionPreview = {
   retryable?: boolean;
   /** ok / warn / block：卡台预检通过后按卡密套餐判断的资格。 */
   verdict?: "ok" | "warn" | "block";
-  target?: { planKey: string; planName: string; paymentCountry: string };
+  target?: { planKey: string; planName: string; paymentCountry: string; product?: CardProduct };
 };
 
 /** Session 预检的结果框。 */
-export function SessionCheckResult({ preview }: { preview: SessionPreview }) {
+export function SessionCheckResult({
+  preview,
+  product = "gpt",
+}: {
+  preview: SessionPreview;
+  product?: CardProduct;
+}) {
+  const name = credentialName(product);
   const plan = preview.summary?.plan_type || preview.planHint;
   const active = preview.summary?.has_active_subscription;
   // Session 本身没问题、是账号不符合这张卡的条件：照样把账号现状亮出来，买家才知道为什么不行。
   const ineligible = !preview.ok && preview.verdict === "block";
   const title = preview.ok
-    ? "Session 预检通过"
+    ? `${name} 预检通过`
     : ineligible
       ? "这个账号不能兑换这张卡密"
-      : "Session 预检未通过";
+      : `${name} 预检未通过`;
   return (
     <div className={`km-rx-check km-submit-reveal ${preview.ok ? "km-rx-check-pass" : "km-rx-check-fail"}`}>
       <p className="km-rx-check-title">{title}</p>

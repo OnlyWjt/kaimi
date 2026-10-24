@@ -52,7 +52,11 @@ export async function GET(req: Request) {
     },
     plans: plans.map((plan) => ({
       plan_key: plan.planKey,
+      /** 产品线 gpt / x / grok */
+      product: plan.product,
       name: plan.name,
+      /** 卡台付款地区，空串 = 菲区（只有 ChatGPT 有菲区） */
+      payment_country: plan.paymentCountry,
       unit_price_cents: plan.unitPriceCents,
       fulfillment_kind: plan.fulfillmentKind,
       /** 成品号可提数量；卡密为 null。 */

@@ -1,5 +1,6 @@
 import { supportsPaymentCountry } from "./protocol";
 import { normalizePaymentCountry } from "./regions";
+import { isCardProduct, issuePaymentCountry, productOfPlanKey, upstreamIssuePlanKey } from "./product";
 
 /**
  * 订单 / 提卡单快照 → 发给卡台的 plan 和地区。
@@ -9,11 +10,20 @@ export function issueTargetFromSnapshot(snapshot: {
   planKeySnapshot: string;
   upstreamPlanKeySnapshot?: string | null;
   paymentCountrySnapshot?: string | null;
+  /** 下单时的产品线。老订单没有，按 plan_key 推。 */
+  productSnapshot?: string | null;
 }) {
   const plan = snapshot.upstreamPlanKeySnapshot?.trim() || snapshot.planKeySnapshot;
+  const paymentCountry = normalizePaymentCountry(snapshot.paymentCountrySnapshot);
+  const product = isCardProduct(snapshot.productSnapshot)
+    ? snapshot.productSnapshot
+    : productOfPlanKey(snapshot.planKeySnapshot);
+  if (product === "gpt") return { plan, paymentCountry };
+  // X / Grok 兜底：上游键按产品规则重算（老快照可能还带着 x_ 前缀），地区不能空——
+  // 空串在 GPT 是菲区，在这两条线上卡台会拒。Grok 固定 US，X 缺省 JP。
   return {
-    plan,
-    paymentCountry: normalizePaymentCountry(snapshot.paymentCountrySnapshot),
+    plan: upstreamIssuePlanKey(product, plan),
+    paymentCountry: issuePaymentCountry(product, paymentCountry),
   };
 }
 

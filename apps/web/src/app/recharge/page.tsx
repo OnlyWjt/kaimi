@@ -35,7 +35,7 @@ export default async function RechargePage({
       <section className="km-shell-narrow km-rx-body">
         <div className="km-rx-hero km-rise">
           <h1>{sf.siteName}</h1>
-          <p>{sf.announcement || "先校验卡密识别套餐，再填写 Session 提交开通"}</p>
+          <p>{sf.announcement || "先校验卡密识别套餐，再按提示填写账号凭证提交开通"}</p>
         </div>
         <RechargeSwitcher
           initialCode={code}

@@ -217,6 +217,8 @@ export const platformPlans = sqliteTable(
     cardplatformSellable: integer("cardplatform_sellable", { mode: "boolean" })
       .notNull()
       .default(false),
+    /** 卡台产品线：gpt / x / grok。plan_key 按产品带前缀（x_、grok_），GPT 不带。 */
+    product: text("product").notNull().default("gpt"),
     /** cardplatform = 卡台即时发卡；local_account = 平台本地成品号库存 */
     fulfillmentKind: text("fulfillment_kind").notNull().default("cardplatform"),
     cardplatformRawJson: text("cardplatform_raw_json").notNull().default("{}"),
@@ -394,6 +396,8 @@ export const storeOrders = sqliteTable(
     upstreamPlanKeySnapshot: text("upstream_plan_key_snapshot").notNull().default(""),
     /** 卡台 payment_country 快照。空串 = 菲区，发码时不传。 */
     paymentCountrySnapshot: text("payment_country_snapshot").notNull().default(""),
+    /** 下单时的产品线 gpt / x / grok。空串是老订单，按 plan_key 推。 */
+    productSnapshot: text("product_snapshot").notNull().default(""),
     productNameSnapshot: text("product_name_snapshot").notNull(),
     /** 买几张。历史订单一律 1。 */
     quantity: integer("quantity").notNull().default(1),
@@ -1602,6 +1606,13 @@ export const agentDrawOrders = sqliteTable(
     planId: integer("plan_id").notNull(),
     planKeySnapshot: text("plan_key_snapshot").notNull(),
     planNameSnapshot: text("plan_name_snapshot").notNull(),
+    /**
+     * 下单时的产品线、上游键、付款地区。X 的主行地区每轮同步都可能被改写，
+     * 重试出卡必须按下单那一刻的来，不能读当时的套餐行。空串是老单，退回读套餐行。
+     */
+    productSnapshot: text("product_snapshot").notNull().default(""),
+    upstreamPlanKeySnapshot: text("upstream_plan_key_snapshot").notNull().default(""),
+    paymentCountrySnapshot: text("payment_country_snapshot").notNull().default(""),
     quantity: integer("quantity").notNull(),
     issuedCount: integer("issued_count").notNull().default(0),
     unitPriceCents: integer("unit_price_cents").notNull(),

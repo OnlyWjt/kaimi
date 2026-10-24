@@ -9,7 +9,7 @@ import { MAILBOX_REDEEM_REMOVED, type AgentCredential } from "@/lib/recharge-typ
 import { clientIp, enforceRateLimit } from "@/lib/rate-limit";
 import { recordRedeemFailure, redeemBlockResponse } from "@/lib/redeem-guard";
 import { RedeemRejectedError } from "@/lib/redeem-guard-core";
-import { checkChatGPTSessionLocal } from "@/lib/session-check";
+import { checkCredentialLocal, codeProductHint } from "@/lib/session-check";
 import { publicErrorMessage } from "@/lib/public-error";
 import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
 
@@ -21,6 +21,8 @@ const schema = z
     session: z.string().optional().default(""),
     productId: z.number().int().positive().optional(),
     planKey: z.string().trim().optional(),
+    /** 校验卡密时拿到的产品线；本站发出的卡以本站记录为准。 */
+    product: z.string().trim().optional(),
   })
   .superRefine((val, ctx) => {
     // mode 不对在 POST 里单独回话术，这里只核 Session。
@@ -45,7 +47,8 @@ export async function POST(req: Request) {
 
     // 提交前客户已经点过预检。这里只核本地格式，不再打卡台 preview/preflight，
     // 否则按钮会再堵一轮 45 秒。真正的预检在 after() 里 drive 时做。
-    const local = checkChatGPTSessionLocal(body.session);
+    const product = await codeProductHint(code, body.product);
+    const local = checkCredentialLocal(product, body.session);
     if (!local.ok) {
       return NextResponse.json(
         {
@@ -56,7 +59,8 @@ export async function POST(req: Request) {
       );
     }
     const contactEmail = (local.email || body.email || "").trim();
-    if (!contactEmail) {
+    // Grok 的 sso cookie 里没有邮箱，用预检时卡台回的；没回也照样兑。
+    if (!contactEmail && product === "gpt") {
       return NextResponse.json(
         { error: "Session 中未读到邮箱，请更换账号后再试" },
         { status: 400 },

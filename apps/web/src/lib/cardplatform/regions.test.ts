@@ -27,7 +27,12 @@ describe("regionDisplay", () => {
   });
 
   it("未知地区用短码加区", () => {
-    expect(regionDisplay("JP")).toMatchObject({ code: "JP", zh: "JP区", en: "JP" });
+    expect(regionDisplay("BR")).toMatchObject({ code: "BR", zh: "BR区", en: "BR" });
+  });
+
+  it("X 订阅码的地区有中文名", () => {
+    expect(regionDisplay("JP")).toMatchObject({ code: "JP", zh: "日区", en: "Japan" });
+    expect(regionDisplay("TR").zh).toBe("土耳其区");
   });
 
   it("region_label 只覆盖中文名", () => {
