@@ -71,7 +71,12 @@ import {
   isRegionIssueError,
   issueTargetFromSnapshot,
 } from "@/lib/cardplatform/issue-target";
-import { CARD_PRODUCT_KEYS, cardProductLabel, type CardProduct } from "@/lib/cardplatform/product";
+import {
+  CARD_PRODUCT_KEYS,
+  cardProductLabel,
+  halfPlanDisplayName,
+  type CardProduct,
+} from "@/lib/cardplatform/product";
 import { issuePrefFromAccount } from "@/lib/cardplatform/policy";
 import { planNameWithRegion } from "@/lib/cardplatform/regions";
 import { getSetting, setSetting } from "@/lib/config";
@@ -698,7 +703,10 @@ export async function getAgentDrawState(agentId: number) {
     return [
       {
         planKey: plan.planKey,
-        name: planNameWithRegion(plan.name, plan.regionCapable, plan.paymentCountry, plan.regionLabel),
+        name: halfPlanDisplayName(
+          plan.planKey,
+          planNameWithRegion(plan.name, plan.regionCapable, plan.paymentCountry, plan.regionLabel),
+        ),
         unitPriceCents: price.unitPriceCents,
         paymentCountry: plan.paymentCountry,
         regionCapable: plan.regionCapable,
@@ -962,11 +970,10 @@ export async function createDrawOrder(
       productSnapshot: offer.product,
       upstreamPlanKeySnapshot: offer.upstreamPlanKey || offer.planKey,
       paymentCountrySnapshot: offer.paymentCountry,
-      planNameSnapshot: planNameWithRegion(
-        offer.name,
-        offer.regionCapable,
-        offer.paymentCountry,
-        offer.regionLabel,
+      // 管理员改名去掉了「首月半价」也补回来，提卡记录、账单上一眼能认出半价卡。
+      planNameSnapshot: halfPlanDisplayName(
+        offer.planKey,
+        planNameWithRegion(offer.name, offer.regionCapable, offer.paymentCountry, offer.regionLabel),
       ),
       quantity: input.quantity,
       unitPriceCents: price.unitPriceCents,

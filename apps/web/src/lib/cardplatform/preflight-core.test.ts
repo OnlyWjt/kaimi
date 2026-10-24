@@ -60,10 +60,16 @@ describe("parsePreflight", () => {
       currency: "PHP",
       upstreamPlan: "pro",
       amountMinor: 891964,
+      listAmountMinor: null,
       minorUnitExponent: 2,
       tax: "exclusive",
     });
-    expect(parsed.promotions.plus_half).toEqual({ kind: "half_price", eligible: false });
+    expect(parsed.promotions.plus_half).toEqual({
+      kind: "half_price",
+      eligible: false,
+      amountMinor: null,
+      listAmountMinor: 98214,
+    });
   });
 
   it("reads the subscription expiry from seconds, milliseconds or ISO", () => {
@@ -164,6 +170,124 @@ describe("assessEligibility", () => {
 
   it("leaves unknown plans alone", () => {
     expect(assessEligibility(account(), "something_new").verdict).toBe("ok");
+  });
+});
+
+/** 卡台 Grok 预检真实返回（节选，取自 danew grok_promo_test）：plus 原价，premium / super 月付首月五折。 */
+const GROK_PREFLIGHT = {
+  code: 0,
+  msg: "ok",
+  data: {
+    email: "a@example.com",
+    currentPlan: "",
+    payment_country: "US",
+    quotes: {
+      plus_monthly: { currency: "USD", plan: "plus_monthly", amountMinor: 800, listAmountMinor: 800 },
+      premium_monthly: { currency: "USD", plan: "premium_monthly", amountMinor: 1500, listAmountMinor: 3000, discounted: true },
+      super_monthly: { currency: "USD", plan: "super_monthly", amountMinor: 5000, listAmountMinor: 10000, discounted: true },
+      super_yearly: { currency: "USD", plan: "super_yearly", amountMinor: 100000, listAmountMinor: 100000 },
+    },
+    promotions: {
+      plus_monthly: { kind: "first_month_discount", eligible: false, amount_minor: 800, list_amount_minor: 800 },
+      premium_monthly: { kind: "first_month_discount", eligible: true, discount_percent: 50, amount_minor: 1500, list_amount_minor: 3000 },
+      super_monthly: { kind: "first_month_discount", eligible: true, discount_percent: 50, amount_minor: 5000, list_amount_minor: 10000 },
+    },
+  },
+};
+
+function grokAccount(data: Record<string, unknown> = {}) {
+  return parsePreflight({ ...GROK_PREFLIGHT, data: { ...GROK_PREFLIGHT.data, ...data } });
+}
+
+describe("Grok 首月半价", () => {
+  it("解析时保留原价和优惠金额", () => {
+    const parsed = grokAccount();
+    expect(parsed.quotes.premium_monthly).toMatchObject({ amountMinor: 1500, listAmountMinor: 3000, currency: "USD" });
+    expect(parsed.promotions.premium_monthly).toEqual({
+      kind: "first_month_discount",
+      eligible: true,
+      amountMinor: 1500,
+      listAmountMinor: 3000,
+    });
+  });
+
+  it("首月价不超过原价一半才放行，结果里只有资格不带金额", () => {
+    const ok = assessEligibility(grokAccount(), "grok_premium_monthly_half");
+    expect(ok).toMatchObject({ verdict: "ok", code: null, quote: null, firstMonthHalf: { eligible: true } });
+    expect(assessEligibility(grokAccount(), "grok_super_monthly_half").verdict).toBe("ok");
+  });
+
+  it("没有资格：首月按原价付、优惠信息说没资格、只打七折，都拦", () => {
+    const fullPrice = grokAccount({
+      quotes: { premium_monthly: { currency: "USD", amountMinor: 3000, listAmountMinor: 3000 } },
+      promotions: { premium_monthly: { kind: "first_month_discount", eligible: false } },
+    });
+    const blocked = assessEligibility(fullPrice, "grok_premium_monthly_half");
+    expect(blocked).toMatchObject({ verdict: "block", code: "PROMOTION_NOT_ELIGIBLE", firstMonthHalf: { eligible: false } });
+    expect(blocked.reasons[0]).toContain("没有 Grok 首月半价资格");
+    expect(blocked.reasons[0]).toContain("卡密没有被消耗");
+    // 买家看得到这句话，不能带金额
+    expect(blocked.reasons.join("")).not.toMatch(/d/);
+
+    // 报价打了折，优惠信息却说没资格：两边对不上按没资格算
+    const conflict = grokAccount({
+      promotions: { premium_monthly: { kind: "first_month_discount", eligible: false } },
+    });
+    expect(assessEligibility(conflict, "grok_premium_monthly_half").code).toBe("PROMOTION_NOT_ELIGIBLE");
+
+    // 报价是半价，优惠信息里的金额却是原价：按没资格算
+    const promoFull = grokAccount({
+      promotions: { premium_monthly: { kind: "first_month_discount", eligible: true, amount_minor: 3000, list_amount_minor: 3000 } },
+    });
+    expect(assessEligibility(promoFull, "grok_premium_monthly_half").code).toBe("PROMOTION_NOT_ELIGIBLE");
+    // 报价缺失时不拿优惠信息顶替
+    const promoOnly = grokAccount({ quotes: {} });
+    expect(assessEligibility(promoOnly, "grok_premium_monthly_half").firstMonthHalf).toEqual({ eligible: null });
+
+    const partial = grokAccount({
+      quotes: { super_monthly: { amountMinor: "7000", listAmountMinor: "10000" } },
+      promotions: {},
+    });
+    expect(assessEligibility(partial, "grok_super_monthly_half").verdict).toBe("block");
+    // 首月免费也算半价以内，金额是字符串也认
+    const free = grokAccount({ quotes: { super_monthly: { amountMinor: "0", listAmountMinor: "10000" } }, promotions: {} });
+    expect(assessEligibility(free, "grok_super_monthly_half").verdict).toBe("ok");
+  });
+
+  it("报价缺失或没有原价时也拦，不像 plus_half 那样只警告", () => {
+    const missing = assessEligibility(grokAccount(), "grok_ultra_monthly_half");
+    expect(missing).toMatchObject({ verdict: "block", code: "PROMOTION_NOT_ELIGIBLE", firstMonthHalf: { eligible: null } });
+    expect(missing.reasons[0]).toContain("无法确认首月半价资格");
+    const noList = grokAccount({ quotes: { premium_monthly: { amountMinor: 1500 } } });
+    expect(assessEligibility(noList, "grok_premium_monthly_half").verdict).toBe("block");
+    expect(assessEligibility(grokAccount({ quotes: {}, promotions: {} }), "grok_premium_monthly_half").verdict).toBe("block");
+  });
+
+  it("报价带 grok_ 前缀的键也认", () => {
+    const prefixed = grokAccount({
+      quotes: { grok_ultra_monthly: { amountMinor: 15000, listAmountMinor: 30000 } },
+      promotions: {},
+    });
+    expect(assessEligibility(prefixed, "grok_ultra_monthly_half").verdict).toBe("ok");
+  });
+
+  it("卡台已经拦了只报卡台的原因，不再补一句确认不了", () => {
+    const result = assessEligibility(
+      grokAccount({ blocking_reason: "登录态已失效", quotes: {}, promotions: {} }),
+      "grok_premium_monthly_half",
+    );
+    expect(result).toMatchObject({ verdict: "block", code: "PRECHECK_BLOCKED", reasons: ["登录态已失效"] });
+  });
+
+  it("正价码不查首月价：首月按原价的账号照样放行", () => {
+    const fullPrice = grokAccount({
+      quotes: { premium_monthly: { amountMinor: 3000, listAmountMinor: 3000 } },
+      promotions: { premium_monthly: { eligible: false } },
+    });
+    const result = assessEligibility(fullPrice, "grok_premium_monthly");
+    expect(result.verdict).toBe("ok");
+    expect(result.firstMonthHalf).toBeUndefined();
+    expect(assessEligibility(grokAccount({ quotes: {} }), "grok_super_monthly").verdict).toBe("ok");
   });
 });
 

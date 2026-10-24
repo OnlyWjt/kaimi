@@ -1,5 +1,6 @@
 "use client";
 
+import { PlanLabel } from "@/components/plan-label";
 import { Fragment, useEffect, useState } from "react";
 import { KmSelect } from "@/components/km-select";
 import { StoreOrderDetail } from "@/components/store-order-detail";
@@ -19,6 +20,7 @@ type StoreOrder = {
   orderNo: string;
   agentName: string;
   productName: string;
+  planKey?: string;
   quantity: number;
   retailPriceCents: number;
   grossCents: number;
@@ -444,8 +446,12 @@ export function AdminStoreOrders() {
                         </div>
                       ) : null}
                     </td>
-                    <td className="km-clip" title={`${order.agentName} · ${order.productName}`}>
-                      {order.agentName} · {order.productName}
+                    <td title={`${order.agentName} · ${order.productName}`}>
+                      {/* 代理和套餐分两行：挤在一行时半价标签会把套餐名挤没 */}
+                      <div className="km-clip">{order.agentName}</div>
+                      <div className="km-clip text-xs text-[var(--km-fg-muted)]">
+                        <PlanLabel name={order.productName} planKey={order.planKey} />
+                      </div>
                     </td>
                     <td>
                       {/* gross_cents 是 NOT NULL DEFAULT 0，老单回填失败时是 0，用单价兜底。 */}¥

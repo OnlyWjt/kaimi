@@ -97,6 +97,7 @@ export async function GET(req: Request) {
       return {
         orderNo: order.orderNo,
         productName: order.productNameSnapshot,
+        planKey: order.planKeySnapshot,
         quantity: order.quantity,
         customerEmail: order.customerEmail,
         unitPriceCents: order.retailPriceCents,

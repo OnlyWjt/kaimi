@@ -268,3 +268,81 @@ describe("多产品线的展示和兜底", () => {
     ).toEqual({ plan: "plus_monthly", paymentCountry: "" });
   });
 });
+
+describe("Grok 首月半价档位", () => {
+  it("_half 键认成 Grok，去掉后缀拿到正价键；Plus 半价仍是 GPT", async () => {
+    const { grokFullPricePlanKey, isGrokHalfPlanKey } = await import("./product");
+    expect(productOfPlanKey("grok_premium_monthly_half")).toBe("grok");
+    expect(productOfPlanKey("grok_ultra_monthly_half")).toBe("grok");
+    expect(productOfPlanKey("plus_half")).toBe("gpt");
+    expect(isGrokHalfPlanKey("grok_super_monthly_half")).toBe(true);
+    expect(isGrokHalfPlanKey("GROK_Super_Monthly_HALF")).toBe(true);
+    expect(isGrokHalfPlanKey("grok_super_monthly")).toBe(false);
+    expect(isGrokHalfPlanKey("plus_half")).toBe(false);
+    // 年付和 Plus 没有首月优惠，不是半价键
+    expect(isGrokHalfPlanKey("grok_super_yearly_half")).toBe(false);
+    expect(isGrokHalfPlanKey("grok_plus_monthly_half")).toBe(false);
+    expect(grokFullPricePlanKey("grok_premium_monthly_half")).toBe("grok_premium_monthly");
+    expect(grokFullPricePlanKey("grok_premium_monthly")).toBe("grok_premium_monthly");
+  });
+
+  it("只有月付 Premium / Super / Ultra 生成半价档位，发码用正价键", async () => {
+    const { withGrokHalfPlans } = await import("./product");
+    const plan = (key: string, name: string) => ({
+      key,
+      upstreamKey: key,
+      name,
+      enabled: true,
+      raw: { enabled: true },
+    });
+    const rows = withGrokHalfPlans([
+      plan("grok_plus_monthly", "Grok Plus 月付"),
+      plan("grok_premium_monthly", "Grok Premium 月付"),
+      plan("grok_super_yearly", "Grok Super 年付"),
+      plan("grok_ultra_monthly", "Grok Ultra 月付"),
+    ]);
+    expect(rows.map((row) => [row.key, row.upstreamKey, row.name])).toEqual([
+      ["grok_plus_monthly", "grok_plus_monthly", "Grok Plus 月付"],
+      ["grok_premium_monthly", "grok_premium_monthly", "Grok Premium 月付"],
+      ["grok_premium_monthly_half", "grok_premium_monthly", "Grok Premium 月付（首月半价）"],
+      ["grok_super_yearly", "grok_super_yearly", "Grok Super 年付"],
+      ["grok_ultra_monthly", "grok_ultra_monthly", "Grok Ultra 月付"],
+      ["grok_ultra_monthly_half", "grok_ultra_monthly", "Grok Ultra 月付（首月半价）"],
+    ]);
+    expect(rows[2]?.raw).toEqual({ enabled: true, half_of: "grok_premium_monthly" });
+  });
+
+  it("半价订单发给卡台的是正价键，老快照没有上游键也一样", () => {
+    expect(upstreamIssuePlanKey("grok", "grok_premium_monthly_half")).toBe("grok_premium_monthly");
+    expect(
+      issueTargetFromSnapshot({ planKeySnapshot: "grok_super_monthly_half", upstreamPlanKeySnapshot: "grok_super_monthly", productSnapshot: "grok" }),
+    ).toEqual({ plan: "grok_super_monthly", paymentCountry: "US" });
+    expect(
+      issueTargetFromSnapshot({ planKeySnapshot: "grok_super_monthly_half", upstreamPlanKeySnapshot: "" }),
+    ).toEqual({ plan: "grok_super_monthly", paymentCountry: "US" });
+  });
+
+  it("展示名补「（首月半价）」，已经带了或不是半价键不动", async () => {
+    const { halfPlanDisplayName } = await import("./product");
+    expect(halfPlanDisplayName("grok_premium_monthly_half", "Grok Premium 月付")).toBe("Grok Premium 月付（首月半价）");
+    expect(halfPlanDisplayName("grok_premium_monthly_half", "Premium 首月半价")).toBe("Premium 首月半价");
+    expect(halfPlanDisplayName("grok_premium_monthly", "Grok Premium 月付")).toBe("Grok Premium 月付");
+  });
+});
+
+describe("splitHalfPlanName", () => {
+  it("名字结尾的（首月半价）拿出来当标签；只有键也认", async () => {
+    const { splitHalfPlanName } = await import("./product");
+    expect(splitHalfPlanName("Grok Premium 月付（首月半价）")).toEqual({ name: "Grok Premium 月付", half: true });
+    expect(splitHalfPlanName("代理A · Grok 会员（首月半价）", "grok_super_monthly_half")).toEqual({
+      name: "代理A · Grok 会员",
+      half: true,
+    });
+    expect(splitHalfPlanName("grok_premium_monthly_half", "grok_premium_monthly_half")).toEqual({
+      name: "grok_premium_monthly_half",
+      half: true,
+    });
+    expect(splitHalfPlanName("Grok Premium 月付", "grok_premium_monthly")).toEqual({ name: "Grok Premium 月付", half: false });
+    expect(splitHalfPlanName("Plus 半价", "plus_half")).toEqual({ name: "Plus 半价", half: false });
+  });
+});

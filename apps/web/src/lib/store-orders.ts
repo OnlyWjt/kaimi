@@ -39,6 +39,7 @@ import { getAgentInvoiceTaxBp } from "@/lib/invoice-policy";
 import { computeOrderLedger } from "@/lib/order-ledger-core";
 import { isLocalAccountPlan } from "@/lib/finished-account-core";
 import { accountSupportsPaymentCountry } from "@/lib/cardplatform/issue-target";
+import { halfPlanDisplayName } from "@/lib/cardplatform/product";
 import {
   groupPlansByBase,
   planNameWithRegion,
@@ -154,11 +155,15 @@ async function resolveStoreCheckout(input: {
   const storefront = await db.query.agentStorefronts.findFirst({
     where: eq(agentStorefronts.agentId, agent.id),
   });
-  const baseName = resolveProductName(
-    offer.basePlanKey || offer.planKey,
-    offer.name,
-    rowToSettings(storefront).productNames,
-  ).zh;
+  // 店主在装修里改了商品名也补上「（首月半价）」，和店铺前台一致，订单、发货邮件上也认得出半价卡。
+  const baseName = halfPlanDisplayName(
+    offer.planKey,
+    resolveProductName(
+      offer.basePlanKey || offer.planKey,
+      offer.name,
+      rowToSettings(storefront).productNames,
+    ).zh,
+  );
   const displayName = planNameWithRegion(
     baseName,
     offer.regionCapable,

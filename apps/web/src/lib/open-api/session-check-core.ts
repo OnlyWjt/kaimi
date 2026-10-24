@@ -50,6 +50,8 @@ export function sessionCheckPayload(result: SessionCheckResult) {
           tax: quote.tax || null,
         }
       : null,
+    /** Grok 半价卡密（*_monthly_half）才有值：账号有没有首月半价资格；其他卡密、卡台没给报价时为 null。 */
+    first_month_half_eligible: result.eligibility?.firstMonthHalf?.eligible ?? null,
     error_code: result.ok ? null : (result.errorCode ?? "SESSION_INVALID"),
     retryable: result.ok ? null : Boolean(result.retryable),
     errors: result.errors,

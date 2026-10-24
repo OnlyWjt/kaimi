@@ -22,6 +22,7 @@ import { parsePreflight, preflightErrorMessage } from "./preflight-core";
 import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
 import {
   CARD_PRODUCTS,
+  halfPlanDisplayName,
   isAmbiguousBareKey,
   isCardProduct,
   localPlanKey,
@@ -151,7 +152,7 @@ export async function previewRedeemableCdk(
       code: issued?.code || trimmed,
       product,
       planKey,
-      planName: planInfo?.name || planKey || "卡台套餐",
+      planName: halfPlanDisplayName(planKey, planInfo?.name || planKey || "卡台套餐"),
       paymentCountry: issued && planInfo?.regionCapable ? issued.paymentCountry : "",
       regionLabel: issued && planInfo?.regionCapable ? planInfo.regionLabel : "",
       accountId,

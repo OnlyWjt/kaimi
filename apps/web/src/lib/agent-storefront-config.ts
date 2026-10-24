@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { contactValueError, hasSupportContact } from "./agent-contact-core";
+import { halfPlanDisplayName, isGrokHalfPlanKey } from "./cardplatform/product";
 import { isLocalAccountPlan } from "./finished-account-core";
 import { normalizeCategory } from "./plan-category";
 import { normalizeStoredCoverUrl } from "./plan-cover-core";
@@ -541,6 +542,12 @@ export function planToProduct(
   coverUrl?: string | null,
 ): StorefrontProduct {
   const name = resolveProductName(plan.planKey, plan.name, names);
+  // Grok 首月半价：店主改了商品名也要带上「（首月半价）」，详情里写明资格要求。
+  const half = isGrokHalfPlanKey(plan.planKey);
+  if (half) {
+    name.zh = halfPlanDisplayName(plan.planKey, name.zh);
+    if (!/first month|half/i.test(name.en) && !name.en.includes("首月半价")) name.en = `${name.en} (50% off first month)`;
+  }
   // 分类标签本身就当 id 用：后台改标签等于换分类，不用再维护一张分类表。
   // "all" 是前台「全部」的保留值，未分类的套餐落到这里，只会出现在「全部」下。
   const category = normalizeCategory(plan.category);
@@ -590,7 +597,20 @@ export function planToProduct(
       {
         icon: "🎁",
         title: { zh: "商品说明", en: "About this item" },
-        lines: [{ text: desc }],
+        lines: [
+          { text: desc },
+          ...(half
+            ? [
+                {
+                  label: { zh: "购买须知", en: "Before you buy" },
+                  text: {
+                    zh: "仅限有首月优惠资格的 Grok 账号，下单前请确认",
+                    en: "Only for Grok accounts eligible for the first-month discount. Please confirm before ordering.",
+                  },
+                },
+              ]
+            : []),
+        ],
       },
       {
         icon: "📌",

@@ -1,5 +1,6 @@
 "use client";
 
+import { PlanLabel } from "@/components/plan-label";
 import { FormEvent, useEffect, useState } from "react";
 import { type AgentPlanRow } from "@/lib/agent-console-core";
 import { readApiJson } from "@/lib/http-error";
@@ -137,7 +138,9 @@ export function AgentCodes() {
               {cdks.map((cdk) => (
                 <tr key={cdk.id}>
                   <td className="font-mono text-xs">{cdk.code}</td>
-                  <td>{planName(cdk.planKey)}</td>
+                  <td>
+                    <PlanLabel name={planName(cdk.planKey)} planKey={cdk.planKey} />
+                  </td>
                   <td>
                     {plans.find((plan) => plan.planKey === cdk.planKey)?.regionCapable ? (
                       <RegionBadge country={cdk.paymentCountry || ""} />

@@ -124,7 +124,8 @@ describe("syncDefaultCardplatformPlans 按产品同步", () => {
     expect(result.products.map((item) => [item.product, item.count, item.error ?? ""])).toEqual([
       ["gpt", 1, ""],
       ["x", 2, ""],
-      ["grok", 1, ""],
+      // Premium 月付 + 它的半价行
+      ["grok", 2, ""],
     ]);
 
     const plus = await row("plus");
@@ -184,6 +185,67 @@ describe("syncDefaultCardplatformPlans 按产品同步", () => {
     expect((await row("grok_premium_monthly"))?.cardplatformSellable).toBe(false);
     expect((await row("x_basic_monthly"))?.cardplatformSellable).toBe(true);
     expect((await row("plus"))?.cardplatformSellable).toBe(true);
+  });
+
+  it("Grok 月付 Premium / Super / Ultra 生成半价档位：发码用正价键、默认停用、可售跟正价行", async () => {
+    const grok = fake.catalogs.grok;
+    fake.catalogs.grok = {
+      plans: {
+        grok_plus_monthly: { enabled: true },
+        grok_premium_monthly: { enabled: true },
+        grok_super_monthly: { enabled: false },
+        grok_super_yearly: { enabled: true },
+      },
+      registry: [
+        { key: "plus_monthly", label: "Plus 月付", sort_order: 1 },
+        { key: "premium_monthly", label: "Grok Premium 月付", sort_order: 2 },
+        { key: "super_monthly", label: "Grok Super 月付", sort_order: 3 },
+        { key: "super_yearly", label: "Grok Super 年付", sort_order: 4 },
+      ],
+    };
+    const result = await m.plans.syncDefaultCardplatformPlans();
+    // plus / premium / premium 半价 / super 年付；卡台停用的 super 月付不算
+    expect(result.products.find((item) => item.product === "grok")?.count).toBe(4);
+
+    expect(await row("grok_premium_monthly_half")).toMatchObject({
+      product: "grok",
+      basePlanKey: "grok_premium_monthly_half",
+      upstreamPlanKey: "grok_premium_monthly",
+      paymentCountry: "US",
+      category: "Grok",
+      name: "Grok Premium 月付（首月半价）",
+      sortOrder: 2,
+      enabled: false,
+      cardplatformSellable: true,
+      globalCostPriceCents: 0,
+    });
+    // 卡台停用的正价档不出现在目录里，半价行也不会生成；年付和 Plus 没有半价
+    expect(await row("grok_super_monthly_half")).toBeUndefined();
+    expect(await row("grok_super_yearly_half")).toBeUndefined();
+    expect(await row("grok_plus_monthly_half")).toBeUndefined();
+
+    // 管理员开启并改了名、定了价，再同步不覆盖
+    await m.db
+      .update(m.schema.platformPlans)
+      .set({ enabled: true, name: "Premium 首月半价", globalCostPriceCents: 900 })
+      .where(m.orm.eq(m.schema.platformPlans.planKey, "grok_premium_monthly_half"));
+    await m.plans.syncDefaultCardplatformPlans();
+    expect(await row("grok_premium_monthly_half")).toMatchObject({
+      enabled: true,
+      name: "Premium 首月半价",
+      globalCostPriceCents: 900,
+      cardplatformSellable: true,
+    });
+
+    // 正价下架，半价跟着下架
+    fake.catalogs.grok = {
+      plans: { grok_plus_monthly: { enabled: true } },
+      registry: [{ key: "plus_monthly", label: "Plus 月付", sort_order: 1 }],
+    };
+    await m.plans.syncDefaultCardplatformPlans();
+    expect((await row("grok_premium_monthly"))?.cardplatformSellable).toBe(false);
+    expect((await row("grok_premium_monthly_half"))?.cardplatformSellable).toBe(false);
+    fake.catalogs.grok = grok;
   });
 
   it("全部失败才抛错", async () => {

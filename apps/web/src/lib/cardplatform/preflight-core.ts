@@ -6,7 +6,7 @@
  * 满足时兑换必然失败，提前在预检拦下，卡密就不会被锁住再退回来。
  */
 
-import { productOfPlanKey } from "./product";
+import { grokFullPricePlanKey, isGrokHalfPlanKey, productOfPlanKey } from "./product";
 
 export type PreflightQuote = {
   country: string;
@@ -14,6 +14,8 @@ export type PreflightQuote = {
   /** 卡台上游的套餐名（pro / prolite / promax），只做展示，判断用我们的键。 */
   upstreamPlan: string;
   amountMinor: number;
+  /** 原价。Grok 首月有优惠时 amountMinor 是首月价、这里是原价；卡台没给为 null。 */
+  listAmountMinor: number | null;
   minorUnitExponent: number;
   /** inclusive / exclusive，空串 = 卡台没给。 */
   tax: string;
@@ -22,6 +24,9 @@ export type PreflightQuote = {
 export type PreflightPromotion = {
   kind: string;
   eligible: boolean | null;
+  /** 优惠后的价格和原价，卡台没给为 null。 */
+  amountMinor: number | null;
+  listAmountMinor: number | null;
 };
 
 export type PreflightAccount = {
@@ -64,6 +69,8 @@ export type PreflightEligibility = {
   warnings: string[];
   /** 这张卡密对应套餐的报价；点数、续费档卡台不报价，为 null。 */
   quote: PreflightQuote | null;
+  /** Grok 半价卡密才有：账号有没有首月半价资格，null = 卡台报价缺失、确认不了。不带金额，可以给买家看。 */
+  firstMonthHalf?: { eligible: boolean | null };
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -83,6 +90,13 @@ function bool(value: unknown): boolean | null {
 function int(value: unknown, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? Math.trunc(n) : fallback;
+}
+
+/** 金额最小单位：数字或数字字符串都认，没给、给错为 null。 */
+function minor(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
 }
 
 /** 卡台 currentPlan 和本站套餐键的对照。卡台用的是 ChatGPT 自己的名字。 */
@@ -178,6 +192,7 @@ export function parsePreflight(payload: Record<string, unknown>): PreflightAccou
       currency: str(row.currency).toUpperCase(),
       upstreamPlan: str(row.plan),
       amountMinor,
+      listAmountMinor: minor(row.listAmountMinor ?? row.list_amount_minor),
       minorUnitExponent: int(row.minorUnitExponent ?? row.minor_unit_exponent, 2),
       tax: str(row.tax),
     };
@@ -190,7 +205,12 @@ export function parsePreflight(payload: Record<string, unknown>): PreflightAccou
   const promotions: Record<string, PreflightPromotion> = {};
   for (const [key, value] of Object.entries(asRecord(data.promotions))) {
     const row = asRecord(value);
-    promotions[key.trim().toLowerCase()] = { kind: str(row.kind), eligible: bool(row.eligible) };
+    promotions[key.trim().toLowerCase()] = {
+      kind: str(row.kind),
+      eligible: bool(row.eligible),
+      amountMinor: minor(row.amount_minor ?? row.amountMinor),
+      listAmountMinor: minor(row.list_amount_minor ?? row.listAmountMinor),
+    };
   }
   return {
     email: str(data.email) || str(data.account_email),
@@ -235,20 +255,60 @@ const RENEW_TARGETS: Record<string, string> = {
 const APP_STORE_ORIGIN = /apple|ios|google|android|play_?store|app_?store/i;
 
 /**
+ * Grok 半价卡密：这个账号首月是不是只付原价一半以内。
+ * 卡台报价按裸键给（premium_monthly），带 grok_ 前缀的也认。报价缺失、没有原价时为 null。
+ * 卡台同时给了这一档的优惠信息，就要求 eligible 也是 true、优惠里的金额也在半价以内，两边对不上按没有资格算。
+ * 优惠信息只用来收紧：报价缺失时不拿它顶替，扣款按报价走。
+ */
+export function grokFirstMonthHalf(account: PreflightAccount, planKey: string): boolean | null {
+  const full = grokFullPricePlanKey(basePlanKey(planKey));
+  const keys = [full.replace(/^grok_/, ""), full];
+  const quote = keys.map((key) => account.quotes[key]).find(Boolean);
+  if (!quote || !quote.listAmountMinor || quote.listAmountMinor <= 0) return null;
+  const promo = keys.map((key) => account.promotions[key]).find(Boolean);
+  if (promo && promo.eligible !== true) return false;
+  if (
+    promo?.amountMinor != null &&
+    promo.listAmountMinor &&
+    promo.amountMinor * 2 > promo.listAmountMinor
+  ) {
+    return false;
+  }
+  return quote.amountMinor * 2 <= quote.listAmountMinor;
+}
+
+/**
  * 这个账号能不能兑这一档。只拦卡台文档里写明「必然失败」的情况，拿不准的一律给提示放行，
  * 最终由卡台兑换结果说了算。
  */
 export function assessEligibility(account: PreflightAccount, planKey: string): PreflightEligibility {
-  // 下面的档位规则都是 ChatGPT 的。X / Grok 只认卡台给的拦截原因。
+  // 下面的档位规则都是 ChatGPT 的。X / Grok 只认卡台给的拦截原因，Grok 半价码再核首月价。
   const product = productOfPlanKey(planKey);
   if (product !== "gpt") {
-    const reason = account.blockingReason;
+    const reasons = account.blockingReason ? [account.blockingReason] : [];
+    let code: string | null = reasons.length ? "PRECHECK_BLOCKED" : null;
+    if (!isGrokHalfPlanKey(planKey)) {
+      return { verdict: code ? "block" : "ok", code, reasons, warnings: [], quote: null };
+    }
+    // 和 plus_half 不同，拿不准也拦：半价码按原价兑出去，差价是本站实打实亏掉的。
+    // 买家看得到这句话，不带金额。
+    const eligible = grokFirstMonthHalf(account, planKey);
+    // 卡台已经拦了（登录态失效之类）通常也不给报价，不再补一句「确认不了」。
+    if (eligible === false || (eligible === null && !reasons.length)) {
+      code ??= "PROMOTION_NOT_ELIGIBLE";
+      reasons.push(
+        eligible === false
+          ? "这个账号没有 Grok 首月半价资格。卡密没有被消耗，请换一个有首月半价资格的账号。"
+          : "卡台没有返回这个账号的首月价格，无法确认首月半价资格。卡密没有被消耗，请稍后重试或换一个账号。",
+      );
+    }
     return {
-      verdict: reason ? "block" : "ok",
-      code: reason ? "PRECHECK_BLOCKED" : null,
-      reasons: reason ? [reason] : [],
+      verdict: reasons.length ? "block" : "ok",
+      code,
+      reasons,
       warnings: [],
       quote: null,
+      firstMonthHalf: { eligible },
     };
   }
   const base = basePlanKey(planKey);

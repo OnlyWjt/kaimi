@@ -10,7 +10,7 @@ import {
   REGION_WHITELIST_SETTING,
   variantPlanKey,
 } from "@/lib/cardplatform/regions";
-import { CARD_PRODUCT_KEYS, CARD_PRODUCTS, type CardProduct } from "./product";
+import { CARD_PRODUCT_KEYS, CARD_PRODUCTS, withGrokHalfPlans, type CardProduct } from "./product";
 import type {
   CardplatformClient,
   CardplatformPaymentRegion,
@@ -143,7 +143,10 @@ async function syncProductPlans(input: {
 }): Promise<ProductSyncResult> {
   const { product, client, accountId, whitelist } = input;
   const spec = CARD_PRODUCTS[product];
-  const { plans, regions } = await client.getPlansWithRegions(45_000, product);
+  const catalog = await client.getPlansWithRegions(45_000, product);
+  const { regions } = catalog;
+  // Grok 首月半价是本站虚拟档位，跟着正价档位生成；正价这轮没出现，半价行也随复位一起停售。
+  const plans = product === "grok" ? withGrokHalfPlans(catalog.plans) : catalog.plans;
   const activeRegions = input.regionSupported ? regions : [];
   const baseCountry = baseCountryFor(product);
   const baseOpen = baseSellable(product, baseCountry, activeRegions);
@@ -255,6 +258,7 @@ async function syncProductPlans(input: {
   });
   return {
     product,
+    // 含本站生成的半价行，和 created / updated 口径一致，也和后台看到的行数对得上。
     count: plans.length,
     created,
     updated,

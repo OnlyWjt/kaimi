@@ -1,5 +1,6 @@
 "use client";
 
+import { PlanLabel } from "@/components/plan-label";
 import { Fragment, useEffect, useState } from "react";
 import { loadAdminSection, postAdminAction } from "@/components/admin-api";
 import { AdminOrderTimeline } from "@/components/admin-order-timeline";
@@ -215,7 +216,7 @@ export function AdminOrders({
                           ) : null}
                         </td>
                         <td className="km-clip" title={plan}>
-                          {plan}
+                          <PlanLabel name={plan} planKey={String(o.planKey || "")} />
                         </td>
                         <td>
                           {o.kind === "recharge" && o.payStatus === "manual" ? (
