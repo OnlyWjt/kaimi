@@ -16,6 +16,7 @@ import { DrawError, maskedDrawCode, parseSummary } from "@/lib/agent-draw-shared
 import { publicShopName } from "@/lib/agent-names";
 import { isFinishedRef } from "@/lib/finished-account-core";
 import { normalizePage, normalizePageSize } from "@/lib/pagination-core";
+import { regionDisplay } from "@/lib/cardplatform/regions";
 
 // 提卡账单的只读查询和账本导出。结算、撤销账单会动额度，留在 agent-draw.ts。
 
@@ -264,7 +265,7 @@ export async function drawLedgerCsv(kind: "items" | "bills", agentId = 0, billQu
       row.drawNo,
       publicShopName(row),
       row.planName,
-      row.paymentCountry || "菲区",
+      regionDisplay(row.paymentCountry || "").zh,
       maskedDrawCode(row.codeEncrypted).codeMasked,
       drawCodeUseLabel(row.cdkStatus, Boolean(row.manualUsedAt), isFinishedRef(row.upstreamRef)),
       (row.amountCents / 100).toFixed(2),

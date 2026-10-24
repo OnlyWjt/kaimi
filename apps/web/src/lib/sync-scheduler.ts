@@ -7,6 +7,7 @@ import { sanitizeLog } from "@/lib/log";
 import { refreshOpsHealth } from "@/lib/ops-health";
 import { pruneUpstreamPayloads } from "@/lib/order-timeline";
 import { syncDefaultCardplatformPlans } from "@/lib/cardplatform/plans";
+import { summarizeProductSync } from "@/lib/cardplatform/product";
 import { syncEnabledAccountProducts } from "@/lib/cardplatform/products";
 import { reconcileIssuedCdkStatuses } from "@/lib/cardplatform/reconcile-issued";
 import { pruneRedeemGuard } from "@/lib/redeem-guard";
@@ -275,7 +276,7 @@ async function maybeTick() {
         try {
           const plans = await syncDefaultCardplatformPlans();
           console.log(
-            `[kaimi-sync] sellable plans: count=${plans.count} created=${plans.created} updated=${plans.updated} regions=${plans.regions.join(",") || "-"} variants=${plans.variantsCreated}`,
+            `[kaimi-sync] sellable plans: count=${plans.count} created=${plans.created} updated=${plans.updated} regions=${plans.regions.join(",") || "-"} variants=${plans.variantsCreated} | ${summarizeProductSync(plans.products)}`,
           );
         } catch (err) {
           console.warn("[kaimi-sync] sellable plans sync failed", sanitizeLog(err));

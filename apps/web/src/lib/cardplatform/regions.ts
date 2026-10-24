@@ -17,6 +17,11 @@ const KNOWN_REGIONS: Record<string, { code: string; zh: string; en: string }> = 
   "": { code: "PH", zh: "菲区", en: "Philippines" },
   US: { code: "US", zh: "美区", en: "United States" },
   CL: { code: "CL", zh: "智利区", en: "Chile" },
+  JP: { code: "JP", zh: "日区", en: "Japan" },
+  PH: { code: "PH", zh: "菲区", en: "Philippines" },
+  NG: { code: "NG", zh: "尼日利亚区", en: "Nigeria" },
+  TR: { code: "TR", zh: "土耳其区", en: "Turkey" },
+  EG: { code: "EG", zh: "埃及区", en: "Egypt" },
 };
 
 export function normalizePaymentCountry(value: string | null | undefined) {
@@ -148,8 +153,10 @@ export function formatRegionWhitelist(countries: string[]) {
 
 export const REGION_WHITELIST_SETTING = "cardplatform_region_whitelist";
 
-export function paymentRegionsSettingKey(accountId: number) {
-  return `cardplatform_payment_regions_${accountId}`;
+/** GPT 沿用老键；X / Grok 各存一份，带产品后缀。 */
+export function paymentRegionsSettingKey(accountId: number, product = "gpt") {
+  const base = `cardplatform_payment_regions_${accountId}`;
+  return product === "gpt" ? base : `${base}_${product}`;
 }
 
 /**

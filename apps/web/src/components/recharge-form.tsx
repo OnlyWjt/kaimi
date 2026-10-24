@@ -12,6 +12,7 @@ import {
   RedeemSteps,
   SessionCheckResult,
   SessionField,
+  credentialName,
   readRedeemJson,
   redeemApiError,
   type SessionPreview,
@@ -19,10 +20,13 @@ import {
 import { useShopToolPaths } from "@/components/use-shop-tool-paths";
 import { isOrderTerminalStatus, normalizeOrderStatus } from "@/lib/order-status";
 import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
+import { isCardProduct, type CardProduct } from "@/lib/cardplatform/product";
 import { publicStatusLabel } from "@/lib/status-labels";
 
 type Validated = {
   codeMasked: string;
+  /** 卡密的产品线，决定要粘贴哪种登录凭证。 */
+  product: CardProduct;
   planKey: string;
   planName: string;
   paymentCountry?: string;
@@ -61,6 +65,8 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
   const paths = useShopToolPaths();
 
   const sessionOk = Boolean(preview?.ok && preview.source === "cardplatform");
+  const product: CardProduct = validated?.product ?? "gpt";
+  const credName = credentialName(product);
 
   useEffect(() => {
     if (initialCode.trim()) setCode(initialCode.trim());
@@ -136,6 +142,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
       if (!res.ok || !data.ok) throw new Error(redeemApiError(data, "校验失败"));
       setValidated({
         codeMasked: data.codeMasked,
+        product: isCardProduct(data.product) ? data.product : "gpt",
         planKey: data.planKey,
         planName: data.planName,
         paymentCountry: data.paymentCountry || "",
@@ -155,7 +162,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
 
   async function precheckSession() {
     if (!session.trim()) {
-      setError("请先粘贴 Session");
+      setError(`请先粘贴 ${credName}`);
       setPreview(null);
       return;
     }
@@ -170,6 +177,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
           session: session.trim(),
           code: code.trim(),
           planKey: validated?.planKey,
+          product,
         }),
       });
       const data = (await readRedeemJson(res)) as SessionPreview;
@@ -178,7 +186,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
         setEmail(data.email);
       }
       if (!data.ok && !data.errors?.length) {
-        setError(redeemApiError(data, "Session 预检未通过"));
+        setError(redeemApiError(data, `${credName} 预检未通过`));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "预检失败");
@@ -190,11 +198,11 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
   async function submit() {
     if (!validated) return;
     if (!session.trim()) {
-      setError("请填写 Session");
+      setError(`请填写 ${credName}`);
       return;
     }
     if (!sessionOk) {
-      setError("请先点击「预检 Session」，通过卡台校验后再兑换");
+      setError(`请先点击「预检 ${credName}」，通过卡台校验后再兑换`);
       return;
     }
     setBusy(true);
@@ -213,6 +221,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
           session: session.trim(),
           productId: validated.productId ?? undefined,
           planKey: validated.planKey || undefined,
+          product: validated.product,
         }),
       });
       const data = await readRedeemJson(res);
@@ -369,10 +378,13 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
             <section className="km-rx-card km-form-stack">
               <div className="km-rx-card-head">
                 <h2 className="km-rx-card-title">开通账号</h2>
-                <p className="km-rx-card-desc">粘贴 ChatGPT Session，先预检账号再提交</p>
+                <p className="km-rx-card-desc">
+                  粘贴 {product === "gpt" ? "ChatGPT Session" : credName}，先预检账号再提交
+                </p>
               </div>
 
               <SessionField
+                product={product}
                 value={session}
                 onChange={(value) => {
                   setSession(value);
@@ -380,7 +392,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
                 }}
               />
 
-              {preview ? <SessionCheckResult preview={preview} /> : null}
+              {preview ? <SessionCheckResult preview={preview} product={product} /> : null}
 
               {error ? (
                 <p className="km-rx-error" role="alert">
@@ -399,7 +411,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
                     disabled={busy || checking || !session.trim()}
                     onClick={() => void precheckSession()}
                   >
-                    {checking ? "预检中…" : "改了 Session？重新预检"}
+                    {checking ? "预检中…" : `改了 ${credName}？重新预检`}
                   </button>
                 </div>
               ) : (
@@ -409,7 +421,7 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
                   disabled={!session.trim() || busy || checking}
                   onClick={() => void precheckSession()}
                 >
-                  {checking ? "预检中…" : session.trim() ? "预检 Session" : "先粘贴 Session"}
+                  {checking ? "预检中…" : session.trim() ? `预检 ${credName}` : `先粘贴 ${credName}`}
                 </button>
               )}
             </section>

@@ -8,7 +8,7 @@ import {
 import { clientIp, enforceRateLimit } from "@/lib/rate-limit";
 import { RedeemRejectedError } from "@/lib/redeem-guard-core";
 import { recordRedeemFailure, redeemBlockResponse } from "@/lib/redeem-guard";
-import { checkChatGPTSessionLocal } from "@/lib/session-check";
+import { checkCredentialLocal, codeProductHint } from "@/lib/session-check";
 import { publicErrorMessage } from "@/lib/public-error";
 import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
 import { MAILBOX_REDEEM_REMOVED, type AgentCredential } from "@/lib/recharge-types";
@@ -18,6 +18,7 @@ const schema = z.object({
   email: z.string().optional().default(""),
   session: z.string().optional().default(""),
   mode: z.string().optional().default("session"),
+  product: z.string().optional(),
 });
 
 export async function POST(req: Request) {
@@ -33,7 +34,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: MAILBOX_REDEEM_REMOVED }, { status: 400 });
     }
     const code = body.code.trim();
-    const local = checkChatGPTSessionLocal(body.session);
+    const local = checkCredentialLocal(await codeProductHint(code, body.product), body.session);
     if (!local.ok) {
       return NextResponse.json(
         { error: local.errors[0] || "Session 无效" },

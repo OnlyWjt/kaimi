@@ -898,6 +898,21 @@ async function ensurePaymentRegionSchema() {
     "ALTER TABLE store_orders ADD COLUMN payment_country_snapshot TEXT NOT NULL DEFAULT ''",
   );
   await addColumn("ALTER TABLE issued_cdks ADD COLUMN payment_country TEXT NOT NULL DEFAULT ''");
+  await addColumn("ALTER TABLE platform_plans ADD COLUMN product TEXT NOT NULL DEFAULT 'gpt'");
+  await addColumn("ALTER TABLE store_orders ADD COLUMN product_snapshot TEXT NOT NULL DEFAULT ''");
+  // 以前只拉 GPT 目录，但那份定价表是卡台原样透传的，可能混进 x_* / grok_* 键被当成 GPT 存下来。
+  // 按前缀归回原产品线，下一轮按产品同步时再把上游键、地区改对。幂等，每次启动跑也没事。
+  await client.execute(
+    "UPDATE platform_plans SET product = 'grok' WHERE product = 'gpt' AND substr(plan_key, 1, 5) = 'grok_'",
+  );
+  await client.execute(
+    "UPDATE platform_plans SET product = 'x' WHERE product = 'gpt' AND substr(plan_key, 1, 2) = 'x_'",
+  );
+  // 这些老行的上游键还带前缀、地区是空串（菲区），原样发码必被卡台拒。先停售，
+  // 等按产品同步改对上游键和地区后再由同步恢复可售。
+  await client.execute(
+    "UPDATE platform_plans SET cardplatform_sellable = 0 WHERE product IN ('x', 'grok') AND payment_country = '' AND fulfillment_kind = 'cardplatform'",
+  );
 }
 
 async function ensureAgentDrawSchema() {
@@ -928,6 +943,14 @@ async function ensureAgentDrawSchema() {
   );
   await addColumn(
     "ALTER TABLE agent_draw_access ADD COLUMN allow_finished INTEGER NOT NULL DEFAULT 0",
+  );
+  // 多产品线：提卡单记下单时的产品、上游键和付款地区，重试按快照出卡。
+  await addColumn("ALTER TABLE agent_draw_orders ADD COLUMN product_snapshot TEXT NOT NULL DEFAULT ''");
+  await addColumn(
+    "ALTER TABLE agent_draw_orders ADD COLUMN upstream_plan_key_snapshot TEXT NOT NULL DEFAULT ''",
+  );
+  await addColumn(
+    "ALTER TABLE agent_draw_orders ADD COLUMN payment_country_snapshot TEXT NOT NULL DEFAULT ''",
   );
 }
 

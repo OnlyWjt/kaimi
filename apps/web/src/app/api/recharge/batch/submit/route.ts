@@ -20,7 +20,8 @@ import { RedeemRejectedError } from "@/lib/redeem-guard-core";
 import { getSession } from "@/lib/auth";
 import { clientIp } from "@/lib/rate-limit";
 import { MAILBOX_REDEEM_REMOVED, type AgentCredential } from "@/lib/recharge-types";
-import { checkChatGPTSessionLocal } from "@/lib/session-check";
+import { checkCredentialLocal, codeProductHint } from "@/lib/session-check";
+import { CARD_PRODUCTS } from "@/lib/cardplatform/product";
 import { publicErrorMessage } from "@/lib/public-error";
 
 const schema = z
@@ -29,6 +30,8 @@ const schema = z
     email: z.string().email().optional().or(z.literal("")),
     mode: z.string().optional().default("session"),
     session: z.string().optional().default(""),
+    /** 前端按第一张卡猜的产品线；本站发出的卡以本站记录为准。 */
+    product: z.string().optional(),
   })
   .superRefine((val, ctx) => {
     // mode 不对在 POST 里单独回话术，这里只核 Session。
@@ -69,7 +72,20 @@ export async function POST(req: Request) {
 
     // 这里只做本地格式校验。整批开跑前多打一次卡台预检，等于白烧一张卡的
     // preview + preflight；每张卡提交时都会自己预检，Session 不对会逐行报出来。
-    const local = checkChatGPTSessionLocal(body.session);
+    // 一批只用一份凭证，产品线必须一致：ChatGPT 的 Session 兑不了 Grok 卡。
+    const products = new Set(
+      await Promise.all(codes.map((code) => codeProductHint(code, body.product))),
+    );
+    if (products.size > 1) {
+      return NextResponse.json(
+        {
+          error: `这批卡密混了 ${[...products].map((item) => CARD_PRODUCTS[item].label).join("、")}，请按产品分开提交`,
+        },
+        { status: 400 },
+      );
+    }
+    const [product = "gpt"] = [...products];
+    const local = checkCredentialLocal(product, body.session);
     if (!local.ok) {
       return NextResponse.json(
         { error: local.errors[0] || "Session 无效", errors: local.errors },
@@ -77,7 +93,7 @@ export async function POST(req: Request) {
       );
     }
     const contactEmail = (local.email || body.email || "").trim();
-    if (!contactEmail) {
+    if (!contactEmail && product === "gpt") {
       return NextResponse.json(
         { error: "Session 中未读到邮箱，请更换账号后再试" },
         { status: 400 },

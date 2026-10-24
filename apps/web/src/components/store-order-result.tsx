@@ -366,7 +366,7 @@ export function StoreOrderResultPanel({
                 <p>
                   {codes.length > 1
                     ? `兑换页会带上这一单的 ${codes.length} 张卡密，填一次账号就能一起开通。`
-                    : "兑换页会自动带上这张卡密，校验后填 Session 就能开通。"}
+                    : "兑换页会自动带上这张卡密，校验后按提示贴上要开通账号的登录凭证就能开通。"}
                 </p>
               </div>
               <div className="km-order-next-actions">

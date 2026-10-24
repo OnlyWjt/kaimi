@@ -67,6 +67,7 @@ export async function POST(req: Request) {
       ...account,
       eligibility,
       ok: true,
+      product: preflight.redeemable.product,
       email: preflight.accountEmail,
       redemption_token: preflight.redemptionToken,
       preflight_token: preflight.preflightToken,

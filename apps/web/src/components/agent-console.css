@@ -1720,6 +1720,15 @@ button.km-acp-row {
   opacity: 0.5;
 }
 
+/* 多条产品线时的分段标题：ChatGPT / X 订阅码 / Grok */
+.km-sell-product td {
+  padding-top: 1rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--km-fg-muted);
+  letter-spacing: 0.02em;
+}
+
 .km-sell-group-row {
   display: flex;
   align-items: center;

@@ -4,7 +4,7 @@ import { keepSearchPath, loadAgentShopChrome } from "@/lib/agent-shop";
 import { getBatchRedeemLimit } from "@/lib/batch-redeem-limit";
 import { looksLikeStoreQueryToken } from "@/lib/store-order-access";
 
-const DEFAULT_HINT = "先校验卡密识别套餐，再填写 Session 提交开通";
+const DEFAULT_HINT = "先校验卡密识别套餐，再按提示填写账号凭证提交开通";
 
 export default async function ShopRechargePage({
   params,

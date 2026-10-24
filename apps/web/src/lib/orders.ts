@@ -39,6 +39,7 @@ import {
 } from "@/lib/cardplatform/issued-redemption";
 import { injectRedeemCardPolicy } from "@/lib/cardplatform/policy";
 import { assessEligibility } from "@/lib/cardplatform/preflight-core";
+import { CARD_PRODUCTS } from "@/lib/cardplatform/product";
 import { recordUpstreamResult } from "@/lib/order-timeline";
 import { recordRedeemFailure } from "@/lib/redeem-guard";
 
@@ -191,7 +192,8 @@ export async function openRechargeOrder(input: {
   }
 
   const plain = (issued?.code || input.code).trim();
-  const planKey = input.planKey || issued?.planKey || "";
+  // 本站发出的卡以本站记录为准；前端传来的 planKey 可能是上一张卡的。
+  const planKey = issued?.planKey || input.planKey || "";
   const orderNo = newOrderNo("RC");
   const [created] = await db
     .insert(orders)
@@ -283,11 +285,18 @@ export async function driveRechargeOrder(input: {
     // 兑换全都没起过作用。
     const redeemed = await client.redeemCdk(
       await injectRedeemCardPolicy(
-        {
-          redemption_token: prepared.redemptionToken,
-          preflight_token: prepared.preflightToken,
-          client_request_id: opened.order.orderNo,
-        },
+        // Grok 没有预检票，兑换直接带登录态；GPT / X 带预检票。
+        CARD_PRODUCTS[prepared.redeemable.product].preflightToken
+          ? {
+              redemption_token: prepared.redemptionToken,
+              preflight_token: prepared.preflightToken,
+              client_request_id: opened.order.orderNo,
+            }
+          : {
+              redemption_token: prepared.redemptionToken,
+              credential: prepared.credential,
+              client_request_id: opened.order.orderNo,
+            },
         accountId,
       ),
     );

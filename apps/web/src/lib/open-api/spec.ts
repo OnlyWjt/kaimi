@@ -475,7 +475,7 @@ export const openApiSpec = {
                 type: "object",
                 required: ["session", "code"],
                 properties: {
-                  session: { type: "string", description: "chatgpt.com/api/auth/session 的整页内容" },
+                  session: { type: "string", description: "兑换凭证，格式按卡密的产品线：ChatGPT 为 chatgpt.com/api/auth/session 的整页内容；Grok 为 grok.com 的 sso cookie（sso=...）；X 订阅码为 JSON，含 billing_email 以及 auth_token、ct0（或含这两项的 cookieHeader）" },
                   code: { type: "string", description: "要兑换的卡密，必须是本店卖出的" },
                 },
               },
@@ -507,6 +507,11 @@ export const openApiSpec = {
                     description: "true 表示 expires_at 是具体时间点；false 表示卡台只给了日期，应按日期解读，不要算作零点；没有到期时间时为 null",
                   },
                 },
+              },
+              target_product: {
+                type: ["string", "null"],
+                enum: ["gpt", "x", "grok", null],
+                description: "这张卡密的产品线：gpt / x（X 订阅码）/ grok。session 的格式按它来",
               },
               target_plan: { type: ["string", "null"], description: "这张卡密的套餐键" },
               target_plan_name: { type: ["string", "null"] },
@@ -558,7 +563,10 @@ export const openApiSpec = {
                 properties: {
                   code: { type: "string" },
                   mode: { type: "string", enum: ["session"] },
-                  session: { type: "string" },
+                  session: {
+                    type: "string",
+                    description: "兑换凭证，格式按卡密的产品线，同 /sessions/check 的 session",
+                  },
                   email: { type: "string" },
                 },
                 required: ["code"],

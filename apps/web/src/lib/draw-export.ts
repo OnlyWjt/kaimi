@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 import { formatBeijingDateTime } from "./datetime";
 import { splitFinishedAccountLine } from "./finished-account-core";
+import { regionDisplay } from "@/lib/cardplatform/regions";
 
 const MONEY_FORMAT = '¥#,##0.00;[Red]-¥#,##0.00';
 const DANGEROUS_FORMULA_PREFIX = /^[=+\-@]/;
@@ -103,7 +104,7 @@ export async function buildDrawWorkbook(rows: DrawExportRow[]) {
         drawNo: safeText(row.drawNo),
         createdAt: safeText(formatBeijingDateTime(row.createdAt)),
         planName: safeText(row.planName),
-        region: safeText(row.paymentCountry || "菲区"),
+        region: safeText(regionDisplay(row.paymentCountry || "").zh),
         code: row.code,
         useLabel: safeText(row.useLabel),
         amount: row.amountCents / 100,

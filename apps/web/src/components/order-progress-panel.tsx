@@ -300,7 +300,7 @@ export function OrderProgressPanel({
       ) : null}
 
       {terminal && success ? (
-        <p className="km-result km-session-pass text-sm">开通完成，请到 ChatGPT 账号确认套餐。</p>
+        <p className="km-result km-session-pass text-sm">开通完成，请登录开通的账号确认套餐已生效。</p>
       ) : null}
       {status === "unknown" ? (
         <p className="km-result km-session-fail text-sm">

@@ -36,6 +36,8 @@ export function sessionCheckPayload(result: SessionCheckResult) {
             : null,
         }
       : null,
+    /** 卡密的产品线：gpt / x / grok。凭证格式按它来。 */
+    target_product: result.target?.product || null,
     target_plan: result.target?.planKey || null,
     target_plan_name: result.target?.planName || null,
     payment_country: result.target?.paymentCountry || account?.paymentCountry || null,

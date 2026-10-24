@@ -6,6 +6,7 @@ import { useAskDialog } from "@/components/ask-dialog";
 import {
   SessionCheckResult,
   SessionField,
+  credentialName,
   readRedeemJson,
   redeemApiError,
   type SessionPreview,
@@ -24,11 +25,13 @@ import {
   type BatchRowState,
 } from "@/lib/recharge-batch-core";
 import { publicStatusLabel } from "@/lib/status-labels";
+import { CARD_PRODUCTS, type CardProduct } from "@/lib/cardplatform/product";
 
 type Row = {
   code: string;
   codeMasked: string;
   state: BatchRowState;
+  product?: CardProduct;
   planKey: string;
   planName: string;
   message: string;
@@ -40,6 +43,7 @@ type ValidateRow = {
   code: string;
   codeMasked: string;
   ok: boolean;
+  product?: CardProduct;
   planKey: string;
   planName: string;
   orderNo: string;
@@ -103,6 +107,16 @@ export function BatchRedeemForm({
     .filter((row) => row.state === "ready" && !blockedPlans[row.planKey])
     .map((row) => row.code);
   const credentialReady = Boolean(session.trim()) && sessionOk;
+  // 一批只填一份凭证：ChatGPT 的 Session 兑不了 Grok 卡，混着的要分开交。
+  const readyProducts = [
+    ...new Set(rows.filter((row) => row.state === "ready").map((row) => row.product ?? "gpt")),
+  ];
+  const product: CardProduct = readyProducts[0] ?? "gpt";
+  const mixedProducts =
+    readyProducts.length > 1
+      ? `这批卡密混了 ${readyProducts.map((item) => CARD_PRODUCTS[item].label).join("、")}，登录凭证不同，请按产品分开兑换`
+      : "";
+  const credName = credentialName(product);
 
   const stats = useMemo(() => {
     const out = { total: rows.length, ok: 0, run: 0, bad: 0, wait: 0, unsure: 0 };
@@ -207,6 +221,7 @@ export function BatchRedeemForm({
         code: item.code,
         codeMasked: item.codeMasked || item.code,
         state,
+        product: item.product,
         planKey: item.planKey || "",
         planName: item.planName || "",
         message: item.ok ? "" : item.error,
@@ -268,8 +283,12 @@ export function BatchRedeemForm({
 
   async function precheckSession() {
     const picks = precheckPicks();
+    if (mixedProducts) {
+      setError(mixedProducts);
+      return;
+    }
     if (!session.trim()) {
-      setError("请先粘贴 Session");
+      setError(`请先粘贴 ${credName}`);
       return;
     }
     if (!picks.length) {
@@ -286,7 +305,7 @@ export function BatchRedeemForm({
         const res = await fetch("/api/recharge/session-check", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ session: session.trim(), code: pick.code }),
+          body: JSON.stringify({ session: session.trim(), code: pick.code, product }),
         });
         const data = (await readRedeemJson(res)) as SessionPreview;
         results.push({ planKey: pick.planKey, planName: pick.planName, data });
@@ -299,7 +318,7 @@ export function BatchRedeemForm({
       setBlockedPlans(merged.blocked);
       if (data?.ok && data.email) setEmail(data.email);
       if (data && !data.ok && !data.errors?.length) {
-        setError(redeemApiError(data, "Session 预检未通过"));
+        setError(redeemApiError(data, `${credName} 预检未通过`));
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "预检失败");
@@ -309,7 +328,7 @@ export function BatchRedeemForm({
   }
 
   function credentialBody() {
-    return { mode: "session" as const, session: session.trim(), email: email.trim() };
+    return { mode: "session" as const, session: session.trim(), email: email.trim(), product };
   }
 
   /**
@@ -380,7 +399,7 @@ export function BatchRedeemForm({
       return;
     }
     if (!credentialReady) {
-      setError("请先点击「预检 Session」，通过卡台校验后再兑换");
+      setError(`请先点击「预检 ${credName}」，通过卡台校验后再兑换`);
       return;
     }
     const account = email.trim() || "这个账号";
@@ -422,7 +441,7 @@ export function BatchRedeemForm({
         return;
       }
       if (!credentialReady) {
-        setError("请先预检 Session 再重试");
+        setError(`请先预检 ${credName} 再重试`);
         return;
       }
       await submitCodes([row.code]);
@@ -517,10 +536,11 @@ export function BatchRedeemForm({
         <section className="km-rx-card km-form-stack">
           <div className="km-rx-card-head">
             <h2 className="km-rx-card-title">开通账号</h2>
-            <p className="km-rx-card-desc">这一批全部兑换到同一个账号，Session 只填一次。</p>
+            <p className="km-rx-card-desc">这一批全部兑换到同一个账号，{credName} 只填一次。</p>
           </div>
 
           <SessionField
+            product={product}
             value={session}
             onChange={(value) => {
               setSession(value);
@@ -529,7 +549,7 @@ export function BatchRedeemForm({
             }}
           />
 
-          {preview ? <SessionCheckResult preview={preview} /> : null}
+          {preview ? <SessionCheckResult preview={preview} product={product} /> : null}
 
           {error ? (
             <p className="km-rx-error" role="alert">
@@ -544,7 +564,7 @@ export function BatchRedeemForm({
               disabled={!session.trim() || checking || busy}
               onClick={() => void precheckSession()}
             >
-              {checking ? "预检中…" : session.trim() ? "预检 Session" : "先粘贴 Session"}
+              {checking ? "预检中…" : session.trim() ? `预检 ${credName}` : `先粘贴 ${credName}`}
             </button>
           ) : (
             <div className="km-rx-actions">
@@ -567,7 +587,7 @@ export function BatchRedeemForm({
                 disabled={!session.trim() || checking || busy}
                 onClick={() => void precheckSession()}
               >
-                {checking ? "预检中…" : "改了 Session？重新预检"}
+                {checking ? "预检中…" : `改了 ${credName}？重新预检`}
               </button>
             </div>
           )}

@@ -7,6 +7,7 @@ import { toast } from "@/components/toast";
 import { copyText } from "@/lib/copy-text";
 import { parseDbDate } from "@/lib/datetime";
 import { readApiJson } from "@/lib/http-error";
+import { summarizeProductSync } from "@/lib/cardplatform/product";
 
 type Account = {
   id: number;
@@ -427,9 +428,11 @@ export function CardIntegration({ publicBaseUrl = "" }: { publicBaseUrl?: string
                       }),
                     );
                     notice(
-                      `已同步 ${data.count ?? 0} 个售卖套餐${
-                        data.created ? `，新拉到 ${data.created} 个` : ""
-                      }`,
+                      Array.isArray(data.products)
+                        ? `已同步售卖套餐：${summarizeProductSync(data.products)}`
+                        : `已同步 ${data.count ?? 0} 个售卖套餐${
+                            data.created ? `，新拉到 ${data.created} 个` : ""
+                          }`,
                     );
                   })
                 }

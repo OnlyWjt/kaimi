@@ -15,6 +15,12 @@ import { useAskDialog } from "@/components/ask-dialog";
 import { RegionBadge } from "@/components/region-badge";
 import { toast } from "@/components/toast";
 import { groupPlansByBase, regionDisplay } from "@/lib/cardplatform/regions";
+import {
+  CARD_PRODUCT_KEYS,
+  CARD_PRODUCTS,
+  isCardProduct,
+  type CardProduct,
+} from "@/lib/cardplatform/product";
 import { centsFromYuanText, yuanTextFromCents } from "@/lib/money";
 import { MAX_CATEGORY_LENGTH, normalizeCategory } from "@/lib/plan-category";
 import { maxRetailPriceError } from "@/lib/plan-price-core";
@@ -25,6 +31,8 @@ type CatalogPlan = {
   enabled: boolean;
   cardplatformSellable: boolean;
   fulfillmentKind?: string;
+  /** 卡台产品线 gpt / x / grok */
+  product?: string;
   category: string;
   globalCostPriceCents: number;
   upstreamCostCents: number | null;
@@ -62,6 +70,7 @@ export function AdminPlanPricing() {
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState("");
   const [shelf, setShelf] = useState<PlanShelf>("全部");
+  const [product, setProduct] = useState<CardProduct | "all">("all");
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
   async function load() {
@@ -93,10 +102,16 @@ export function AdminPlanPricing() {
         ...group,
         shelf: planShelf(group.primary),
         multi: group.plans.length > 1 || group.plans.some((plan) => plan.regionCapable),
+        product: (isCardProduct(group.primary.product) ? group.primary.product : "gpt") as CardProduct,
       })),
     [catalog],
   );
-  const shown = shelf === "全部" ? groups : groups.filter((group) => group.shelf === shelf);
+  const productCounts = CARD_PRODUCT_KEYS.map((key) => ({
+    key,
+    count: groups.filter((group) => group.product === key).length,
+  })).filter((item) => item.count > 0);
+  const productFiltered = product === "all" ? groups : groups.filter((group) => group.product === product);
+  const shown = shelf === "全部" ? productFiltered : productFiltered.filter((group) => group.shelf === shelf);
   const sections = PLAN_SHELVES.filter((name) => name !== "全部").filter((name) =>
     shown.some((group) => group.shelf === name),
   );
@@ -271,9 +286,34 @@ export function AdminPlanPricing() {
 
       {catalog.length ? (
         <section className="km-panel space-y-4">
+          {/* 只有 ChatGPT 一条线时不出产品筛选，界面和以前一样。 */}
+          {productCounts.length > 1 ? (
+            <div className="km-tabs" aria-label="按产品筛选">
+              <button
+                type="button"
+                className={`km-tab ${product === "all" ? "km-tab-active" : ""}`}
+                onClick={() => setProduct("all")}
+              >
+                全部产品 {groups.length}
+              </button>
+              {productCounts.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={`km-tab ${product === item.key ? "km-tab-active" : ""}`}
+                  onClick={() => setProduct(item.key)}
+                >
+                  {CARD_PRODUCTS[item.key].label} {item.count}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <div className="km-tabs">
             {PLAN_SHELVES.map((name) => {
-              const count = name === "全部" ? groups.length : groups.filter((group) => group.shelf === name).length;
+              const count =
+                name === "全部"
+                  ? productFiltered.length
+                  : productFiltered.filter((group) => group.shelf === name).length;
               if (name !== "全部" && count === 0) return null;
               return (
                 <button
@@ -304,6 +344,8 @@ export function AdminPlanPricing() {
                       <div className="flex flex-wrap items-end gap-3 px-4 py-3">
                         <label className="min-w-[12rem] flex-1 text-xs text-[var(--km-fg-muted)]">
                           显示名称
+                          {/* 分类是可改的，产品线另外标出来，免得改了分类就认不出是哪条线。 */}
+                          {group.product !== "gpt" ? ` · ${CARD_PRODUCTS[group.product].label}` : ""}
                           <input
                             className="km-input mt-1"
                             maxLength={100}
@@ -322,10 +364,10 @@ export function AdminPlanPricing() {
                             onChange={(event) => patchPlans(planKeys, { category: event.target.value })}
                           />
                         </label>
-                        <div className="flex w-full min-w-0 items-center gap-3 sm:w-auto sm:flex-1">
+                        <div className="flex w-full min-w-0 flex-wrap items-center gap-3 sm:w-auto sm:flex-1 sm:flex-nowrap">
                         <button
                           type="button"
-                          className="min-w-0 flex-1 text-left"
+                          className="min-w-[12rem] flex-1 text-left"
                           onClick={() => setOpenGroups((current) => ({ ...current, [group.baseKey]: !open }))}
                         >
                           <div className="flex flex-wrap items-baseline gap-2">
@@ -342,7 +384,7 @@ export function AdminPlanPricing() {
                               return (
                                 <span
                                   key={plan.planKey}
-                                  className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs ${state.tone}`}
+                                  className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-1 text-xs ${state.tone}`}
                                 >
                                   <RegionBadge country={plan.paymentCountry || ""} regionLabel={plan.regionLabel} compact />
                                   {state.text}

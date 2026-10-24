@@ -8,7 +8,7 @@ import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import { MAX_CATEGORY_LENGTH, normalizeCategory } from "@/lib/plan-category";
 import { maxRetailPriceError } from "@/lib/plan-price-core";
-import { planNameWithRegion } from "@/lib/cardplatform/regions";
+import { planNameWithRegion, regionDisplay } from "@/lib/cardplatform/regions";
 
 /** 分类标签存的就是展示文案，统一收敛空白后入库，前台按它分组 */
 const categorySchema = z
@@ -203,7 +203,7 @@ export async function PUT(req: Request) {
       if (existing?.paymentCountry) {
         const base = existingByKey.get(existing.basePlanKey);
         if (base && base.globalCostPriceCents > 0 && item.globalCostPriceCents < base.globalCostPriceCents) {
-          warnings.push(`${label}：成本比菲区还低，确认没填错？`);
+          warnings.push(`${label}：成本比${regionDisplay(base.paymentCountry, base.regionLabel).zh}还低，确认没填错？`);
         }
       }
     }

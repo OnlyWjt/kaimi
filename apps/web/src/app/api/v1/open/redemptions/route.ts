@@ -12,7 +12,7 @@ import { claimIdempotent, storeIdempotent } from "@/lib/open-api/idempotency";
 import { openFail, openOk } from "@/lib/open-api/respond";
 import { recordRedeemFailure, redeemBlockResponse } from "@/lib/redeem-guard";
 import { RedeemRejectedError } from "@/lib/redeem-guard-core";
-import { checkChatGPTSessionLocal } from "@/lib/session-check";
+import { checkCredentialLocal, codeProductHint } from "@/lib/session-check";
 import { publicErrorMessage } from "@/lib/public-error";
 import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
 import { MAILBOX_REDEEM_REMOVED, type AgentCredential } from "@/lib/recharge-types";
@@ -62,7 +62,8 @@ export async function POST(req: Request) {
       }
     }
     if (body.mode !== "session") return finish(openFail("VALIDATION_FAILED", MAILBOX_REDEEM_REMOVED));
-    const local = checkChatGPTSessionLocal(body.session);
+    // 开放 API 只收本店发出的卡，产品线按本站记录定。
+    const local = checkCredentialLocal(await codeProductHint(body.code), body.session);
     if (!local.ok) return finish(openFail("VALIDATION_FAILED", local.errors[0] || "Session 无效"));
     const email = (local.email || body.email).trim();
     const account: AgentCredential = { mode: "session", session: body.session, email };

@@ -9,6 +9,7 @@ const schema = z.object({
   session: z.string().min(1),
   code: z.string().min(REDEEM_CODE_MIN_LENGTH).optional(),
   planKey: z.string().optional(),
+  product: z.string().optional(),
 });
 
 /** 预检 Session：本地格式 + 卡台 preflight + 按卡密套餐判断资格，通过后才能兑换 */
@@ -17,7 +18,7 @@ export async function POST(req: Request) {
   if (limited) return limited;
   try {
     const body = schema.parse(await req.json());
-    const checked = await verifySessionForRedeem(body.session, body.code);
+    const checked = await verifySessionForRedeem(body.session, body.code, body.product);
     const upstreamLimited =
       checked.httpStatus === 429 || checked.errorCode === "GPT_PREFLIGHT_RATE_LIMITED";
 
