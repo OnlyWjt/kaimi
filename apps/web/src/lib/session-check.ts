@@ -28,6 +28,8 @@ export type SessionSummary = {
   expires_at?: string;
   /** 卡台只给到日期时传 false，显示层不要补时间。 */
   expires_at_has_time?: boolean;
+  /** Grok 半价卡密才有：有没有首月半价资格，null = 卡台没给报价、确认不了。 */
+  first_month_half_eligible?: boolean | null;
   account_id?: string;
   [key: string]: unknown;
 };
@@ -235,6 +237,10 @@ export async function verifySessionForRedeem(
         has_active_subscription: account.subscription.active ?? undefined,
         expires_at: account.subscription.expiresAt || undefined,
         expires_at_has_time: account.subscription.expiryHasTime,
+        // Grok 半价卡密才有；只给有没有资格，不给金额。
+        ...(eligibility.firstMonthHalf
+          ? { first_month_half_eligible: eligibility.firstMonthHalf.eligible }
+          : {}),
       },
       errorCode: ok ? undefined : (eligibility.code ?? "PRECHECK_REJECTED"),
       retryable: ok ? undefined : false,

@@ -1085,6 +1085,32 @@ a.km-od-act {
   color: var(--km-warning);
 }
 
+/* 首月半价：描边不填色，和实底的「处理中」区分开 */
+.km-badge-promo {
+  flex: none;
+  background: transparent;
+  color: var(--km-warning);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--km-warning) 50%, transparent);
+  white-space: nowrap;
+}
+
+/* 套餐名 + 标签：名字太长只截名字 */
+.km-plan-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 100%;
+  min-width: 0;
+  vertical-align: middle;
+}
+
+.km-plan-label-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .km-toast-stack {
   position: fixed;
   top: 1rem;

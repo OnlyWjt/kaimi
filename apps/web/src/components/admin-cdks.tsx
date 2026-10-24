@@ -1,5 +1,6 @@
 "use client";
 
+import { PlanLabel } from "@/components/plan-label";
 import { useEffect, useState } from "react";
 import { loadAdminSection, postAdminAction } from "@/components/admin-api";
 import { StatusBadge, formatWhen } from "@/components/admin-ui";
@@ -152,7 +153,7 @@ export function AdminCdks() {
                   </td>
                   <td>
                     <p className="km-clip font-medium" title={productName}>
-                      {productName}
+                      <PlanLabel name={productName} planKey={planKey} />
                     </p>
                     {planKey && planKey !== productName ? (
                       <p className="km-clip font-mono text-xs text-[var(--km-fg-muted)]" title={planKey}>

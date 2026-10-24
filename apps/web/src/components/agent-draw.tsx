@@ -1,5 +1,6 @@
 "use client";
 
+import { PlanLabel } from "@/components/plan-label";
 import { useEffect, useRef, useState } from "react";
 import { useAskDialog } from "@/components/ask-dialog";
 import { toast } from "@/components/toast";
@@ -640,7 +641,7 @@ function ItemTable({ items, empty }: { items: LedgerItem[]; empty: string }) {
               <td className="py-2 pr-3">{stamp(item.createdAt)}</td>
               <td className="py-2 pr-3 font-mono text-xs">{item.drawNo}</td>
               <td className="py-2 pr-3">
-                {item.planName}
+                <PlanLabel name={item.planName} />
                 {item.paymentCountry ? <RegionBadge country={item.paymentCountry} /> : null}
               </td>
               <td className="py-2 pr-3">

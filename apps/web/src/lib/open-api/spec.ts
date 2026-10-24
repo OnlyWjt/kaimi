@@ -515,6 +515,11 @@ export const openApiSpec = {
               },
               target_plan: { type: ["string", "null"], description: "这张卡密的套餐键" },
               target_plan_name: { type: ["string", "null"] },
+              first_month_half_eligible: {
+                type: ["boolean", "null"],
+                description:
+                  "Grok 首月半价卡密（grok_*_monthly_half）才有值：账号有没有首月半价资格。没有资格或卡台没给报价时 ok=false、error_code=PROMOTION_NOT_ELIGIBLE；其他卡密为 null",
+              },
               payment_country: { type: ["string", "null"] },
               quote: {
                 type: ["object", "null"],

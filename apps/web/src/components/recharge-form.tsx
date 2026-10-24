@@ -20,7 +20,7 @@ import {
 import { useShopToolPaths } from "@/components/use-shop-tool-paths";
 import { isOrderTerminalStatus, normalizeOrderStatus } from "@/lib/order-status";
 import { REDEEM_CODE_MIN_LENGTH } from "@/lib/redeem-code";
-import { isCardProduct, type CardProduct } from "@/lib/cardplatform/product";
+import { GROK_HALF_LABEL, isCardProduct, isGrokHalfPlanKey, type CardProduct } from "@/lib/cardplatform/product";
 import { publicStatusLabel } from "@/lib/status-labels";
 
 type Validated = {
@@ -325,7 +325,17 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
           <section className="km-rx-card km-rx-plan">
             <div className="km-rx-plan-main">
               <p className="km-rx-eyebrow">已识别套餐</p>
-              <h2 className="km-rx-plan-name">{validated?.planName}</h2>
+              <h2 className="km-rx-plan-name">
+                {validated?.planName.endsWith(GROK_HALF_LABEL) ? (
+                  <>
+                    {validated.planName.slice(0, -GROK_HALF_LABEL.length)}
+                    {/* 手机上别从「（首月半价）」中间断行 */}
+                    <span className="whitespace-nowrap">{GROK_HALF_LABEL}</span>
+                  </>
+                ) : (
+                  validated?.planName
+                )}
+              </h2>
               <dl className="km-rx-meta">
                 <div>
                   <dt>卡密</dt>
@@ -342,6 +352,9 @@ export function RechargeForm({ initialCode = "" }: { initialCode?: string }) {
               </dl>
               {showRegion && validated?.paymentCountry ? (
                 <p className="km-rx-plan-note">这张卡密按该地区结账，与你账号所在地无关。</p>
+              ) : null}
+              {isGrokHalfPlanKey(validated?.planKey) ? (
+                <p className="km-rx-plan-note">此卡密仅限有 Grok 首月优惠资格的账号使用</p>
               ) : null}
             </div>
             <div className="km-rx-plan-side">

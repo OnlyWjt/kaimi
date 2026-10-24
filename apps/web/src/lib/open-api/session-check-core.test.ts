@@ -29,6 +29,7 @@ describe("sessionCheckPayload", () => {
       target_plan_name: null,
       payment_country: null,
       quote: null,
+      first_month_half_eligible: null,
       error_code: null,
       retryable: null,
       errors: [],
@@ -37,7 +38,7 @@ describe("sessionCheckPayload", () => {
   });
 
   it("exposes the account, target plan and formatted quote", () => {
-    const quote = { country: "PH", currency: "PHP", upstreamPlan: "plus", amountMinor: 98214, minorUnitExponent: 2, tax: "exclusive" };
+    const quote = { country: "PH", currency: "PHP", upstreamPlan: "plus", amountMinor: 98214, listAmountMinor: null, minorUnitExponent: 2, tax: "exclusive" };
     const payload = sessionCheckPayload(
       result({
         planHint: "免费版",

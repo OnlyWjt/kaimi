@@ -1,5 +1,6 @@
 "use client";
 
+import { PlanLabel } from "@/components/plan-label";
 import { FormEvent, useState } from "react";
 import { toast } from "@/components/toast";
 import type { DrawLookupItem, DrawLookupOrder } from "@/lib/agent-draw-lookup";
@@ -114,7 +115,9 @@ export function AdminDrawLookup({ onOpenAgent }: { onOpenAgent: (agentId: number
             <dl className="km-od-facts mt-3">
               <div>
                 <dt>套餐</dt>
-                <dd title={order.planName}>{order.planName}</dd>
+                <dd title={order.planName}>
+                  <PlanLabel name={order.planName} />
+                </dd>
               </div>
               <div>
                 <dt>出卡</dt>

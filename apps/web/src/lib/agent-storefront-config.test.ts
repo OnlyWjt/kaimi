@@ -145,3 +145,20 @@ describe("coverFromPlan", () => {
     expect(coverFromPlan("Claude Pro", "claude")).toBe("/storefront/cover-claude.png?v=2");
   });
 });
+
+describe("planToProduct Grok 首月半价", () => {
+  const half = { ...basePlan, planKey: "grok_premium_monthly_half", name: "Grok Premium 月付（首月半价）" };
+
+  it("商品名带（首月半价），店主改了名也补上", () => {
+    expect(planToProduct(half).name.zh).toBe("Grok Premium 月付（首月半价）");
+    const renamed = planToProduct(half, { grok_premium_monthly_half: { zh: "Grok 会员", en: "Grok Member" } });
+    expect(renamed.name).toEqual({ zh: "Grok 会员（首月半价）", en: "Grok Member (50% off first month)" });
+  });
+
+  it("详情写明只限有首月优惠资格的账号；正价商品没有这一句", () => {
+    const lines = planToProduct(half).detail[0]?.lines ?? [];
+    expect(lines.map((line) => line.text.zh)).toContain("仅限有首月优惠资格的 Grok 账号，下单前请确认");
+    const full = planToProduct({ ...basePlan, planKey: "grok_premium_monthly", name: "Grok Premium 月付" });
+    expect(full.detail[0]?.lines).toHaveLength(1);
+  });
+});

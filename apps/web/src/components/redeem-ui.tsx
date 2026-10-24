@@ -157,6 +157,8 @@ export type SessionPreview = {
     expires_at?: string;
     /** 卡台只给了日期时传 false，页面照原样显示日期，不补 00:00。 */
     expires_at_has_time?: boolean;
+    /** Grok 半价卡密才有：有没有首月半价资格，null = 确认不了。 */
+    first_month_half_eligible?: boolean | null;
     account_id?: string;
   };
   errors?: string[];
@@ -181,6 +183,7 @@ export function SessionCheckResult({
   const name = credentialName(product);
   const plan = preview.summary?.plan_type || preview.planHint;
   const active = preview.summary?.has_active_subscription;
+  const firstMonthHalf = preview.summary?.first_month_half_eligible;
   // Session 本身没问题、是账号不符合这张卡的条件：照样把账号现状亮出来，买家才知道为什么不行。
   const ineligible = !preview.ok && preview.verdict === "block";
   const title = preview.ok
@@ -204,6 +207,18 @@ export function SessionCheckResult({
                 preview.summary.expires_at,
                 preview.summary.expires_at_has_time !== false,
               )}
+            />
+          ) : null}
+          {firstMonthHalf !== undefined ? (
+            <MetaItem
+              label="首月半价资格"
+              value={
+                firstMonthHalf === true
+                  ? "✅ 有"
+                  : firstMonthHalf === false
+                    ? "❌ 无（半价卡密无法使用）"
+                    : "未确认（半价卡密暂不能使用）"
+              }
             />
           ) : null}
         </dl>

@@ -1,5 +1,6 @@
 "use client";
 
+import { PlanLabel } from "@/components/plan-label";
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AdminDrawLookup } from "@/components/admin-draw-lookup";
 import { useAskDialog } from "@/components/ask-dialog";
@@ -708,7 +709,7 @@ export function AdminAgentDraw() {
                                 <td className="py-2 pr-3">{item.createdAt.slice(5, 16).replace("T", " ")}</td>
                                 <td className="py-2 pr-3 font-mono">{item.drawNo}</td>
                                 <td className="py-2 pr-3">
-                                  {item.planName}
+                                  <PlanLabel name={item.planName} planKey={item.planKey} />
                                   {item.paymentCountry ? <RegionBadge country={item.paymentCountry} /> : null}
                                 </td>
                                 <td className="py-2 pr-3">
@@ -1105,7 +1106,7 @@ export function AdminAgentDraw() {
                           <td className="py-2 pr-3">{item.createdAt.slice(5, 16).replace("T", " ")}</td>
                           <td className="py-2 pr-3 font-mono text-xs">{item.drawNo}</td>
                           <td className="py-2 pr-3">
-                            {item.planName}
+                            <PlanLabel name={item.planName} planKey={item.planKey} />
                             {item.paymentCountry ? <RegionBadge country={item.paymentCountry} /> : null}
                           </td>
                           <td className="py-2 pr-3">

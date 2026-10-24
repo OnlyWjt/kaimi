@@ -83,6 +83,14 @@ const X_BARE = /^(?:basic|premium|premium_plus)_(?:monthly|yearly)$/;
 const GROK_BARE = /^(?:(?:plus|super|ultra|lite|heavy)_)?(?:monthly|yearly)$/;
 const GROK_ANY = /^(?:(?:plus|premium|super|ultra|lite|heavy)_)?(?:monthly|yearly)$/;
 
+/**
+ * Grok 首月半价是本站虚拟档位：正价键 + _half（grok_premium_monthly_half），后缀和 GPT 的 plus_half 统一。
+ * 卡台没有这种档位，发码按正价键发；码上记半价键，兑换前只放行首月报价在原价一半以内的账号。
+ * Grok 只给月付 Premium / Super / Ultra 首月五折，Plus 和年付没有。
+ */
+export const GROK_HALF_SUFFIX = "_half";
+const GROK_HALF_BASES = new Set(["grok_premium_monthly", "grok_super_monthly", "grok_ultra_monthly"]);
+
 function bareKey(planKey: string) {
   // 地区变体 x_premium_monthly:us 只看冒号前面。
   return planKey.trim().toLowerCase().split(":")[0] ?? "";
@@ -94,11 +102,73 @@ function bareKey(planKey: string) {
  */
 export function productOfPlanKey(planKey: string | null | undefined): CardProduct {
   const key = bareKey(String(planKey || ""));
+  if (isGrokHalfPlanKey(key)) return "grok";
   if (key.startsWith("grok_") && GROK_ANY.test(key.slice(5))) return "grok";
   if (key.startsWith("x_") && X_BARE.test(key.slice(2))) return "x";
   if (X_BARE.test(key)) return "x";
   if (GROK_BARE.test(key)) return "grok";
   return "gpt";
+}
+
+/** 本站 Grok 半价键（grok_premium_monthly_half 这种）。 */
+export function isGrokHalfPlanKey(planKey: string | null | undefined) {
+  const key = bareKey(String(planKey || ""));
+  return key.endsWith(GROK_HALF_SUFFIX) && GROK_HALF_BASES.has(key.slice(0, -GROK_HALF_SUFFIX.length));
+}
+
+/** 半价键去掉 _half 拿到正价键；不是半价键原样返回。 */
+export function grokFullPricePlanKey(planKey: string) {
+  return isGrokHalfPlanKey(planKey) ? bareKey(planKey).slice(0, -GROK_HALF_SUFFIX.length) : planKey;
+}
+
+/** 正价 Grok 档位对应的半价键；这一档没有首月优惠时返回空串。 */
+export function grokHalfPlanKey(planKey: string) {
+  const key = bareKey(planKey);
+  return GROK_HALF_BASES.has(key) ? `${key}${GROK_HALF_SUFFIX}` : "";
+}
+
+export const GROK_HALF_LABEL = "（首月半价）";
+
+/** 半价档位的展示名补上「（首月半价）」；管理员改过名、已经带了就不动。 */
+export function halfPlanDisplayName(planKey: string | null | undefined, name: string) {
+  const text = name.trim();
+  if (!isGrokHalfPlanKey(planKey) || !text || text.includes("首月半价")) return text;
+  return `${text}${GROK_HALF_LABEL}`;
+}
+
+/**
+ * 后台列表上把「（首月半价）」从名字里拿出来，改成单独的标签。
+ * 有档位键就按键判断；只有名字（订单、提卡单的名字快照）就看名字结尾。
+ */
+export function splitHalfPlanName(name: string, planKey?: string | null) {
+  const text = name.trim();
+  const tagged = text.endsWith(GROK_HALF_LABEL);
+  return {
+    name: tagged ? text.slice(0, -GROK_HALF_LABEL.length).trim() : text,
+    half: tagged || isGrokHalfPlanKey(planKey),
+  };
+}
+
+/**
+ * 同步 Grok 目录时，给每个有首月优惠的月付档位生成一行半价档位：发码用正价键，可售状态跟正价行。
+ * 排在正价行后面（同 sort_order，键排序靠后）。
+ */
+export function withGrokHalfPlans<
+  T extends { key: string; upstreamKey: string; name: string; raw: unknown },
+>(plans: T[]): T[] {
+  return plans.flatMap((plan) => {
+    const half = grokHalfPlanKey(plan.key);
+    if (!half) return [plan];
+    return [
+      plan,
+      {
+        ...plan,
+        key: half,
+        name: halfPlanDisplayName(half, plan.name),
+        raw: { ...(plan.raw && typeof plan.raw === "object" ? plan.raw : {}), half_of: plan.key },
+      },
+    ];
+  });
 }
 
 /**
@@ -139,12 +209,16 @@ export function localPlanKey(product: CardProduct, bare: string) {
 
 /**
  * 本站 plan_key → 发给卡台 POST /gpt-direct/cdks 的 plan。
- * X 发裸键（卡台按 payment_country 区分），Grok 必须带 grok_ 前缀，GPT 原样。
+ * X 发裸键（卡台按 payment_country 区分），Grok 必须带 grok_ 前缀、半价键换回正价键，GPT 原样。
  */
 export function upstreamIssuePlanKey(product: CardProduct, planKey: string) {
   const key = bareKey(planKey);
   if (product === "x") return key.replace(/^x_/, "");
-  if (product === "grok") return key.startsWith("grok_") ? key : `grok_${key}`;
+  if (product === "grok") {
+    // 半价档位卡台没有，按正价键发码。
+    const full = grokFullPricePlanKey(key);
+    return full.startsWith("grok_") ? full : `grok_${full}`;
+  }
   return planKey.trim();
 }
 

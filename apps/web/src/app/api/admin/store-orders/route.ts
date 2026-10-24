@@ -74,6 +74,7 @@ export async function GET(req: Request) {
       agentSettlementName: agents.settlementName,
       agentUsername: users.username,
       productName: storeOrders.productNameSnapshot,
+      planKey: storeOrders.planKeySnapshot,
       quantity: storeOrders.quantity,
       retailPriceCents: storeOrders.retailPriceCents,
       agentCostCents: storeOrders.agentCostCents,

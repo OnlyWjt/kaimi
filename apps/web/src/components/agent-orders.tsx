@@ -1,5 +1,6 @@
 "use client";
 
+import { PlanLabel } from "@/components/plan-label";
 import { FormEvent, useEffect, useState } from "react";
 import { toast } from "@/components/toast";
 import { type AgentOrderTone, type AgentOrderView } from "@/lib/agent-orders-core";
@@ -11,6 +12,7 @@ import { hasNextPage, pageLabel } from "@/lib/pagination-core";
 type AgentOrder = {
   orderNo: string;
   productName: string;
+  planKey?: string;
   quantity: number;
   customerEmail: string;
   amountCents: number;
@@ -180,7 +182,7 @@ export function AgentOrders() {
                   <tr key={order.orderNo} className={settled ? "is-muted" : undefined}>
                     <td className="c-prod">
                       <span className="product">
-                        {order.productName}
+                        <PlanLabel name={order.productName} planKey={order.planKey} />
                         {order.quantity > 1 ? <span className="qty">×{order.quantity}</span> : null}
                       </span>
                       <span className="email" title={order.customerEmail}>

@@ -1,7 +1,9 @@
 import { and, desc, eq, inArray, isNull, like, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { agents, issuedCdks, orders, storeOrders, users } from "@/db/schema";
+import { agents, issuedCdks, orders, platformPlans, storeOrders, users } from "@/db/schema";
 import { agentIdentityLabel } from "@/lib/agent-identity-core";
+import { halfPlanDisplayName } from "@/lib/cardplatform/product";
+import { planNameWithRegion } from "@/lib/cardplatform/regions";
 import { decryptSecret, hashLookupValue, maskCode } from "@/lib/crypto";
 import { FINISHED_GPT_PLAN_KEY } from "@/lib/finished-account-core";
 import { poolCodesByOrderIds } from "@/lib/inventory";
@@ -14,6 +16,8 @@ export type AdminOrderListRow = {
   email: string;
   codeMasked: string;
   upstreamPlan: string;
+  /** 本站档位键：商城单是下单快照，兑换单是卡密上的键。列表据此标「首月半价」。 */
+  planKey: string;
   payStatus: string;
   fulfillStatus: string;
   productKind: "finished" | "cdk" | "redeem";
@@ -160,6 +164,7 @@ async function loadStoreOrderRows(input: {
       email: row.email,
       codeMasked: preview.get(row.id) || "",
       upstreamPlan: row.productName,
+      planKey: row.planKey,
       payStatus: row.payStatus,
       fulfillStatus: row.fulfillStatus,
       productKind: finished ? "finished" as const : "cdk" as const,
@@ -217,7 +222,9 @@ async function loadRedeemRows(input: {
     kind: row.kind,
     email: row.email || row.accountEmail || "",
     codeMasked: row.codeMasked,
-    upstreamPlan: row.upstreamPlan || "",
+    // 兑换单上记的是档位键，列表和导出显示套餐名；套餐表里没有（别处的卡）才退回键。
+    upstreamPlan: row.planName || row.upstreamPlan || "",
+    planKey: row.upstreamPlan || "",
     payStatus: row.payStatus,
     fulfillStatus: row.fulfillStatus,
     productKind: "redeem" as const,
@@ -256,6 +263,28 @@ async function decorateAdminOrders(list: Array<typeof orders.$inferSelect>) {
         .leftJoin(users, eq(users.agentId, agents.id))
         .where(inArray(agents.id, agentIds))
     : [];
+  const planKeys = [...new Set(list.map((row) => row.upstreamPlan || "").filter(Boolean))];
+  const planRows = planKeys.length
+    ? await db
+        .select({
+          planKey: platformPlans.planKey,
+          name: platformPlans.name,
+          regionCapable: platformPlans.regionCapable,
+          paymentCountry: platformPlans.paymentCountry,
+          regionLabel: platformPlans.regionLabel,
+        })
+        .from(platformPlans)
+        .where(inArray(platformPlans.planKey, planKeys))
+    : [];
+  const planName = new Map(
+    planRows.map((plan) => [
+      plan.planKey,
+      halfPlanDisplayName(
+        plan.planKey,
+        planNameWithRegion(plan.name, plan.regionCapable, plan.paymentCountry, plan.regionLabel),
+      ),
+    ]),
+  );
   const poolRows = await poolCodesByOrderIds(list.map((row) => row.id));
   const codeByIssued = new Map<number, string>();
   for (const row of issuedRows) {
@@ -279,6 +308,7 @@ async function decorateAdminOrders(list: Array<typeof orders.$inferSelect>) {
       codeLast4: raw ? raw.slice(-4) : row.codeLast4,
       storeOrderNo: row.storeOrderId ? storeNo.get(row.storeOrderId) || "" : "",
       agentLabel: row.agentId ? agentLabel.get(row.agentId) || "" : "",
+      planName: (row.upstreamPlan && planName.get(row.upstreamPlan)) || "",
     };
   });
 }
