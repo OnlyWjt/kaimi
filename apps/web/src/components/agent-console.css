@@ -1516,9 +1516,12 @@ button.km-acp-row {
     top: 0;
     bottom: 0;
     left: 0;
+    /* 桌面那条 align-self: start 会让新版浏览器把 fixed 抽屉按内容撑高、伸出屏幕，下半截滑不到 */
+    align-self: stretch;
     width: min(18rem, 86vw);
     overflow-y: auto;
-    padding: 1rem 0.9rem 1.5rem;
+    overscroll-behavior: contain;
+    padding: 1rem 0.9rem calc(1.5rem + env(safe-area-inset-bottom));
     border-right: 1px solid var(--km-border);
     background: var(--km-bg);
     transform: translateX(-102%);
