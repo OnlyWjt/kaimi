@@ -618,6 +618,11 @@ button.km-acp-row {
   text-decoration: none;
 }
 
+/* 作废这类不可撤回的操作：红字链接，不做成按钮，免得一列全是按钮 */
+.km-acp-link.is-danger {
+  color: var(--km-danger);
+}
+
 .km-acp-coupons {
   display: grid;
   gap: 0.75rem;

@@ -251,6 +251,12 @@ export async function listUnsettledDrawItems(
       planName: agentDrawOrders.planNameSnapshot,
       manualUsedAt: agentDrawItems.manualUsedAt,
       upstreamRef: issuedCdks.upstreamRef,
+      inBatch: sql<number>`EXISTS (
+        SELECT 1 FROM agent_reconciliation_claims
+        WHERE agent_reconciliation_claims.source_type = 'draw_item'
+          AND agent_reconciliation_claims.source_id = ${agentDrawItems.id}
+          AND agent_reconciliation_claims.claim_state = 'active'
+      )`,
     })
     .from(agentDrawItems)
     .innerJoin(issuedCdks, eq(issuedCdks.id, agentDrawItems.issuedCdkId))
@@ -277,6 +283,9 @@ export async function listUnsettledDrawItems(
         manualUsedAt: row.manualUsedAt || "",
         codeMasked: masked.codeMasked,
         finished: isFinishedRef(row.upstreamRef),
+        /** 代理能不能自己作废：未使用、不是成品号、不在对账里 */
+        voidable:
+          row.cdkStatus === "unused" && !row.manualUsedAt && !isFinishedRef(row.upstreamRef) && !Number(row.inBatch),
       };
     }),
     codesUnavailable,
@@ -1462,10 +1471,14 @@ export async function listAgentUnsettledItems(
   agentId: number,
   pageInput?: { page?: unknown; pageSize?: unknown },
 ) {
-  const result = await listUnsettledDrawItems(agentId, pageInput);
+  const [result, voidedToday] = await Promise.all([
+    listUnsettledDrawItems(agentId, pageInput),
+    agentVoidsToday(agentId),
+  ]);
   return {
     ...result,
     items: result.items.map(({ upstreamCostCents: _cost, ...row }) => row),
+    voidQuota: { used: voidedToday, limit: AGENT_DAILY_VOID_LIMIT },
   };
 }
 
@@ -1684,6 +1697,154 @@ async function refundDrawCardUpstream(cdk: {
   }
 }
 
+/** 把一张提卡的卡记成作废：不再计费、卡密停用。卡台那边要先处理好再调这里。 */
+async function markDrawItemVoid(input: {
+  itemId: number;
+  issuedCdkId: number;
+  finishedId: number | null;
+  reason: string;
+  actor: Actor;
+  /** 代理自己作废时只能动自己的卡 */
+  agentId?: number;
+}) {
+  const now = nowIso();
+  await db.transaction(async (tx) => {
+    if (await drawItemInActiveBatch(tx, input.itemId)) throw new DrawError(DRAW_IN_BATCH_MESSAGE, 409);
+    const [updated] = await tx
+      .update(agentDrawItems)
+      .set({
+        status: "void",
+        voidReason: input.reason,
+        voidedAt: now,
+        voidedBy: input.actor.id,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(agentDrawItems.id, input.itemId),
+          eq(agentDrawItems.status, "unsettled"),
+          input.agentId ? eq(agentDrawItems.agentId, input.agentId) : undefined,
+          noActiveDrawClaim,
+        ),
+      )
+      .returning();
+    if (!updated) throw new DrawError("这张卡状态已变化，请刷新", 409);
+    if (input.finishedId != null) {
+      await tx
+        .update(issuedCdks)
+        .set({ status: "disabled", updatedAt: now })
+        .where(eq(issuedCdks.id, input.issuedCdkId));
+      await tx
+        .update(finishedAccounts)
+        .set({ status: "disabled", updatedAt: now })
+        .where(and(eq(finishedAccounts.id, input.finishedId), eq(finishedAccounts.status, "sold")));
+      return;
+    }
+    await tx
+      .update(issuedCdks)
+      .set({ status: "disabled", updatedAt: now })
+      .where(and(eq(issuedCdks.id, input.issuedCdkId), eq(issuedCdks.status, "unused")));
+  });
+}
+
+/**
+ * 卡台上的卡已经删了退款，本地却没能记上作废（中间进了对账批次、状态被改了）。
+ * 不补的话代理要为一张已删的卡付钱：记审计让管理员到提卡账本「只在本系统作废」补上。
+ */
+async function recordOrphanedVoid(itemId: number, agentId: number | null, actor: Actor, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error("[agent-draw] 卡台已删卡，本地没记上作废", { itemId, agentId, message });
+  await writeAuditLog({
+    actor,
+    action: "draw.item.void_orphaned",
+    targetType: "agent_draw_item",
+    targetId: itemId,
+    metadata: { agentId, error: message },
+  }).catch(() => null);
+}
+
+/** 代理每天最多自助作废几张；超出要找平台。 */
+export const AGENT_DAILY_VOID_LIMIT = 20;
+const AGENT_VOID_FAILED = "作废失败，请稍后再试或联系平台";
+
+/** 代理今天（北京时间）自己作废了几张。管理员替他作废的不算。 */
+export async function agentVoidsToday(agentId: number) {
+  const [{ count }] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(agentDrawItems)
+    .where(
+      and(
+        eq(agentDrawItems.agentId, agentId),
+        eq(agentDrawItems.status, "void"),
+        gte(agentDrawItems.voidedAt, beijingDayStartIso(new Date())),
+        sql`${agentDrawItems.voidedBy} IN (SELECT id FROM users WHERE agent_id = ${agentId})`,
+      ),
+    );
+  return Number(count) || 0;
+}
+
+/**
+ * 代理自己作废一张提的卡：只限未结算、未使用、不在对账里的卡密，成品号不行。
+ * 先在卡台删卡退款，成功了再记作废、不再计费；卡台失败本地一分不动。
+ * 给代理看的话不提卡台。
+ */
+export async function agentVoidDrawItem(
+  input: { itemId: number; reason: string },
+  actor: Actor,
+  agentId: number,
+) {
+  const reason = input.reason.trim();
+  if (!reason) throw new DrawError("请填写作废原因");
+  if (reason.length > 100) throw new DrawError("作废原因最多 100 字");
+  const [row] = await db
+    .select({
+      id: agentDrawItems.id,
+      status: agentDrawItems.status,
+      issuedCdkId: agentDrawItems.issuedCdkId,
+      amountCents: agentDrawItems.amountCents,
+      cdkStatus: issuedCdks.status,
+      cardplatformAccountId: issuedCdks.cardplatformAccountId,
+      upstreamRef: issuedCdks.upstreamRef,
+      manualUsedAt: agentDrawItems.manualUsedAt,
+    })
+    .from(agentDrawItems)
+    .innerJoin(issuedCdks, eq(issuedCdks.id, agentDrawItems.issuedCdkId))
+    .where(and(eq(agentDrawItems.id, input.itemId), eq(agentDrawItems.agentId, agentId)))
+    .limit(1);
+  if (!row) throw new DrawError("卡密不存在", 404);
+  if (row.status === "void") throw new DrawError("这张卡已经作废了");
+  if (row.status !== "unsettled") throw new DrawError("这张卡已经结算，不能自助作废，请联系平台");
+  if (finishedAccountIdFromRef(row.upstreamRef) != null) throw new DrawError("成品号不能作废");
+  if (row.cdkStatus !== "unused" || row.manualUsedAt) throw new DrawError("只有未使用的卡密可以作废");
+  if (await drawItemInActiveBatch(db, row.id)) {
+    throw new DrawError("这张卡正在和平台对账，暂时不能作废，请联系平台", 409);
+  }
+  if ((await agentVoidsToday(agentId)) >= AGENT_DAILY_VOID_LIMIT) {
+    throw new DrawError(`今天已经作废 ${AGENT_DAILY_VOID_LIMIT} 张，达到每日上限。还要作废请联系平台`, 429);
+  }
+  try {
+    await refundDrawCardUpstream(row);
+  } catch (error) {
+    // 原因（卡台报错、缺卡台引用）只进服务端日志，代理那边统一一句
+    console.error("[agent-draw] 代理作废时卡台删卡失败", { itemId: row.id, agentId, error });
+    throw new DrawError(AGENT_VOID_FAILED, 502);
+  }
+  try {
+    await markDrawItemVoid({ itemId: row.id, issuedCdkId: row.issuedCdkId, finishedId: null, reason, actor, agentId });
+  } catch (error) {
+    await recordOrphanedVoid(row.id, agentId, actor, error);
+    throw new DrawError("作废没有完成，请联系平台处理", 409);
+  }
+  await writeAuditLog({
+    actor,
+    action: "agent.draw.item.void",
+    targetType: "agent_draw_item",
+    targetId: row.id,
+    metadata: { agentId, reason, amountCents: row.amountCents },
+  });
+  return { amountCents: row.amountCents };
+}
+
 export async function voidDrawItem(
   input: { itemId: number; mode: "upstream" | "local"; reason: string },
   actor: Actor,
@@ -1717,38 +1878,18 @@ export async function voidDrawItem(
   }
   // 先查对账占用，再碰外部卡台；写入时再用 NOT EXISTS 条件兜底。
   if (await drawItemInActiveBatch(db, row.id)) throw new DrawError(DRAW_IN_BATCH_MESSAGE, 409);
-  if (input.mode === "upstream" && row.cdkStatus === "unused") await refundDrawCardUpstream(row);
-  const now = nowIso();
-  await db.transaction(async (tx) => {
-    if (await drawItemInActiveBatch(tx, row.id)) throw new DrawError(DRAW_IN_BATCH_MESSAGE, 409);
-    const [updated] = await tx
-      .update(agentDrawItems)
-      .set({
-        status: "void",
-        voidReason: reason,
-        voidedAt: now,
-        voidedBy: actor.id,
-        updatedAt: now,
-      })
-      .where(and(eq(agentDrawItems.id, row.id), eq(agentDrawItems.status, "unsettled"), noActiveDrawClaim))
-      .returning();
-    if (!updated) throw new DrawError("这张卡状态已变化，请刷新", 409);
-    if (finishedId != null) {
-      await tx
-        .update(issuedCdks)
-        .set({ status: "disabled", updatedAt: now })
-        .where(eq(issuedCdks.id, row.issuedCdkId));
-      await tx
-        .update(finishedAccounts)
-        .set({ status: "disabled", updatedAt: now })
-        .where(and(eq(finishedAccounts.id, finishedId), eq(finishedAccounts.status, "sold")));
-      return;
-    }
-    await tx
-      .update(issuedCdks)
-      .set({ status: "disabled", updatedAt: now })
-      .where(and(eq(issuedCdks.id, row.issuedCdkId), eq(issuedCdks.status, "unused")));
-  });
+  const upstreamDone = input.mode === "upstream" && row.cdkStatus === "unused";
+  if (upstreamDone) await refundDrawCardUpstream(row);
+  try {
+    await markDrawItemVoid({ itemId: row.id, issuedCdkId: row.issuedCdkId, finishedId, reason, actor });
+  } catch (error) {
+    if (!upstreamDone) throw error;
+    await recordOrphanedVoid(row.id, row.agentId, actor, error);
+    throw new DrawError(
+      `卡台上的卡已经删了，但本地没能记上作废（${error instanceof Error ? error.message : "未知原因"}）。处理好对账批次后选「只在本系统作废」补上`,
+      409,
+    );
+  }
   await writeAuditLog({
     actor,
     action: "admin.draw.item.void",

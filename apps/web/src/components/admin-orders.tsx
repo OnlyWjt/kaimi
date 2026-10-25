@@ -3,6 +3,7 @@
 import { PlanLabel } from "@/components/plan-label";
 import { Fragment, useEffect, useState } from "react";
 import { loadAdminSection, postAdminAction } from "@/components/admin-api";
+import { AdminDrawOrderDetail } from "@/components/admin-draw-lookup";
 import { AdminOrderTimeline } from "@/components/admin-order-timeline";
 import { AdminStoreOrders } from "@/components/admin-store-orders";
 import { STATUS_LABEL, StatusBadge, formatWhen, kindLabel, progressLabel } from "@/components/admin-ui";
@@ -10,12 +11,13 @@ import { KmSelect } from "@/components/km-select";
 import { StoreOrderDetail } from "@/components/store-order-detail";
 import { toast } from "@/components/toast";
 
-export type AdminOrderKind = "" | "store" | "redeem";
+export type AdminOrderKind = "" | "store" | "redeem" | "draw";
 
 const KIND_TABS = [
   ["", "全部"],
   ["store", "店铺订单"],
   ["redeem", "兑换记录"],
+  ["draw", "提卡单"],
 ] as const;
 
 const STATUS_FILTERS = [
@@ -37,7 +39,7 @@ const STATUS_FILTERS = [
 type OrdersPage = { list?: Array<Record<string, unknown>>; page?: { next_cursor?: string } };
 
 /**
- * 「日常 › 订单」。全部 / 兑换记录是只读的合并列表；店铺订单切到 AdminStoreOrders，
+ * 「日常 › 订单」。全部 / 兑换记录 / 提卡单是只读的合并列表；店铺订单切到 AdminStoreOrders，
  * 补发、退款这些操作只在那里。kind 由外壳控制，这样总览能直接跳到店铺订单。
  */
 export function AdminOrders({
@@ -114,7 +116,7 @@ export function AdminOrders({
           <div className="km-toolbar">
             <input
               className="km-input max-w-xs"
-              placeholder="订单号 / 邮箱 / 卡密后四位"
+              placeholder={kind === "draw" ? "提卡单号 / 代理 / 套餐" : "订单号 / 邮箱 / 卡密后四位"}
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => {
@@ -131,33 +133,40 @@ export function AdminOrders({
               ]}
               onChange={setStatus}
             />
-            <label className="flex items-center gap-2 text-sm text-[var(--km-fg-muted)]">
-              <input type="checkbox" checked={includeHidden} onChange={(event) => setIncludeHidden(event.target.checked)} />
-              显示已隐藏
-            </label>
+            {/* 隐藏、轮询、修锁只对兑换单有用，提卡单页签不显示 */}
+            {kind !== "draw" ? (
+              <label className="flex items-center gap-2 text-sm text-[var(--km-fg-muted)]">
+                <input type="checkbox" checked={includeHidden} onChange={(event) => setIncludeHidden(event.target.checked)} />
+                显示已隐藏
+              </label>
+            ) : null}
             <button className="km-btn" onClick={() => void reload()}>
               筛选
             </button>
-            <button
-              className="km-btn km-btn-ghost"
-              disabled={busy}
-              onClick={async () => {
-                await act({ action: "poll_inflight" });
-                await reload();
-              }}
-            >
-              轮询进行中
-            </button>
-            <button
-              className="km-btn km-btn-ghost"
-              disabled={busy}
-              onClick={async () => {
-                const data = await act({ action: "reconcile_locks" });
-                if (data?.ok) toast(`已修复锁：释放 ${data.released ?? 0}，核销 ${data.used ?? 0}`);
-              }}
-            >
-              修复卡住的锁
-            </button>
+            {kind !== "draw" ? (
+              <>
+                <button
+                  className="km-btn km-btn-ghost"
+                  disabled={busy}
+                  onClick={async () => {
+                    await act({ action: "poll_inflight" });
+                    await reload();
+                  }}
+                >
+                  轮询进行中
+                </button>
+                <button
+                  className="km-btn km-btn-ghost"
+                  disabled={busy}
+                  onClick={async () => {
+                    const data = await act({ action: "reconcile_locks" });
+                    if (data?.ok) toast(`已修复锁：释放 ${data.released ?? 0}，核销 ${data.used ?? 0}`);
+                  }}
+                >
+                  修复卡住的锁
+                </button>
+              </>
+            ) : null}
             <a className="km-btn km-btn-ghost" href={`/api/admin/orders?export=csv&${query()}`}>
               导出 CSV
             </a>
@@ -195,6 +204,7 @@ export function AdminOrders({
                   const message = o.message ? String(o.message) : "";
                   const expanded = expandedNo === orderNo;
                   const storeRow = o.rowKind === "store";
+                  const drawRow = o.rowKind === "draw";
                   return (
                     <Fragment key={`${o.rowKind || "redeem"}-${o.id}`}>
                       <tr>
@@ -219,7 +229,11 @@ export function AdminOrders({
                           <PlanLabel name={plan} planKey={String(o.planKey || "")} />
                         </td>
                         <td>
-                          {o.kind === "recharge" && o.payStatus === "manual" ? (
+                          {drawRow ? (
+                            <span className="km-badge" title="代理先提卡后结账，在「代理 › 提卡账本」里结算">
+                              记账
+                            </span>
+                          ) : o.kind === "recharge" && o.payStatus === "manual" ? (
                             <span className="km-badge" title="买家拿卡密直接来兑换，不是在店铺下的单">
                               直接兑换
                             </span>
@@ -256,7 +270,13 @@ export function AdminOrders({
                       {expanded ? (
                         <tr>
                           <td colSpan={8}>
-                            {storeRow ? <StoreOrderDetail orderNo={orderNo} /> : <AdminOrderTimeline orderNo={orderNo} />}
+                            {storeRow ? (
+                              <StoreOrderDetail orderNo={orderNo} />
+                            ) : drawRow ? (
+                              <AdminDrawOrderDetail drawNo={orderNo} />
+                            ) : (
+                              <AdminOrderTimeline orderNo={orderNo} />
+                            )}
                           </td>
                         </tr>
                       ) : null}

@@ -41,6 +41,7 @@ export function kindLabel(kind: unknown) {
   const key = String(kind || "");
   if (key === "finished") return "成品号";
   if (key === "cdk") return "卡密";
+  if (key === "draw") return "提卡";
   return KIND_LABEL[key] || key || "—";
 }
 

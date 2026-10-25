@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, isNull, like, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { agents, issuedCdks, orders, platformPlans, storeOrders, users } from "@/db/schema";
+import { agentDrawOrders, agents, issuedCdks, orders, platformPlans, storeOrders, users } from "@/db/schema";
 import { agentIdentityLabel } from "@/lib/agent-identity-core";
 import { halfPlanDisplayName } from "@/lib/cardplatform/product";
 import { planNameWithRegion } from "@/lib/cardplatform/regions";
@@ -10,7 +10,8 @@ import { poolCodesByOrderIds } from "@/lib/inventory";
 
 export type AdminOrderListRow = {
   id: number;
-  rowKind: "store" | "redeem";
+  /** store = 店铺订单，redeem = 拿卡密来兑换的单，draw = 代理自助提卡单 */
+  rowKind: "store" | "redeem" | "draw";
   orderNo: string;
   kind: string;
   email: string;
@@ -20,7 +21,7 @@ export type AdminOrderListRow = {
   planKey: string;
   payStatus: string;
   fulfillStatus: string;
-  productKind: "finished" | "cdk" | "redeem";
+  productKind: "finished" | "cdk" | "redeem" | "draw";
   createdAt: string;
   agentLabel: string;
   message: string;
@@ -35,7 +36,7 @@ function cursorOf(row: { createdAt: string; rowKind: string; id: number }) {
 function parseCursor(raw: string) {
   const [at, kind, idRaw] = raw.split("|");
   const id = Number(idRaw);
-  if (!at || (kind !== "store" && kind !== "redeem") || !Number.isSafeInteger(id)) return null;
+  if (!at || (kind !== "store" && kind !== "redeem" && kind !== "draw") || !Number.isSafeInteger(id)) return null;
   return { at, kind, id };
 }
 
@@ -58,13 +59,15 @@ export async function queryAdminOrders(searchParams: URLSearchParams) {
   const cursor = parseCursor(searchParams.get("cursor") || "");
   const csv = searchParams.get("export") === "csv";
   const limit = csv ? CSV_LIMIT : PAGE_SIZE;
-  // store = 店铺订单，redeem = 买家拿卡密来兑换的单；不传两种都要
+  // store = 店铺订单，redeem = 买家拿卡密来兑换的单，draw = 代理自助提卡单；不传三种都要
   const kind = searchParams.get("kind") || "";
-  const [storeRows, redeemRows] = await Promise.all([
-    kind === "redeem" ? Promise.resolve([]) : loadStoreOrderRows({ status, q, cursor, limit }),
-    kind === "store" ? Promise.resolve([]) : loadRedeemRows({ status, q, includeHidden, cursor, limit }),
+  const wants = (rowKind: string) => !kind || kind === rowKind;
+  const [storeRows, redeemRows, drawRows] = await Promise.all([
+    wants("store") ? loadStoreOrderRows({ status, q, cursor, limit }) : Promise.resolve([]),
+    wants("redeem") ? loadRedeemRows({ status, q, includeHidden, cursor, limit }) : Promise.resolve([]),
+    wants("draw") ? loadDrawRows({ status, q, cursor, limit }) : Promise.resolve([]),
   ]);
-  const merged = [...storeRows, ...redeemRows].sort((a, b) => {
+  const merged = [...storeRows, ...redeemRows, ...drawRows].sort((a, b) => {
     if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
     if (a.rowKind !== b.rowKind) return a.rowKind < b.rowKind ? 1 : -1;
     return b.id - a.id;
@@ -85,7 +88,7 @@ export async function queryAdminOrders(searchParams: URLSearchParams) {
 function olderThan(
   createdAt: unknown,
   id: unknown,
-  kind: "store" | "redeem",
+  kind: "store" | "redeem" | "draw",
   cursor: { at: string; kind: string; id: number } | null,
 ) {
   if (!cursor) return undefined;
@@ -171,6 +174,91 @@ async function loadStoreOrderRows(input: {
       createdAt: row.createdAt,
       agentLabel: agentIdentityLabel(row),
       message: row.message || "",
+      upstreamRequestId: "",
+      storeOrderNo: "",
+    };
+  });
+}
+
+/** 提卡单的状态换成订单列表通用的状态名，筛选和标签都按这套。 */
+const DRAW_STATUS: Record<string, string> = {
+  issuing: "issuing",
+  delivered: "delivered",
+  partial: "partially_delivered",
+  failed: "failed",
+  unknown: "unknown",
+};
+
+/** 代理自助提卡单：先出卡后结账，没有买家和支付，结算在「提卡账本」。 */
+async function loadDrawRows(input: {
+  status: string;
+  q: string;
+  cursor: { at: string; kind: string; id: number } | null;
+  limit: number;
+}): Promise<AdminOrderListRow[]> {
+  const conditions = [];
+  const older = olderThan(agentDrawOrders.createdAt, agentDrawOrders.id, "draw", input.cursor);
+  if (older) conditions.push(older);
+  if (input.status) {
+    const raw = Object.keys(DRAW_STATUS).filter((key) => DRAW_STATUS[key] === input.status);
+    // 「已支付」「待支付」这类筛选提卡单没有对应状态
+    if (!raw.length) return [];
+    conditions.push(inArray(agentDrawOrders.status, raw));
+  }
+  if (input.q) {
+    const pattern = `%${input.q.replace(/[%_]/g, "")}%`;
+    const textMatch = or(
+      like(agentDrawOrders.drawNo, pattern),
+      like(agentDrawOrders.planNameSnapshot, pattern),
+      like(agents.displayName, pattern),
+      like(agents.shopName, pattern),
+    );
+    if (textMatch) conditions.push(textMatch);
+  }
+  const rows = await db
+    .select({
+      id: agentDrawOrders.id,
+      drawNo: agentDrawOrders.drawNo,
+      status: agentDrawOrders.status,
+      planKey: agentDrawOrders.planKeySnapshot,
+      planName: agentDrawOrders.planNameSnapshot,
+      quantity: agentDrawOrders.quantity,
+      issuedCount: agentDrawOrders.issuedCount,
+      unitPriceCents: agentDrawOrders.unitPriceCents,
+      fulfillmentKind: agentDrawOrders.fulfillmentKind,
+      message: agentDrawOrders.lastErrorMessage,
+      createdAt: agentDrawOrders.createdAt,
+      agentId: agents.id,
+      displayName: agents.displayName,
+      shopName: agents.shopName,
+      realName: agents.realName,
+      settlementName: agents.settlementName,
+      username: users.username,
+    })
+    .from(agentDrawOrders)
+    .innerJoin(agents, eq(agents.id, agentDrawOrders.agentId))
+    .leftJoin(users, eq(users.agentId, agents.id))
+    .where(conditions.length ? and(...conditions) : undefined)
+    .orderBy(desc(agentDrawOrders.createdAt), desc(agentDrawOrders.id))
+    .limit(input.limit);
+  return rows.map((row) => {
+    const unit = row.fulfillmentKind === "local_account" ? "个" : "张";
+    return {
+      id: row.id,
+      rowKind: "draw" as const,
+      orderNo: row.drawNo,
+      kind: "draw",
+      // 没有买家：这一栏写出卡数量和金额
+      email: `出卡 ${row.issuedCount}/${row.quantity} ${unit} · ¥${((row.unitPriceCents * row.issuedCount) / 100).toFixed(2)}`,
+      codeMasked: "",
+      upstreamPlan: row.planName || row.planKey,
+      planKey: row.planKey,
+      payStatus: "",
+      fulfillStatus: DRAW_STATUS[row.status] || row.status,
+      productKind: "draw" as const,
+      createdAt: row.createdAt,
+      agentLabel: agentIdentityLabel(row),
+      message: row.status === "delivered" ? "" : row.message || "",
       upstreamRequestId: "",
       storeOrderNo: "",
     };
@@ -334,7 +422,7 @@ export function adminOrdersCsv(list: AdminOrderListRow[]) {
       [
         row.orderNo,
         row.kind,
-        row.email,
+        row.rowKind === "draw" ? "" : row.email,
         row.upstreamPlan,
         row.payStatus,
         row.fulfillStatus,

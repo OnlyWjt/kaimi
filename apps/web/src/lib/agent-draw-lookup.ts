@@ -26,6 +26,8 @@ export type DrawLookupItem = {
   /** unsettled | settled | void */
   status: string;
   voidReason: string;
+  /** 代理自己作废的（不是管理员替他作废） */
+  voidedByAgent: boolean;
   /** 进了哪个对账批次 / 旧结算单，没有就是空串。 */
   settleRef: string;
   /** 对账批次还没结清。 */
@@ -110,12 +112,14 @@ export async function lookupDrawOrders(input: string): Promise<DrawLookupOrder[]
       status: agentDrawItems.status,
       billId: agentDrawItems.billId,
       voidReason: agentDrawItems.voidReason,
+      voidedByRole: users.role,
       manualUsedAt: agentDrawItems.manualUsedAt,
       codeEncrypted: issuedCdks.codeEncrypted,
       cdkStatus: issuedCdks.status,
     })
     .from(agentDrawItems)
     .innerJoin(issuedCdks, eq(issuedCdks.id, agentDrawItems.issuedCdkId))
+    .leftJoin(users, eq(users.id, agentDrawItems.voidedBy))
     .where(
       inArray(
         agentDrawItems.drawOrderId,
@@ -179,6 +183,7 @@ export async function lookupDrawOrders(input: string): Promise<DrawLookupOrder[]
           manualUsed: Boolean(item.manualUsedAt),
           status: item.status,
           voidReason: item.voidReason,
+          voidedByAgent: item.status === "void" && item.voidedByRole === "agent",
           settleRef: claim?.batchNo || billNo,
           settlePending: Boolean(claim) && !["paid", "cleared"].includes(claim?.batchStatus || ""),
         };

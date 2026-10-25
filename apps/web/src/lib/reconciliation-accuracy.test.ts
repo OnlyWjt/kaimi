@@ -131,15 +131,27 @@ describe("截止时间", () => {
 
 describe("提卡写入口与对账占用", () => {
   it("void / manualUse 在调用卡台前检查 active claim，事务内再用 NOT EXISTS 条件写", () => {
-    for (const signature of ["export async function voidDrawItem(", "export async function manualUseDrawItem("]) {
-      const body = fnBody(draw, signature);
-      const precheck = body.indexOf("drawItemInActiveBatch(db, row.id)");
-      const upstream = body.indexOf("refundDrawCardUpstream(row)");
-      const inTx = body.indexOf("drawItemInActiveBatch(tx, row.id)");
-      expect(precheck).toBeGreaterThan(-1);
-      expect(upstream).toBeGreaterThan(precheck);
-      expect(inTx).toBeGreaterThan(upstream);
-      expect(body).toContain("noActiveDrawClaim");
+    const body = fnBody(draw, "export async function manualUseDrawItem(");
+    const precheck = body.indexOf("drawItemInActiveBatch(db, row.id)");
+    const upstream = body.indexOf("refundDrawCardUpstream(row)");
+    const inTx = body.indexOf("drawItemInActiveBatch(tx, row.id)");
+    expect(precheck).toBeGreaterThan(-1);
+    expect(upstream).toBeGreaterThan(precheck);
+    expect(inTx).toBeGreaterThan(upstream);
+    expect(body).toContain("noActiveDrawClaim");
+
+    // 管理员作废和代理自助作废共用 markDrawItemVoid：先查占用、再碰卡台、最后进事务写
+    const mark = fnBody(draw, "async function markDrawItemVoid(");
+    expect(mark).toContain("drawItemInActiveBatch(tx, input.itemId)");
+    expect(mark).toContain("noActiveDrawClaim");
+    for (const signature of ["export async function voidDrawItem(", "export async function agentVoidDrawItem("]) {
+      const voidBody = fnBody(draw, signature);
+      const voidPrecheck = voidBody.indexOf("drawItemInActiveBatch(db, row.id)");
+      const voidUpstream = voidBody.indexOf("refundDrawCardUpstream(row)");
+      const write = voidBody.indexOf("markDrawItemVoid(");
+      expect(voidPrecheck).toBeGreaterThan(-1);
+      expect(voidUpstream).toBeGreaterThan(voidPrecheck);
+      expect(write).toBeGreaterThan(voidUpstream);
     }
   });
 

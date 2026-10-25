@@ -8,26 +8,32 @@ import { useAskDialog } from "@/components/ask-dialog";
 import { KmSelect } from "@/components/km-select";
 import { toast } from "@/components/toast";
 import { copyText } from "@/lib/copy-text";
+import { readApiJson } from "@/lib/http-error";
 
 const PAGE_SIZE = 20;
 
 type CdkPage = { list?: Array<Record<string, unknown>>; total?: number; page?: number };
 
-/** 「日常 › 卡密」：店铺卖出去的卡密，默认脱敏。 */
+/** 「日常 › 卡密」：店铺卖出去的和代理自助提的卡密，默认脱敏。 */
 export function AdminCdks() {
   const { ask, dialog } = useAskDialog();
   const [cdks, setCdks] = useState<Array<Record<string, unknown>>>([]);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
+  const [source, setSource] = useState("");
+  const [agentId, setAgentId] = useState("");
+  const [agents, setAgents] = useState<Array<{ id: number; displayName: string }>>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [revealed, setRevealed] = useState<Record<number, string>>({});
   const [copiedId, setCopiedId] = useState<number | null>(null);
 
-  async function load(nextPage = page, filters = { q, status }) {
+  async function load(nextPage = page, filters = { q, status, source, agentId }) {
     const qs = new URLSearchParams();
     if (filters.q) qs.set("q", filters.q);
     if (filters.status) qs.set("status", filters.status);
+    if (filters.source) qs.set("source", filters.source);
+    if (filters.agentId) qs.set("agentId", filters.agentId);
     qs.set("page", String(nextPage));
     qs.set("page_size", String(PAGE_SIZE));
     const data = await loadAdminSection<CdkPage>("stock", qs.toString());
@@ -35,6 +41,19 @@ export function AdminCdks() {
     setTotal(Number(data?.total) || 0);
     setPage(Number(data?.page) || nextPage);
   }
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const data = await readApiJson<{ list?: Array<{ id: number; displayName: string }> }>(
+          await fetch("/api/admin/agents", { cache: "no-store" }),
+        );
+        setAgents(data.list || []);
+      } catch {
+        /* 代理下拉只是筛选，拉不到就不显示选项 */
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     void load(1);
@@ -73,7 +92,7 @@ export function AdminCdks() {
       <div className="km-toolbar">
         <input
           className="km-input max-w-xs font-mono"
-          placeholder="订单号 / 完整卡密 / 套餐键"
+          placeholder="订单号 / 提卡单号 / 完整卡密"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
@@ -92,14 +111,41 @@ export function AdminCdks() {
           ]}
           onChange={(next) => {
             setStatus(next);
-            void load(1, { q, status: next });
+            void load(1, { q, status: next, source, agentId });
+          }}
+        />
+        <KmSelect
+          className="w-36"
+          value={source}
+          placeholder="全部来源"
+          options={[
+            { value: "", label: "全部来源" },
+            { value: "shop", label: "店铺售出" },
+            { value: "draw", label: "代理提卡" },
+          ]}
+          onChange={(next) => {
+            setSource(next);
+            void load(1, { q, status, source: next, agentId });
+          }}
+        />
+        <KmSelect
+          className="w-40"
+          value={agentId}
+          placeholder="全部代理"
+          options={[
+            { value: "", label: "全部代理" },
+            ...agents.map((agent) => ({ value: String(agent.id), label: agent.displayName })),
+          ]}
+          onChange={(next) => {
+            setAgentId(next);
+            void load(1, { q, status, source, agentId: next });
           }}
         />
         <button className="km-btn" onClick={() => void load(1)}>
           筛选
         </button>
         <span className="ml-auto text-xs text-[var(--km-fg-muted)]">
-          共 {total} 条店铺已售卡密 · 默认脱敏，点「显示」后再复制
+          共 {total} 张 · 默认脱敏，点「显示」后再复制
         </span>
       </div>
 
@@ -118,7 +164,7 @@ export function AdminCdks() {
             <tr>
               <th>卡密</th>
               <th>商品</th>
-              <th>订单 / 买家</th>
+              <th>订单 / 来源</th>
               <th>代理</th>
               <th>状态</th>
               <th>更新</th>
@@ -133,8 +179,10 @@ export function AdminCdks() {
               const display = code || String(c.codeMasked || "");
               const planKey = String(c.planKey || "");
               const productName = String(c.productName || "") || planKey || "—";
-              const canVoid = rowStatus !== "used" && rowStatus !== "disabled" && rowStatus !== "locked";
-              const canDisable = rowStatus === "unused" || rowStatus === "sold";
+              // 提卡的卡在提卡账本里作废 / 核销，那边会同步卡台和代理的账，这里不给按钮
+              const drawn = c.source === "draw";
+              const canVoid = !drawn && rowStatus !== "used" && rowStatus !== "disabled" && rowStatus !== "locked";
+              const canDisable = !drawn && (rowStatus === "unused" || rowStatus === "sold");
               return (
                 <tr key={String(c.id)}>
                   <td>
@@ -165,7 +213,11 @@ export function AdminCdks() {
                     <p className="km-clip font-mono text-xs" title={String(c.orderNo || "")}>
                       {String(c.orderNo || "—")}
                     </p>
-                    {c.customerEmail ? (
+                    {drawn ? (
+                      <p className="text-xs text-[var(--km-fg-muted)]">
+                        <span className="km-badge">代理提卡</span>
+                      </p>
+                    ) : c.customerEmail ? (
                       <p className="km-clip text-xs text-[var(--km-fg-muted)]" title={String(c.customerEmail)}>
                         {String(c.customerEmail)}
                       </p>
@@ -195,7 +247,7 @@ export function AdminCdks() {
                           禁用
                         </button>
                       ) : null}
-                      {rowStatus === "disabled" ? (
+                      {rowStatus === "disabled" && !drawn ? (
                         <button
                           className="km-btn km-btn-ghost km-btn-sm text-[var(--km-success)]"
                           onClick={() => void op("enable_cdk", id)}
@@ -203,8 +255,13 @@ export function AdminCdks() {
                           启用
                         </button>
                       ) : null}
-                      {!canVoid && !canDisable && rowStatus !== "disabled" ? (
-                        <span className="text-xs text-[var(--km-fg-muted)]">—</span>
+                      {rowStatus === "disabled" && !drawn ? null : !canVoid && !canDisable ? (
+                        <span
+                          className="text-xs text-[var(--km-fg-muted)]"
+                          title={drawn ? "作废、手动核销请到「代理 › 提卡账本」" : undefined}
+                        >
+                          {drawn ? "提卡账本处理" : "—"}
+                        </span>
                       ) : null}
                     </div>
                   </td>
@@ -214,7 +271,7 @@ export function AdminCdks() {
           </tbody>
         </table>
       </div>
-      {!cdks.length ? <p className="py-8 text-center text-[var(--km-fg-muted)]">还没有店铺售出的卡密</p> : null}
+      {!cdks.length ? <p className="py-8 text-center text-[var(--km-fg-muted)]">还没有卖出或提走的卡密</p> : null}
 
       {total > 0 ? (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--km-border)] pt-3">

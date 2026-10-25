@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { and, desc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, like, ne, or, sql } from "drizzle-orm";
 import { isThemeId } from "@kaimi/themes";
 import { db } from "@/db";
-import { agents, issuedCdks, orders, storefronts, storeOrders, users } from "@/db/schema";
+import { agentDrawOrders, agents, issuedCdks, orders, storefronts, storeOrders, users } from "@/db/schema";
 import { agentIdentityLabel } from "@/lib/agent-identity-core";
 import { beijingDayStartIso } from "@/lib/agent-draw-core";
 import { ATTENTION_FULFILL_STATUSES } from "@/lib/agent-orders-core";
@@ -50,6 +50,9 @@ async function guard() {
     throw res;
   }
 }
+
+/** 提卡的卡要在提卡账本里处理：作废会删卡台上的卡并且不再向代理收钱，这里只改本地状态，账就对不上了。 */
+const DRAW_CDK_ELSEWHERE = "这张是代理自助提的卡，请到「代理 › 提卡账本」里作废或手动核销";
 
 async function mutateIssuedCdk(
   id: number,
@@ -195,25 +198,39 @@ export async function GET(req: Request) {
   if (section === "stock" || section === "cdks") {
     const status = searchParams.get("status") || "";
     const q = searchParams.get("q")?.trim() || "";
+    // shop = 店铺卖出的，draw = 代理自助提的；不传两种都要
+    const source = searchParams.get("source") || "";
+    const agentFilter = Number(searchParams.get("agentId") || 0);
     const page = Math.max(1, Number(searchParams.get("page") || "1") || 1);
     const pageSize = Math.min(100, Math.max(1, Number(searchParams.get("page_size") || "20") || 20));
-    const conditions = [ne(issuedCdks.cardplatformAccountId, 0)];
+    // 成品号（卡台账户 0）不是卡密，不在这里。提卡的卡没有店铺订单，挂在提卡单上。
+    const conditions = [
+      ne(issuedCdks.cardplatformAccountId, 0),
+      source === "shop"
+        ? isNotNull(storeOrders.id)
+        : source === "draw"
+          ? isNotNull(agentDrawOrders.id)
+          : or(isNotNull(storeOrders.id), isNotNull(agentDrawOrders.id)),
+    ];
     if (status) conditions.push(eq(issuedCdks.status, status));
+    if (Number.isSafeInteger(agentFilter) && agentFilter > 0) conditions.push(eq(issuedCdks.agentId, agentFilter));
     if (q) {
       const textMatch = or(
         like(storeOrders.orderNo, `%${q}%`),
+        like(agentDrawOrders.drawNo, `%${q}%`),
         like(issuedCdks.planKey, `%${q}%`),
         like(issuedCdks.codePrefix, `%${q}%`),
         eq(issuedCdks.codeHash, hashLookupValue(q.toUpperCase())),
       );
       if (textMatch) conditions.push(textMatch);
     }
-    const where = conditions.length ? and(...conditions) : undefined;
+    const where = and(...conditions);
 
     const [{ total }] = await db
       .select({ total: sql<number>`count(*)` })
       .from(issuedCdks)
-      .innerJoin(storeOrders, eq(storeOrders.id, issuedCdks.orderId))
+      .leftJoin(storeOrders, eq(storeOrders.id, issuedCdks.orderId))
+      .leftJoin(agentDrawOrders, eq(agentDrawOrders.id, issuedCdks.drawOrderId))
       .where(where);
 
     const list = await db
@@ -226,13 +243,16 @@ export async function GET(req: Request) {
         orderNo: storeOrders.orderNo,
         productName: storeOrders.productNameSnapshot,
         customerEmail: storeOrders.customerEmail,
+        drawNo: agentDrawOrders.drawNo,
+        drawPlanName: agentDrawOrders.planNameSnapshot,
         agentName: agents.displayName,
         issuedAt: issuedCdks.issuedAt,
         usedAt: issuedCdks.usedAt,
         updatedAt: issuedCdks.updatedAt,
       })
       .from(issuedCdks)
-      .innerJoin(storeOrders, eq(storeOrders.id, issuedCdks.orderId))
+      .leftJoin(storeOrders, eq(storeOrders.id, issuedCdks.orderId))
+      .leftJoin(agentDrawOrders, eq(agentDrawOrders.id, issuedCdks.drawOrderId))
       .innerJoin(agents, eq(agents.id, issuedCdks.agentId))
       .where(where)
       .orderBy(desc(issuedCdks.id))
@@ -240,21 +260,24 @@ export async function GET(req: Request) {
       .offset((page - 1) * pageSize);
 
     return NextResponse.json({
-      list: list.map((c) => ({
-        id: c.id,
-        planKey: c.planKey,
-        status: c.status,
-        codeMasked: maskCode(decryptSecret(c.codeEncrypted)),
-        orderId: c.orderId,
-        orderNo: c.orderNo,
-        productName: c.productName,
-        customerEmail: c.customerEmail,
-        agentName: c.agentName,
-        source: "shop",
-        issuedAt: c.issuedAt,
-        usedAt: c.usedAt,
-        updatedAt: c.updatedAt,
-      })),
+      list: list.map((c) => {
+        const drawn = !c.orderNo && Boolean(c.drawNo);
+        return {
+          id: c.id,
+          planKey: c.planKey,
+          status: c.status,
+          codeMasked: maskCode(decryptSecret(c.codeEncrypted)),
+          orderId: c.orderId,
+          orderNo: drawn ? c.drawNo : c.orderNo,
+          productName: drawn ? c.drawPlanName : c.productName,
+          customerEmail: drawn ? "" : c.customerEmail,
+          agentName: c.agentName,
+          source: drawn ? "draw" : "shop",
+          issuedAt: c.issuedAt,
+          usedAt: c.usedAt,
+          updatedAt: c.updatedAt,
+        };
+      }),
       page,
       page_size: pageSize,
       total: Number(total) || 0,
@@ -471,6 +494,7 @@ export async function POST(req: Request) {
   if (action === "void_cdk") {
     try {
       const row = await mutateIssuedCdk(Number(body.id), (current) => {
+        if (current.source === "draw") throw new Error(DRAW_CDK_ELSEWHERE);
         if (current.status === "used") return current;
         if (current.status === "disabled") {
           throw new Error("已禁用的卡密请先启用再核销");
@@ -490,6 +514,7 @@ export async function POST(req: Request) {
   if (action === "disable_cdk") {
     try {
       const row = await mutateIssuedCdk(Number(body.id), (current) => {
+        if (current.source === "draw") throw new Error(DRAW_CDK_ELSEWHERE);
         if (current.status === "used") throw new Error("已核销卡密不能禁用");
         return { status: "disabled" };
       });
@@ -583,6 +608,7 @@ export async function POST(req: Request) {
   if (action === "enable_cdk") {
     try {
       const row = await mutateIssuedCdk(Number(body.id), (current) => {
+        if (current.source === "draw") throw new Error(DRAW_CDK_ELSEWHERE);
         if (current.status !== "disabled") throw new Error("仅已禁用卡密可启用");
         return { status: "unused" };
       });

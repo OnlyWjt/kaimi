@@ -97,7 +97,7 @@ export function parseStatsGrain(value: string | null): StatsGrain {
   return "day";
 }
 
-type Money = {
+export type Money = {
   orderCount: number;
   grossCents: number;
   platformCents: number;
@@ -344,4 +344,171 @@ export function buildEarningsStats(input: {
       (left, right) => right.orderCount - left.orderCount,
     ),
   };
+}
+
+/* —— 代理自助提卡：先出卡后结账，平台毛利 = 提卡价 − 出卡时记下的上游成本 —— */
+
+export type StatsDrawRow = {
+  agentId: number;
+  agentName: string;
+  /** 出卡时间。毛利按出卡那天算，没结算的也算。 */
+  createdAt: string;
+  /** 代理该付的提卡价 */
+  amountCents: number;
+  /** 出卡时记下的上游成本；没配进价时为 null，这张不进毛利。 */
+  upstreamCostCents: number | null;
+  /** unsettled / settled / void */
+  status: string;
+};
+
+export type DrawMoney = {
+  itemCount: number;
+  amountCents: number;
+  upstreamCents: number;
+  profitCents: number;
+  profitUnknownCount: number;
+  unsettledCents: number;
+  settledCents: number;
+  voidCount: number;
+};
+
+function emptyDrawMoney(): DrawMoney {
+  return {
+    itemCount: 0,
+    amountCents: 0,
+    upstreamCents: 0,
+    profitCents: 0,
+    profitUnknownCount: 0,
+    unsettledCents: 0,
+    settledCents: 0,
+    voidCount: 0,
+  };
+}
+
+function addDraw(target: DrawMoney, row: StatsDrawRow) {
+  // 作废的卡代理不用付，也不算平台的
+  if (row.status === "void") {
+    target.voidCount += 1;
+    return;
+  }
+  target.itemCount += 1;
+  target.amountCents += row.amountCents;
+  if (row.status === "settled") target.settledCents += row.amountCents;
+  else target.unsettledCents += row.amountCents;
+  if (row.upstreamCostCents == null) {
+    target.profitUnknownCount += 1;
+    return;
+  }
+  target.upstreamCents += row.upstreamCostCents;
+  target.profitCents += row.amountCents - row.upstreamCostCents;
+}
+
+export function buildDrawStats(input: { grain: StatsGrain; draws: StatsDrawRow[] }) {
+  const totals = emptyDrawMoney();
+  const byAgent = new Map<number, DrawMoney & { agentId: number; agentName: string }>();
+  const series = new Map<string, DrawMoney & { bucket: string }>();
+  for (const row of input.draws) {
+    addDraw(totals, row);
+    let agent = byAgent.get(row.agentId);
+    if (!agent) {
+      agent = { agentId: row.agentId, agentName: row.agentName, ...emptyDrawMoney() };
+      byAgent.set(row.agentId, agent);
+    }
+    addDraw(agent, row);
+    const bucket = statsBucketKey(row.createdAt, input.grain);
+    if (!bucket) continue;
+    let point = series.get(bucket);
+    if (!point) {
+      point = { bucket, ...emptyDrawMoney() };
+      series.set(bucket, point);
+    }
+    addDraw(point, row);
+  }
+  return {
+    totals,
+    byAgent: Array.from(byAgent.values()).sort((left, right) => right.profitCents - left.profitCents),
+    series: Array.from(series.values()).sort((left, right) => left.bucket.localeCompare(right.bucket)),
+  };
+}
+
+function shiftYmd(ymd: string, days: number) {
+  const [year, month, day] = ymd.split("-").map(Number);
+  const next = new Date(Date.UTC(year, month - 1, day) + days * 86_400_000);
+  return `${next.getUTCFullYear()}-${pad(next.getUTCMonth() + 1)}-${pad(next.getUTCDate())}`;
+}
+
+/** 一段北京日期里所有的桶（天 / 周一 / 月），从早到晚。太长（超过 400 个）返回空，只列有数据的桶。 */
+export function statsBuckets(startYmd: string, endYmd: string, grain: StatsGrain) {
+  if (!DATE_ONLY.test(startYmd) || !DATE_ONLY.test(endYmd) || startYmd > endYmd) return [];
+  const keys: string[] = [];
+  if (grain === "month") {
+    let [year, month] = startYmd.split("-").map(Number);
+    const last = endYmd.slice(0, 7);
+    for (let key = `${year}-${pad(month)}`; key <= last; key = `${year}-${pad(month)}`) {
+      keys.push(key);
+      if (keys.length > 400) return [];
+      month += 1;
+      if (month > 12) {
+        month = 1;
+        year += 1;
+      }
+    }
+    return keys;
+  }
+  const step = grain === "week" ? 7 : 1;
+  for (let key = grain === "week" ? mondayOf(startYmd) : startYmd; key <= endYmd; key = shiftYmd(key, step)) {
+    keys.push(key);
+    if (keys.length > 400) return [];
+  }
+  return keys;
+}
+
+export type EarningsPeriodRow = {
+  bucket: string;
+  label: string;
+  storeOrderCount: number;
+  storeProfitCents: number;
+  storeProfitUnknownCount: number;
+  drawItemCount: number;
+  drawProfitCents: number;
+  drawProfitUnknownCount: number;
+  /** 平台实际收益 = 店铺毛利 + 提卡毛利 */
+  totalProfitCents: number;
+};
+
+/**
+ * 每天（周 / 月）一行的收益明细：店铺毛利和提卡毛利并排。
+ * 选定范围里没有单的日子也列出来记 0，一眼看出哪天没进账；最新的在前。
+ */
+export function buildPeriodRows(input: {
+  grain: StatsGrain;
+  startYmd: string;
+  endYmd: string;
+  store: Array<Money & { bucket: string }>;
+  draw: Array<DrawMoney & { bucket: string }>;
+}): EarningsPeriodRow[] {
+  const store = new Map(input.store.map((row) => [row.bucket, row]));
+  const draw = new Map(input.draw.map((row) => [row.bucket, row]));
+  const keys = new Set(statsBuckets(input.startYmd, input.endYmd, input.grain));
+  for (const key of store.keys()) keys.add(key);
+  for (const key of draw.keys()) keys.add(key);
+  return Array.from(keys)
+    .sort((left, right) => right.localeCompare(left))
+    .map((bucket) => {
+      const s = store.get(bucket);
+      const d = draw.get(bucket);
+      const storeProfitCents = s?.profitCents ?? 0;
+      const drawProfitCents = d?.profitCents ?? 0;
+      return {
+        bucket,
+        label: statsBucketLabel(bucket, input.grain),
+        storeOrderCount: s?.orderCount ?? 0,
+        storeProfitCents,
+        storeProfitUnknownCount: s?.profitUnknownCount ?? 0,
+        drawItemCount: d?.itemCount ?? 0,
+        drawProfitCents,
+        drawProfitUnknownCount: d?.profitUnknownCount ?? 0,
+        totalProfitCents: storeProfitCents + drawProfitCents,
+      };
+    });
 }

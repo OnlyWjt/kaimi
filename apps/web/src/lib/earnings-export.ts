@@ -64,6 +64,38 @@ export type EarningsExportSettlement = {
   settledAt: string;
 };
 
+/** 管理员导出才有：平台这段时间的实际收益（店铺毛利 + 代理自助提卡毛利）。 */
+export type EarningsExportPlatform = {
+  storeProfitCents: number;
+  storeProfitUnknownCount: number;
+  drawItemCount: number;
+  drawAmountCents: number;
+  drawUpstreamCents: number;
+  drawProfitCents: number;
+  drawProfitUnknownCount: number;
+  drawUnsettledCents: number;
+  drawSettledCents: number;
+  drawVoidCount: number;
+};
+
+export type EarningsExportDrawItem = {
+  createdAt: string;
+  drawNo: string;
+  agentName: string;
+  planName: string;
+  amountCents: number;
+  upstreamCostCents: number | null;
+  /** unsettled / settled / void */
+  status: string;
+  voidReason: string;
+};
+
+const DRAW_STATUS_LABEL: Record<string, string> = {
+  unsettled: "未结算",
+  settled: "已结算",
+  void: "已作废",
+};
+
 export type EarningsExportAdjustment = {
   createdAt: string;
   orderNo: string;
@@ -116,6 +148,9 @@ export async function buildEarningsWorkbook(input: {
   settlements: EarningsExportSettlement[];
   adjustments?: EarningsExportAdjustment[];
   includeAdminIdentity?: boolean;
+  /** 管理员导出传：多出「平台收益」「提卡明细」两张表，放在最后，不打乱已有表的位置。 */
+  platform?: EarningsExportPlatform;
+  drawItems?: EarningsExportDrawItem[];
 }) {
   if (input.details.length > 50_000) {
     throw new Error("单次最多导出 50,000 条收益明细，请缩小时间范围");
@@ -305,6 +340,63 @@ export async function buildEarningsWorkbook(input: {
     });
   }
   formatMoneyColumns(settlements, ["amount"]);
+
+  if (input.platform) {
+    const p = input.platform;
+    const platform = workbook.addWorksheet("平台收益");
+    configureSheet(platform, [
+      { header: "项目", key: "label", width: 22 },
+      { header: "数值", key: "value", width: 18 },
+      { header: "说明", key: "note", width: 48 },
+    ]);
+    const money = (label: string, cents: number, note = "") => {
+      const row = platform.addRow({ label, value: yuan(cents), note });
+      row.getCell("value").numFmt = MONEY_FORMAT;
+    };
+    const count = (label: string, value: number, note = "") => platform.addRow({ label, value, note });
+    money("平台实际收益", p.storeProfitCents + p.drawProfitCents, "店铺毛利 + 提卡毛利");
+    money("店铺毛利", p.storeProfitCents, "代理成本 + 平台开票收入 − 上游进价 − 平台手续费");
+    count("店铺未配进价单数", p.storeProfitUnknownCount, "这几单没算进店铺毛利");
+    money("提卡毛利", p.drawProfitCents, "提卡价 − 出卡时的上游成本，按出卡日期算，没结算的也算");
+    count("提卡张数", p.drawItemCount, "不含作废");
+    money("提卡额", p.drawAmountCents, "代理该付给平台的");
+    money("提卡上游成本", p.drawUpstreamCents);
+    money("提卡未结算", p.drawUnsettledCents);
+    money("提卡已结算", p.drawSettledCents);
+    count("提卡没有上游成本张数", p.drawProfitUnknownCount, "这几张没算进提卡毛利");
+    count("提卡作废张数", p.drawVoidCount, "作废的不计费也不算收益");
+    platform.getRow(2).font = { bold: true };
+  }
+
+  if (input.drawItems) {
+    const draws = workbook.addWorksheet("提卡明细");
+    configureSheet(draws, [
+      { header: "出卡时间(北京时间)", key: "createdAt", width: 22 },
+      { header: "提卡单号", key: "drawNo", width: 26 },
+      { header: "代理", key: "agentName", width: 24 },
+      { header: "套餐", key: "planName", width: 26 },
+      { header: "提卡价", key: "amount", width: 14 },
+      { header: "上游成本", key: "upstream", width: 14 },
+      { header: "毛利", key: "profit", width: 14 },
+      { header: "状态", key: "status", width: 12 },
+      { header: "作废原因", key: "voidReason", width: 30 },
+    ]);
+    for (const item of input.drawItems) {
+      const voided = item.status === "void";
+      draws.addRow({
+        createdAt: stamp(item.createdAt),
+        drawNo: safeText(item.drawNo),
+        agentName: safeText(item.agentName),
+        planName: safeText(item.planName),
+        amount: yuan(item.amountCents),
+        upstream: item.upstreamCostCents == null ? null : yuan(item.upstreamCostCents),
+        profit: voided || item.upstreamCostCents == null ? null : yuan(item.amountCents - item.upstreamCostCents),
+        status: safeText(DRAW_STATUS_LABEL[item.status] || item.status),
+        voidReason: safeText(item.voidReason),
+      });
+    }
+    formatMoneyColumns(draws, ["amount", "upstream", "profit"]);
+  }
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
