@@ -3,6 +3,7 @@
 import { PlanLabel } from "@/components/plan-label";
 import { useEffect, useRef, useState } from "react";
 import { useAskDialog } from "@/components/ask-dialog";
+import { voidDrawItemWithReason } from "@/components/agent-draw-void";
 import { toast } from "@/components/toast";
 import { DrawCodePeek } from "@/components/draw-code-peek";
 import { KmSelect } from "@/components/km-select";
@@ -108,6 +109,8 @@ type LedgerItem = {
   codeMasked: string;
   manualUsedAt?: string;
   finished?: boolean;
+  /** 能不能自己作废：未结算、未使用、不是成品号、不在对账里 */
+  voidable?: boolean;
 };
 
 type DrawOrderRow = {
@@ -148,6 +151,7 @@ export function AgentDraw() {
   const [exportTo, setExportTo] = useState(beijingToday);
   const [exporting, setExporting] = useState(false);
   const [items, setItems] = useState<LedgerItem[]>([]);
+  const [voidQuota, setVoidQuota] = useState<{ used: number; limit: number } | null>(null);
   const [itemPage, setItemPage] = useState(1);
   const [itemTotal, setItemTotal] = useState(0);
   const [orders, setOrders] = useState<DrawOrderRow[]>([]);
@@ -185,12 +189,19 @@ export function AgentDraw() {
         if (tab === "open") {
           setItems(data.items || []);
           setItemTotal(Number(data.total) || 0);
+          setVoidQuota(data.voidQuota || null);
         }
         if (tab === "orders") setOrders(data.orders || []);
         if (tab === "bills") setBills(data.bills || []);
       })
       .catch(() => null);
   }, [tab, state, itemPage]);
+
+  async function voidItem(item: LedgerItem) {
+    if (!(await voidDrawItemWithReason(ask, item, voidQuota))) return;
+    // 重拉顶部合计；state 一换，上面的 effect 会跟着重拉未结算列表
+    await load().catch(() => null);
+  }
 
   async function apply() {
     setBusy(true);
@@ -494,7 +505,7 @@ export function AgentDraw() {
                 复制对账文本
               </button>
             </div>
-            <ItemTable items={items} empty="当前没有未结算的卡密。" />
+            <ItemTable items={items} empty="当前没有未结算的卡密。" onVoid={(item) => void voidItem(item)} />
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--km-fg-muted)]">
               <span>{pageLabel(itemTotal, itemPage, 20)}</span>
               <div className="flex gap-2">
@@ -614,7 +625,16 @@ export function AgentDraw() {
   );
 }
 
-function ItemTable({ items, empty }: { items: LedgerItem[]; empty: string }) {
+function ItemTable({
+  items,
+  empty,
+  onVoid,
+}: {
+  items: LedgerItem[];
+  empty: string;
+  /** 只有未结算列表传：未使用的卡密后面跟「作废」 */
+  onVoid?: (item: LedgerItem) => void;
+}) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[720px] text-left text-sm">
@@ -645,15 +665,26 @@ function ItemTable({ items, empty }: { items: LedgerItem[]; empty: string }) {
                 {item.paymentCountry ? <RegionBadge country={item.paymentCountry} /> : null}
               </td>
               <td className="py-2 pr-3">
-                {item.id ? (
-                  <DrawCodePeek
-                    itemId={item.id}
-                    masked={item.codeMasked}
-                    href={`/api/agent/draw/items/${item.id}`}
-                  />
-                ) : (
-                  <span className="font-mono text-xs">{item.codeMasked}</span>
-                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  {item.id ? (
+                    <DrawCodePeek
+                      itemId={item.id}
+                      masked={item.codeMasked}
+                      href={`/api/agent/draw/items/${item.id}`}
+                    />
+                  ) : (
+                    <span className="font-mono text-xs">{item.codeMasked}</span>
+                  )}
+                  {onVoid && item.id && item.voidable ? (
+                    <button
+                      type="button"
+                      className="km-acp-link is-danger"
+                      onClick={() => onVoid(item)}
+                    >
+                      作废
+                    </button>
+                  ) : null}
+                </div>
               </td>
               <td className="py-2 pr-3">
                 {drawCodeUseLabel(item.cdkStatus, Boolean(item.manualUsedAt), Boolean(item.finished))}

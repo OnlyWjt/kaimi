@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { and, eq, gte, lte, or } from "drizzle-orm";
 import { db } from "@/db";
 import {
+  agentDrawItems,
   agentEarningAdjustments,
   agentEarnings,
   agents,
@@ -13,8 +14,10 @@ import { requireAdmin } from "@/lib/auth";
 import { bootDb } from "@/lib/config";
 import {
   beijingDateRangeIso,
+  buildDrawStats,
   buildEarningsStats,
   buildOrderPipeline,
+  buildPeriodRows,
   parseStatsGrain,
 } from "@/lib/earnings-stats-core";
 
@@ -135,6 +138,34 @@ export async function GET(req: Request) {
     })),
   });
 
+  // 代理自助提卡：按出卡时间算，作废的在汇总里剔掉。
+  const drawWhere = [
+    gte(agentDrawItems.createdAt, range.start),
+    lte(agentDrawItems.createdAt, range.end),
+  ];
+  if (agentId > 0) drawWhere.push(eq(agentDrawItems.agentId, agentId));
+  const drawRows = await db
+    .select({
+      agentId: agentDrawItems.agentId,
+      agentName: agents.displayName,
+      realName: agents.realName,
+      shopName: agents.shopName,
+      settlementName: agents.settlementName,
+      username: users.username,
+      createdAt: agentDrawItems.createdAt,
+      amountCents: agentDrawItems.amountCents,
+      upstreamCostCents: agentDrawItems.upstreamCostCents,
+      status: agentDrawItems.status,
+    })
+    .from(agentDrawItems)
+    .innerJoin(agents, eq(agents.id, agentDrawItems.agentId))
+    .leftJoin(users, eq(users.agentId, agents.id))
+    .where(and(...drawWhere));
+  const draw = buildDrawStats({
+    grain,
+    draws: drawRows.map((row) => ({ ...row, agentName: identity(row) })),
+  });
+
   const orderWhere = [
     or(
       and(gte(storeOrders.createdAt, range.start), lte(storeOrders.createdAt, range.end)),
@@ -156,6 +187,14 @@ export async function GET(req: Request) {
   return NextResponse.json({
     range: { start: startYmd, end: endYmd, grain },
     ...stats,
+    draw,
+    periods: buildPeriodRows({
+      grain,
+      startYmd,
+      endYmd,
+      store: stats.series,
+      draw: draw.series,
+    }),
     pipeline: buildOrderPipeline(orders),
   });
 }

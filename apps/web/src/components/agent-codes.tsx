@@ -2,6 +2,8 @@
 
 import { PlanLabel } from "@/components/plan-label";
 import { FormEvent, useEffect, useState } from "react";
+import { useAskDialog } from "@/components/ask-dialog";
+import { voidDrawItemWithReason } from "@/components/agent-draw-void";
 import { type AgentPlanRow } from "@/lib/agent-console-core";
 import { readApiJson } from "@/lib/http-error";
 import { hasNextPage, pageLabel } from "@/lib/pagination-core";
@@ -16,11 +18,20 @@ type AgentCdk = {
   paymentCountry?: string;
   status: string;
   orderNo: string;
+  /** shop = 店里卖出的，draw = 自己提的 */
+  source?: string;
+  /** 提卡的卡对应的账本行，作废走它 */
+  drawItemId?: number | null;
+  voided?: boolean;
+  voidable?: boolean;
 };
 
 const PAGE_SIZE = 10;
 
 export function AgentCodes() {
+  const { ask, dialog } = useAskDialog();
+  // 作废后加一，重拉当前页
+  const [version, setVersion] = useState(0);
   const [plans, setPlans] = useState<AgentPlanRow[]>([]);
   const [cdks, setCdks] = useState<AgentCdk[]>([]);
   const [page, setPage] = useState(1);
@@ -80,7 +91,14 @@ export function AgentCodes() {
     return () => {
       cancelled = true;
     };
-  }, [page, query]);
+  }, [page, query, version]);
+
+  async function voidCode(cdk: AgentCdk) {
+    if (!cdk.drawItemId) return;
+    if (await voidDrawItemWithReason(ask, { id: cdk.drawItemId, codeMasked: cdk.code })) {
+      setVersion((value) => value + 1);
+    }
+  }
 
   async function reveal(id: number) {
     try {
@@ -103,10 +121,11 @@ export function AgentCodes() {
 
   return (
     <>
+      {dialog}
       <header className="km-acp-head">
         <div>
           <h1>卡密查询</h1>
-          <p>按订单号或卡密查一张卡现在的状态：有没有被兑换、在不在用。查订单发货进度去「订单」。</p>
+          <p>按订单号、提卡单号或卡密查一张卡现在的状态：有没有被兑换、在不在用。店里卖出的和自己提的卡都在这里。</p>
         </div>
       </header>
       {error ? <p className="text-sm text-[var(--km-danger)]">{error}</p> : null}
@@ -116,7 +135,7 @@ export function AgentCodes() {
             className="km-input max-w-xs"
             value={q}
             onChange={(event) => setQ(event.target.value)}
-            placeholder="订单号或完整卡密"
+            placeholder="订单号 / 提卡单号 / 完整卡密"
           />
           <button type="submit" className="km-btn km-btn-ghost">
             筛选
@@ -148,20 +167,34 @@ export function AgentCodes() {
                       "—"
                     )}
                   </td>
-                  <td className="font-mono text-xs">{cdk.orderNo}</td>
+                  <td className="font-mono text-xs">
+                    {cdk.orderNo}
+                    {cdk.source === "draw" ? <span className="km-badge ml-1.5 font-sans">提卡</span> : null}
+                  </td>
                   <td>
-                    <span className={`km-acp-pill${cdk.status === "unused" ? " warn" : ""}`}>
-                      {publicStatusLabel(cdk.status, "cdk")}
+                    <span className={`km-acp-pill${cdk.status === "unused" && !cdk.voided ? " warn" : ""}`}>
+                      {cdk.voided ? "已作废" : publicStatusLabel(cdk.status, "cdk")}
                     </span>
                   </td>
                   <td>
-                    <button
-                      type="button"
-                      className="km-btn km-btn-ghost"
-                      onClick={() => void reveal(cdk.id)}
-                    >
-                      显示完整卡密
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="km-btn km-btn-ghost"
+                        onClick={() => void reveal(cdk.id)}
+                      >
+                        显示完整卡密
+                      </button>
+                      {cdk.voidable && cdk.drawItemId ? (
+                        <button
+                          type="button"
+                          className="km-acp-link is-danger"
+                          onClick={() => void voidCode(cdk)}
+                        >
+                          作废
+                        </button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { KmSelect } from "@/components/km-select";
 import { readApiJson } from "@/lib/http-error";
 import type { StatsGrain } from "@/lib/earnings-stats-core";
@@ -49,6 +49,29 @@ type Pipeline = {
   feePendingCount: number;
 };
 
+type DrawMoney = {
+  itemCount: number;
+  amountCents: number;
+  upstreamCents: number;
+  profitCents: number;
+  profitUnknownCount: number;
+  unsettledCents: number;
+  settledCents: number;
+  voidCount: number;
+};
+
+type PeriodRow = {
+  bucket: string;
+  label: string;
+  storeOrderCount: number;
+  storeProfitCents: number;
+  storeProfitUnknownCount: number;
+  drawItemCount: number;
+  drawProfitCents: number;
+  drawProfitUnknownCount: number;
+  totalProfitCents: number;
+};
+
 type StatsPayload = {
   range: { start: string; end: string; grain: StatsGrain };
   totals: Money;
@@ -57,7 +80,23 @@ type StatsPayload = {
   byChannel: NamedMoney[];
   byPlan: NamedMoney[];
   byFee: NamedMoney[];
+  draw: {
+    totals: DrawMoney;
+    byAgent: Array<DrawMoney & { agentId: number; agentName: string }>;
+  };
+  periods: PeriodRow[];
   pipeline: Pipeline;
+};
+
+const emptyDraw: DrawMoney = {
+  itemCount: 0,
+  amountCents: 0,
+  upstreamCents: 0,
+  profitCents: 0,
+  profitUnknownCount: 0,
+  unsettledCents: 0,
+  settledCents: 0,
+  voidCount: 0,
 };
 
 const emptyMoney: Money = {
@@ -100,22 +139,9 @@ const emptyPipeline: Pipeline = {
   feePendingCount: 0,
 };
 
-function localYmd(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function mondayYmd(date = new Date()) {
-  const copy = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const weekday = copy.getDay();
-  copy.setDate(copy.getDate() - (weekday === 0 ? 6 : weekday - 1));
-  return localYmd(copy);
-}
-
-function monthStartYmd(date = new Date()) {
-  return localYmd(new Date(date.getFullYear(), date.getMonth(), 1));
+/** 北京日历上的某一天：0 = 今天，-6 = 往前数第 6 天。不看浏览器时区，和统计切天一致。 */
+function beijingYmd(offsetDays = 0) {
+  return new Date(Date.now() + 8 * 3_600_000 + offsetDays * 86_400_000).toISOString().slice(0, 10);
 }
 
 function yuan(cents: number) {
@@ -123,75 +149,111 @@ function yuan(cents: number) {
   return cents < 0 ? `-¥${value}` : `¥${value}`;
 }
 
-type Preset = "today" | "week" | "month" | "custom";
+type Preset = "today" | "7d" | "30d" | "custom";
+
+const PRESETS: Array<[Preset, string]> = [
+  ["today", "今天"],
+  ["7d", "近 7 天"],
+  ["30d", "近 30 天"],
+  ["custom", "自定义"],
+];
 
 const PLATFORM = "var(--km-fg)";
 const AGENT = "var(--km-accent)";
 const FEE = "var(--km-fg-muted)";
+const STORE = "var(--km-fg)";
+const DRAW = "var(--km-warning)";
 
-function GroupedBarChart({
-  rows,
-  series,
-}: {
-  rows: Array<{ label: string; platformCents: number; agentCents: number; feeCents?: number; profitCents?: number }>;
-  series: Array<{ key: "platformCents" | "agentCents" | "feeCents" | "profitCents"; label: string; color: string }>;
-}) {
-  if (!rows.length) {
-    return <p className="py-10 text-center text-sm text-[var(--km-fg-muted)]">这段时间还没有已入账的单</p>;
+/** 每个时间段一根柱子：店铺毛利在下、提卡毛利叠在上面。负数按 0 画。 */
+function StackedProfitChart({ rows }: { rows: PeriodRow[] }) {
+  const points = [...rows].reverse();
+  // 跟着面板宽度铺满：7 天也占满一行，天数多了再横向滚动
+  const box = useRef<HTMLDivElement>(null);
+  const [boxWidth, setBoxWidth] = useState(0);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => setBoxWidth(Math.floor(entry.contentRect.width)));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  if (!points.some((row) => row.storeProfitCents > 0 || row.drawProfitCents > 0)) {
+    return (
+      <div ref={box}>
+        <p className="py-10 text-center text-sm text-[var(--km-fg-muted)]">这段时间还没有收益</p>
+      </div>
+    );
   }
   const max = Math.max(
     1,
-    ...rows.flatMap((row) => series.map((item) => Number(row[item.key]) || 0)),
+    ...points.map((row) => Math.max(0, row.storeProfitCents) + Math.max(0, row.drawProfitCents)),
   );
-  const width = Math.max(560, rows.length * 72);
+  const slot = points.length > 45 ? 18 : 28;
+  const width = Math.max(boxWidth || 560, points.length * slot);
   const height = 240;
   const pad = { top: 16, right: 8, bottom: 40, left: 8 };
-  const innerW = width - pad.left - pad.right;
   const innerH = height - pad.top - pad.bottom;
-  const groupW = innerW / rows.length;
-  const barW = Math.min(16, Math.max(6, (groupW - 10) / series.length));
+  const groupW = (width - pad.left - pad.right) / points.length;
+  const barW = Math.min(36, Math.max(6, groupW * 0.5));
+  // 柱子多的时候隔几个标一次日期，不然字会叠在一起
+  const labelEvery = Math.max(1, Math.ceil(points.length / Math.floor(width / 64)));
 
   return (
-    <div className="overflow-x-auto">
-      <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="img" aria-label="收益柱状图">
-        {rows.map((row, index) => {
-          const groupX = pad.left + index * groupW + groupW / 2;
+    <div ref={box} className="overflow-x-auto">
+      <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="img" aria-label="实际收益柱状图">
+        {points.map((row, index) => {
+          const x = pad.left + index * groupW + (groupW - barW) / 2;
+          const storeH = (Math.max(0, row.storeProfitCents) / max) * innerH;
+          const drawH = (Math.max(0, row.drawProfitCents) / max) * innerH;
+          const base = pad.top + innerH;
+          const label = row.label.length === 10 ? row.label.slice(5) : row.label;
           return (
-            <g key={`${row.label}-${index}`}>
-              {series.map((item, offset) => {
-                const value = Number(row[item.key]) || 0;
-                const barH = (Math.max(0, value) / max) * innerH;
-                const x = groupX - (series.length * barW) / 2 + offset * barW;
-                const y = pad.top + innerH - barH;
-                return (
-                  <rect
-                    key={item.key}
-                    x={x}
-                    y={y}
-                    width={Math.max(barW - 2, 1)}
-                    height={Math.max(barH, value > 0 ? 2 : 0)}
-                    fill={item.color}
-                    rx="2"
-                  >
-                    <title>{`${row.label} ${item.label} ${yuan(value)}`}</title>
-                  </rect>
-                );
-              })}
-              <text
-                x={groupX}
-                y={height - 16}
-                textAnchor="middle"
-                fill="var(--km-fg-muted)"
-                fontSize="11"
-              >
-                {row.label}
-              </text>
+            <g key={row.bucket}>
+              <title>{`${row.label} 实际收益 ${yuan(row.totalProfitCents)}（店铺 ${yuan(row.storeProfitCents)} · 提卡 ${yuan(row.drawProfitCents)}）`}</title>
+              <rect x={x} y={base - storeH} width={barW} height={storeH} fill={STORE} rx="2" />
+              <rect x={x} y={base - storeH - drawH} width={barW} height={drawH} fill={DRAW} rx="2" />
+              {index % labelEvery === 0 ? (
+                <text x={x + barW / 2} y={height - 16} textAnchor="middle" fill="var(--km-fg-muted)" fontSize="11">
+                  {label}
+                </text>
+              ) : null}
             </g>
           );
         })}
       </svg>
     </div>
   );
+}
+
+const GRAIN_HEAD: Record<StatsGrain, string> = { day: "日期", week: "周", month: "月份" };
+
+function periodsCsv(rows: PeriodRow[], grain: StatsGrain) {
+  const money = (cents: number) => (cents / 100).toFixed(2);
+  const lines = [
+    [GRAIN_HEAD[grain], "店铺单数", "店铺毛利", "提卡张数", "提卡毛利", "实际收益"].join(","),
+    ...rows.map((row) =>
+      [
+        row.label,
+        row.storeOrderCount,
+        money(row.storeProfitCents),
+        row.drawItemCount,
+        money(row.drawProfitCents),
+        money(row.totalProfitCents),
+      ].join(","),
+    ),
+  ];
+  // 带 BOM，Excel 直接打开中文不乱码
+  return `\ufeff${lines.join("\n")}`;
+}
+
+function downloadPeriods(rows: PeriodRow[], grain: StatsGrain, range: { start: string; end: string }) {
+  const blob = new Blob([periodsCsv(rows, grain)], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `kaimi-收益明细-${range.start}-${range.end}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function HorizonBars({
@@ -242,20 +304,20 @@ function ChartLegend({ items }: { items: Array<{ label: string; color: string }>
 }
 
 export function AdminEarningsStats() {
-  const [preset, setPreset] = useState<Preset>("month");
+  const [preset, setPreset] = useState<Preset>("7d");
   const [grain, setGrain] = useState<StatsGrain>("day");
   const [agentId, setAgentId] = useState(0);
-  const [start, setStart] = useState(monthStartYmd);
-  const [end, setEnd] = useState(localYmd);
+  const [start, setStart] = useState(() => beijingYmd(-29));
+  const [end, setEnd] = useState(() => beijingYmd());
   const [agents, setAgents] = useState<AgentOption[]>([]);
   const [data, setData] = useState<StatsPayload | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   const range = useMemo(() => {
-    if (preset === "today") return { start: localYmd(), end: localYmd() };
-    if (preset === "week") return { start: mondayYmd(), end: localYmd() };
-    if (preset === "month") return { start: monthStartYmd(), end: localYmd() };
+    if (preset === "today") return { start: beijingYmd(), end: beijingYmd() };
+    if (preset === "7d") return { start: beijingYmd(-6), end: beijingYmd() };
+    if (preset === "30d") return { start: beijingYmd(-29), end: beijingYmd() };
     return { start, end };
   }, [preset, start, end]);
 
@@ -309,7 +371,29 @@ export function AdminEarningsStats() {
   }, [range.start, range.end, grain, agentId]);
 
   const totals = data?.totals || emptyMoney;
+  const draw = data?.draw.totals || emptyDraw;
+  const periods = data?.periods || [];
   const pipeline = data?.pipeline || emptyPipeline;
+  const actualCents = totals.profitCents + draw.profitCents;
+  const unknownNotes = [
+    totals.profitUnknownCount ? `店铺 ${totals.profitUnknownCount} 单未配进价` : "",
+    draw.profitUnknownCount ? `提卡 ${draw.profitUnknownCount} 张没有上游成本` : "",
+  ].filter(Boolean);
+  // 代理明细：店铺和提卡按代理并起来，只提过卡的代理也要出现
+  const agentRows = (() => {
+    const rows = new Map<number, { agentId: number; agentName: string; store?: Money; draw?: DrawMoney }>();
+    for (const row of data?.byAgent || []) rows.set(row.agentId, { agentId: row.agentId, agentName: row.agentName, store: row });
+    for (const row of data?.draw.byAgent || []) {
+      const current = rows.get(row.agentId);
+      if (current) current.draw = row;
+      else rows.set(row.agentId, { agentId: row.agentId, agentName: row.agentName, draw: row });
+    }
+    return Array.from(rows.values()).sort(
+      (left, right) =>
+        (right.store?.profitCents ?? 0) + (right.draw?.profitCents ?? 0) -
+        ((left.store?.profitCents ?? 0) + (left.draw?.profitCents ?? 0)),
+    );
+  })();
   const avgCents = totals.orderCount ? Math.round(totals.grossCents / totals.orderCount) : 0;
   const profitShare = totals.grossCents
     ? Math.round((totals.profitCents / totals.grossCents) * 100)
@@ -319,27 +403,21 @@ export function AdminEarningsStats() {
   return (
     <div className="space-y-6">
       <section className="km-panel space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
+        <div className="flex flex-wrap items-start justify-between gap-3 md:flex-nowrap">
+          <div className="min-w-0 flex-1">
             <h2 className="text-xl font-semibold">收益统计</h2>
             <p className="mt-1 text-sm text-[var(--km-fg-muted)]">
-              平台毛利 = 代理成本 + 平台开票收入 − 上游进价 − 平台手续费。平台开票收入不含分给代理的部分。没配进价的单不计入毛利。
+              平台实际收益 = 店铺毛利 + 提卡毛利。店铺毛利 = 代理成本 + 平台开票收入 − 上游进价 − 平台手续费；
+              提卡毛利 = 提卡价 − 出卡时的上游成本，按出卡日期算，没结算的也算，作废的不算。没配进价的不计入。
             </p>
           </div>
-          <a href={exportHref} className="km-btn km-btn-ghost km-btn-sm">
+          <a href={exportHref} className="km-btn km-btn-ghost km-btn-sm shrink-0">
             导出这段 Excel
           </a>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {(
-            [
-              ["today", "今天"],
-              ["week", "本周"],
-              ["month", "本月"],
-              ["custom", "自定义"],
-            ] as const
-          ).map(([id, label]) => (
+          {PRESETS.map(([id, label]) => (
             <button
               key={id}
               type="button"
@@ -403,22 +481,28 @@ export function AdminEarningsStats() {
         {busy ? <p className="text-xs text-[var(--km-fg-muted)]">正在汇总…</p> : null}
       </section>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <div className="km-stat space-y-1">
-          <p className="text-xs text-[var(--km-fg-muted)]">平台毛利</p>
+          <p className="text-xs text-[var(--km-fg-muted)]">平台实际收益</p>
+          <p className="text-2xl font-semibold">{yuan(actualCents)}</p>
+          <p className="text-xs text-[var(--km-fg-muted)]">
+            {unknownNotes.length ? `${unknownNotes.join(" · ")}，未计入` : "店铺毛利 + 提卡毛利"}
+          </p>
+        </div>
+        <div className="km-stat space-y-1">
+          <p className="text-xs text-[var(--km-fg-muted)]">店铺毛利</p>
           <p className="text-2xl font-semibold">{yuan(totals.profitCents)}</p>
           <p className="text-xs text-[var(--km-fg-muted)]">
-            毛利率 {profitShare}%
-            {totals.profitUnknownCount ? ` · ${totals.profitUnknownCount} 单未配进价` : ""}
+            {totals.orderCount} 单 · 毛利率 {profitShare}%
             {totals.backfillCount ? ` · 补录 ${totals.backfillCount} 单未计入` : ""}
             {totals.refundedOrderCount ? ` · 退款 ${totals.refundedOrderCount} 单按 0` : ""}
           </p>
         </div>
         <div className="km-stat space-y-1">
-          <p className="text-xs text-[var(--km-fg-muted)]">销售额</p>
-          <p className="text-2xl font-semibold">{yuan(totals.grossCents)}</p>
+          <p className="text-xs text-[var(--km-fg-muted)]">提卡毛利</p>
+          <p className="text-2xl font-semibold">{yuan(draw.profitCents)}</p>
           <p className="text-xs text-[var(--km-fg-muted)]">
-            {totals.orderCount} 单 · 客单 {yuan(avgCents)}
+            {draw.itemCount} 张 · 提卡额 {yuan(draw.amountCents)} · 未结算 {yuan(draw.unsettledCents)}
           </p>
         </div>
         <div className="km-stat space-y-1">
@@ -428,36 +512,41 @@ export function AdminEarningsStats() {
             待结算 {yuan(totals.pendingCents)} · 已返佣 {yuan(totals.settledCents)}
           </p>
         </div>
-        <div className="km-stat space-y-1">
-          <p className="text-xs text-[var(--km-fg-muted)]">上游与手续费</p>
-          <p className="text-2xl font-semibold">{yuan(totals.upstreamCents + totals.feeCents)}</p>
-          <p className="text-xs text-[var(--km-fg-muted)]">
-            上游 {yuan(totals.upstreamCents)} · 手续费 {yuan(totals.feeCents)}
-          </p>
-        </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+        <div className="km-stat space-y-1">
+          <p className="text-xs text-[var(--km-fg-muted)]">店铺销售额</p>
+          <p className="text-xl font-semibold">{yuan(totals.grossCents)}</p>
+          <p className="text-xs text-[var(--km-fg-muted)]">客单 {yuan(avgCents)}</p>
+        </div>
+        <div className="km-stat space-y-1">
+          <p className="text-xs text-[var(--km-fg-muted)]">上游与手续费</p>
+          <p className="text-xl font-semibold">{yuan(totals.upstreamCents + draw.upstreamCents + totals.feeCents)}</p>
+          <p className="text-xs text-[var(--km-fg-muted)]">
+            上游 {yuan(totals.upstreamCents + draw.upstreamCents)} · 手续费 {yuan(totals.feeCents)}
+          </p>
+        </div>
         <div className="km-stat space-y-1">
           <p className="text-xs text-[var(--km-fg-muted)]">已支付未出齐</p>
-          <p className="text-2xl font-semibold">{pipeline.stuckCount}</p>
+          <p className="text-xl font-semibold">{pipeline.stuckCount}</p>
           <p className="text-xs text-[var(--km-fg-muted)]">{yuan(pipeline.stuckCents)} 还不能结算</p>
         </div>
         <div className="km-stat space-y-1">
           <p className="text-xs text-[var(--km-fg-muted)]">未支付</p>
-          <p className="text-2xl font-semibold">{pipeline.unpaidCount}</p>
+          <p className="text-xl font-semibold">{pipeline.unpaidCount}</p>
           <p className="text-xs text-[var(--km-fg-muted)]">{yuan(pipeline.unpaidCents)}</p>
         </div>
         <div className="km-stat space-y-1">
           <p className="text-xs text-[var(--km-fg-muted)]">退款 / 冲正</p>
-          <p className="text-2xl font-semibold">{yuan(totals.adjustmentCents)}</p>
+          <p className="text-xl font-semibold">{yuan(totals.adjustmentCents)}</p>
           <p className="text-xs text-[var(--km-fg-muted)]">
             退款 {pipeline.refundedCount} 单 · 冲正 {yuan(totals.reversedCents)}
           </p>
         </div>
         <div className="km-stat space-y-1">
           <p className="text-xs text-[var(--km-fg-muted)]">手续费待核</p>
-          <p className="text-2xl font-semibold">{pipeline.feeReviewCount + pipeline.feePendingCount}</p>
+          <p className="text-xl font-semibold">{pipeline.feeReviewCount + pipeline.feePendingCount}</p>
           <p className="text-xs text-[var(--km-fg-muted)]">
             待人工 {pipeline.feeReviewCount} · 核对中 {pipeline.feePendingCount}
           </p>
@@ -466,32 +555,77 @@ export function AdminEarningsStats() {
 
       <section className="km-panel space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 className="font-semibold">毛利与代理收益</h3>
+          <h3 className="font-semibold">{grain === "day" ? "每日实际收益" : grain === "week" ? "每周实际收益" : "每月实际收益"}</h3>
           <ChartLegend
             items={[
-              { label: "平台毛利", color: PLATFORM },
-              { label: "代理收益", color: AGENT },
+              { label: "店铺毛利", color: STORE },
+              { label: "提卡毛利", color: DRAW },
             ]}
           />
         </div>
-        <p className="text-sm text-[var(--km-fg-muted)]">
-          {totals.profitUnknownCount
-            ? `${totals.profitUnknownCount} 单还没配上游进价，这几单的毛利没有加进合计。`
-            : `平台毛利 ${yuan(totals.profitCents)} = 代理成本 ${yuan(totals.basisCostCents)} + 平台开票收入 ${yuan(totals.basisInvoiceCents)} − 上游 ${yuan(totals.basisUpstreamCents)} − 平台手续费 ${yuan(totals.basisPlatformFeeCents)}`}
-          {totals.backfillCount
-            ? ` 另有 ${totals.backfillCount} 单按当前进价补录，毛利 ${yuan(totals.backfillProfitCents)}，未计入。`
-            : ""}
-          {totals.refundedOrderCount
-            ? ` 退款 ${totals.refundedOrderCount} 单毛利按 0。`
-            : ""}
-        </p>
-        <GroupedBarChart
-          rows={data?.series || []}
-          series={[
-            { key: "profitCents", label: "平台毛利", color: PLATFORM },
-            { key: "agentCents", label: "代理收益", color: AGENT },
-          ]}
-        />
+        <StackedProfitChart rows={periods} />
+      </section>
+
+      <section className="km-panel space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="font-semibold">收益明细</h3>
+          <button
+            type="button"
+            className="km-btn km-btn-ghost km-btn-sm"
+            disabled={!periods.length}
+            onClick={() => downloadPeriods(periods, grain, range)}
+          >
+            导出明细 CSV
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="km-table min-w-[640px]">
+            <thead>
+              <tr>
+                <th>{GRAIN_HEAD[grain]}</th>
+                <th className="text-right">店铺单数</th>
+                <th className="text-right">店铺毛利</th>
+                <th className="text-right">提卡张数</th>
+                <th className="text-right">提卡毛利</th>
+                <th className="text-right">实际收益</th>
+              </tr>
+            </thead>
+            <tbody>
+              {periods.map((row) => {
+                const empty = !row.storeOrderCount && !row.drawItemCount;
+                const unknown = row.storeProfitUnknownCount + row.drawProfitUnknownCount;
+                return (
+                  <tr key={row.bucket} className={empty ? "text-[var(--km-fg-muted)]" : undefined}>
+                    <td className="whitespace-nowrap">{row.label}</td>
+                    <td className="text-right tabular-nums">{row.storeOrderCount}</td>
+                    <td className="text-right tabular-nums">{yuan(row.storeProfitCents)}</td>
+                    <td className="text-right tabular-nums">{row.drawItemCount}</td>
+                    <td className="text-right tabular-nums">{yuan(row.drawProfitCents)}</td>
+                    <td className="text-right font-semibold tabular-nums" title={unknown ? `${unknown} 笔没有进价，未计入` : undefined}>
+                      {yuan(row.totalProfitCents)}
+                      {unknown ? <span className="ml-1 text-xs font-normal text-[var(--km-warning)]">*</span> : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            {periods.length > 1 ? (
+              <tfoot>
+                <tr className="font-semibold">
+                  <td>合计</td>
+                  <td className="text-right tabular-nums">{totals.orderCount}</td>
+                  <td className="text-right tabular-nums">{yuan(totals.profitCents)}</td>
+                  <td className="text-right tabular-nums">{draw.itemCount}</td>
+                  <td className="text-right tabular-nums">{yuan(draw.profitCents)}</td>
+                  <td className="text-right tabular-nums">{yuan(actualCents)}</td>
+                </tr>
+              </tfoot>
+            ) : null}
+          </table>
+        </div>
+        {periods.some((row) => row.storeProfitUnknownCount + row.drawProfitUnknownCount) ? (
+          <p className="text-xs text-[var(--km-fg-muted)]">带 * 的那天有没配进价的单，这部分没算进收益。</p>
+        ) : null}
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -545,34 +679,38 @@ export function AdminEarningsStats() {
         </section>
       </div>
 
-      {data?.byAgent.length ? (
+      {agentRows.length ? (
         <section className="km-panel space-y-3">
           <h3 className="font-semibold">代理明细</h3>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-sm">
+            <table className="w-full min-w-[920px] text-left text-sm">
               <thead>
                 <tr className="border-b border-[var(--km-border)]">
                   <th className="py-2 pr-3">代理</th>
                   <th className="py-2 pr-3">单量</th>
                   <th className="py-2 pr-3">销售额</th>
                   <th className="py-2 pr-3">上游进价</th>
-                  <th className="py-2 pr-3">平台毛利</th>
+                  <th className="py-2 pr-3">店铺毛利</th>
+                  <th className="py-2 pr-3">提卡张数</th>
+                  <th className="py-2 pr-3">提卡毛利</th>
                   <th className="py-2 pr-3">代理收益</th>
                   <th className="py-2 pr-3">待结算</th>
                   <th className="py-2">已返佣</th>
                 </tr>
               </thead>
               <tbody>
-                {data.byAgent.map((row) => (
-                  <tr key={row.agentId} className="border-b border-[var(--km-border)]">
-                    <td className="py-2 pr-3">{row.agentName}</td>
-                    <td className="py-2 pr-3">{row.orderCount}</td>
-                    <td className="py-2 pr-3">{yuan(row.grossCents)}</td>
-                    <td className="py-2 pr-3">{yuan(row.upstreamCents)}</td>
-                    <td className="py-2 pr-3">{yuan(row.profitCents)}</td>
-                    <td className="py-2 pr-3">{yuan(row.agentCents)}</td>
-                    <td className="py-2 pr-3">{yuan(row.pendingCents)}</td>
-                    <td className="py-2">{yuan(row.settledCents)}</td>
+                {agentRows.map(({ agentId, agentName, store, draw: drawn }) => (
+                  <tr key={agentId} className="border-b border-[var(--km-border)]">
+                    <td className="py-2 pr-3">{agentName}</td>
+                    <td className="py-2 pr-3">{store?.orderCount ?? 0}</td>
+                    <td className="py-2 pr-3">{yuan(store?.grossCents ?? 0)}</td>
+                    <td className="py-2 pr-3">{yuan((store?.upstreamCents ?? 0) + (drawn?.upstreamCents ?? 0))}</td>
+                    <td className="py-2 pr-3">{yuan(store?.profitCents ?? 0)}</td>
+                    <td className="py-2 pr-3">{drawn?.itemCount ?? 0}</td>
+                    <td className="py-2 pr-3">{yuan(drawn?.profitCents ?? 0)}</td>
+                    <td className="py-2 pr-3">{yuan(store?.agentCents ?? 0)}</td>
+                    <td className="py-2 pr-3">{yuan(store?.pendingCents ?? 0)}</td>
+                    <td className="py-2">{yuan(store?.settledCents ?? 0)}</td>
                   </tr>
                 ))}
               </tbody>

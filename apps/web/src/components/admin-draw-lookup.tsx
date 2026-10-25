@@ -1,7 +1,7 @@
 "use client";
 
 import { PlanLabel } from "@/components/plan-label";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { toast } from "@/components/toast";
 import type { DrawLookupItem, DrawLookupOrder } from "@/lib/agent-draw-lookup";
 import { formatDateTime } from "@/lib/datetime";
@@ -17,7 +17,9 @@ const ORDER_STATUS: Record<string, { label: string; tone: string }> = {
 };
 
 function settleBadge(item: DrawLookupItem) {
-  if (item.status === "void") return { label: "已作废", tone: "", title: item.voidReason };
+  if (item.status === "void") {
+    return { label: item.voidedByAgent ? "代理已作废" : "已作废", tone: "", title: item.voidReason };
+  }
   if (item.status === "settled") {
     return { label: item.settleRef ? `已结算 · ${item.settleRef}` : "已结算", tone: "ok", title: "" };
   }
@@ -93,74 +95,123 @@ export function AdminDrawLookup({ onOpenAgent }: { onOpenAgent: (agentId: number
         <p className="km-dlk-empty">没有找到「{searched}」对应的提卡单。卡密要输完整的一串。</p>
       ) : null}
 
-      {orders.map((order) => {
-        const state = ORDER_STATUS[order.status] || { label: order.status, tone: "" };
-        const who = [order.realName || "未填姓名", order.username ? `@${order.username}` : ""].filter(Boolean).join(" · ");
-        return (
-          <article key={order.drawNo} className="km-dlk-order">
-            <header className="km-dlk-head">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <code className="km-dlk-no">{order.drawNo}</code>
-                  <span className={`km-badge ${state.tone ? `km-badge-${state.tone}` : ""}`}>{state.label}</span>
-                </div>
-                <p className="mt-1 text-xs text-[var(--km-fg-muted)]">
-                  <b className="font-semibold text-[var(--km-fg)]">{order.shopName}</b> · {who} · {formatDateTime(order.createdAt)}
-                </p>
-              </div>
-              <button type="button" className="km-btn km-btn-ghost km-btn-sm" onClick={() => onOpenAgent(order.agentId)}>
-                看这个代理的账本
-              </button>
-            </header>
-            <dl className="km-od-facts mt-3">
-              <div>
-                <dt>套餐</dt>
-                <dd title={order.planName}>
-                  <PlanLabel name={order.planName} />
-                </dd>
-              </div>
-              <div>
-                <dt>出卡</dt>
-                <dd>
-                  {order.issuedCount} / {order.quantity} {order.fulfillmentKind === "local_account" ? "个" : "张"}
-                </dd>
-              </div>
-              <div>
-                <dt>单价</dt>
-                <dd>¥{yuanTextFromCents(order.unitPriceCents)}</dd>
-              </div>
-              <div>
-                <dt>合计</dt>
-                <dd>¥{yuanTextFromCents(order.unitPriceCents * order.issuedCount)}</dd>
-              </div>
-            </dl>
-            {order.lastErrorMessage && order.status !== "delivered" ? (
-              <p className="km-od-message">{order.lastErrorMessage}</p>
-            ) : null}
-            {order.items.length ? (
-              <div className="km-dlk-items">
-                {order.items.map((item) => {
-                  const settle = settleBadge(item);
-                  return (
-                    <div key={item.id} className={`km-dlk-item${item.matched ? " is-hit" : ""}`}>
-                      <code>{item.codeMasked}</code>
-                      <span className="km-dlk-cell">¥{yuanTextFromCents(item.amountCents)}</span>
-                      <span className="km-dlk-cell">
-                        {item.manualUsed ? "已手动核销" : adminStatusLabel(item.cdkStatus, "cdk")}
-                      </span>
-                      <span className={`km-badge ${settle.tone ? `km-badge-${settle.tone}` : ""}`} title={settle.title || undefined}>
-                        {settle.label}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="km-dlk-empty">这一单还没有出卡。</p>
-            )}
-          </article>
-        );
-      })}
+      {orders.map((order) => (
+        <DrawOrderCard key={order.drawNo} order={order} onOpenAgent={onOpenAgent} />
+      ))}
     </section>
+  );
+}
+
+/** 一张提卡单：状态、套餐、出卡数量和每张卡的结算情况。 */
+export function DrawOrderCard({
+  order,
+  onOpenAgent,
+}: {
+  order: DrawLookupOrder;
+  onOpenAgent?: (agentId: number) => void;
+}) {
+  const state = ORDER_STATUS[order.status] || { label: order.status, tone: "" };
+  const who = [order.realName || "未填姓名", order.username ? `@${order.username}` : ""].filter(Boolean).join(" · ");
+  return (
+    <article className="km-dlk-order">
+      <header className="km-dlk-head">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <code className="km-dlk-no">{order.drawNo}</code>
+            <span className={`km-badge ${state.tone ? `km-badge-${state.tone}` : ""}`}>{state.label}</span>
+          </div>
+          <p className="mt-1 text-xs text-[var(--km-fg-muted)]">
+            <b className="font-semibold text-[var(--km-fg)]">{order.shopName}</b> · {who} · {formatDateTime(order.createdAt)}
+          </p>
+        </div>
+        {onOpenAgent ? (
+          <button type="button" className="km-btn km-btn-ghost km-btn-sm" onClick={() => onOpenAgent(order.agentId)}>
+            看这个代理的账本
+          </button>
+        ) : null}
+      </header>
+      <dl className="km-od-facts mt-3">
+        <div>
+          <dt>套餐</dt>
+          <dd title={order.planName}>
+            <PlanLabel name={order.planName} />
+          </dd>
+        </div>
+        <div>
+          <dt>出卡</dt>
+          <dd>
+            {order.issuedCount} / {order.quantity} {order.fulfillmentKind === "local_account" ? "个" : "张"}
+          </dd>
+        </div>
+        <div>
+          <dt>单价</dt>
+          <dd>¥{yuanTextFromCents(order.unitPriceCents)}</dd>
+        </div>
+        <div>
+          <dt>合计</dt>
+          <dd>¥{yuanTextFromCents(order.unitPriceCents * order.issuedCount)}</dd>
+        </div>
+      </dl>
+      {order.lastErrorMessage && order.status !== "delivered" ? (
+        <p className="km-od-message">{order.lastErrorMessage}</p>
+      ) : null}
+      {order.items.length ? (
+        <div className="km-dlk-items">
+          {order.items.map((item) => {
+            const settle = settleBadge(item);
+            return (
+              <div key={item.id} className={`km-dlk-item${item.matched ? " is-hit" : ""}`}>
+                <code>{item.codeMasked}</code>
+                <span className="km-dlk-cell">¥{yuanTextFromCents(item.amountCents)}</span>
+                <span className="km-dlk-cell">
+                  {item.manualUsed ? "已手动核销" : adminStatusLabel(item.cdkStatus, "cdk")}
+                </span>
+                <span className={`km-badge ${settle.tone ? `km-badge-${settle.tone}` : ""}`} title={settle.title || undefined}>
+                  {settle.label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="km-dlk-empty">这一单还没有出卡。</p>
+      )}
+    </article>
+  );
+}
+
+/** 订单列表里展开一张提卡单。按单号查，和「提卡账本 › 查提卡单」同一个接口。 */
+export function AdminDrawOrderDetail({ drawNo }: { drawNo: string }) {
+  const [order, setOrder] = useState<DrawLookupOrder | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`/api/admin/draw?lookup=${encodeURIComponent(drawNo)}`, { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "查询失败");
+        const found = ((data.orders || []) as DrawLookupOrder[]).find((item) => item.drawNo === drawNo);
+        if (!cancelled) {
+          setOrder(found || null);
+          setError(found ? "" : "没有找到这张提卡单");
+        }
+      } catch (reason) {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : "查询失败");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [drawNo]);
+
+  if (error) return <p className="py-2 text-[var(--km-danger)]">{error}</p>;
+  if (!order) return <p className="py-2 text-[var(--km-fg-muted)]">加载中…</p>;
+  return (
+    <div className="km-dlk">
+      <DrawOrderCard order={order} />
+      <p className="mt-2 text-xs text-[var(--km-fg-muted)]">作废、手动核销、结账在「代理 › 提卡账本」里处理。</p>
+    </div>
   );
 }
