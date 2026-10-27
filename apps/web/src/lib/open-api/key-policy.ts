@@ -4,8 +4,9 @@
 export const MAX_ALLOWLIST_ENTRIES = 20;
 
 /**
- * 正式 Key 从这一刻起必须设白名单（北京时间 2026-10-27 00:00）。
- * 之前建的 Key 白名单都是空的，给代理留一周改，宽限期内空白名单照常放行。
+ * 正式 Key 从这一刻起必须设白名单（北京时间 2026-11-03 00:00）。
+ * 之前建的 Key 白名单都是空的，宽限期内空白名单照常放行。原定 10-27，
+ * 动态 IP 的代理没法填，推迟到域名白名单（DDNS）上线之后。
  */
-export const ALLOWLIST_ENFORCED_FROM = "2026-10-26T16:00:00.000Z";
-export const ALLOWLIST_ENFORCED_LABEL = "10 月 27 日";
+export const ALLOWLIST_ENFORCED_FROM = "2026-11-02T16:00:00.000Z";
+export const ALLOWLIST_ENFORCED_LABEL = "11 月 3 日";
