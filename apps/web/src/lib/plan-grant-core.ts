@@ -16,7 +16,7 @@ export function formatGrantPlansToast(input: {
   grantedAgentCount: number;
   alreadyAgentCount: number;
 }) {
-  return `已给 ${input.grantedAgentCount} 家店加上 ${input.planLabel}。${input.alreadyAgentCount} 家本来就能卖。`;
+  return `已给 ${input.grantedAgentCount} 家店加上 ${input.planLabel}。${input.alreadyAgentCount} 家本来就能卖。新开的由代理自己上架。`;
 }
 
 export function grantPlansLabel(planNames: string[]) {

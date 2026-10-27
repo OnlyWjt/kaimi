@@ -742,12 +742,12 @@ export function AdminAgents() {
                       </span>
                     ) : (
                       <span className="text-[var(--km-fg-muted)]">
-                        {agent.hiddenPlans?.length ? "全部被代理下架" : "未分配"}
+                        {agent.hiddenPlans?.length ? "代理都没上架" : "未分配"}
                       </span>
                     )}
                     {agent.hiddenPlans?.length ? (
                       <span className="mt-1 flex flex-wrap items-center gap-1 text-xs text-[var(--km-fg-muted)]">
-                        代理已下架：
+                        代理没上架：
                         {allowedPlanLabels(agent.hiddenPlans).map((label) => (
                           <span key={label} className="km-badge km-badge-muted line-through">
                             {label}
@@ -987,8 +987,8 @@ export function AdminAgents() {
                                 <span className="km-badge ml-2">已超上限</span>
                               ) : null}
                               {plan.enabled && plan.agentHidden ? (
-                                <span className="km-badge ml-2" title="你开放了这个套餐，但代理选择不在自己店里卖">
-                                  代理已下架
+                                <span className="km-badge ml-2" title="你开放了这个套餐，代理还没在自己店里上架">
+                                  代理未上架
                                 </span>
                               ) : null}
                             </td>

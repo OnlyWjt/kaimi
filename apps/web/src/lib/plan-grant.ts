@@ -104,6 +104,8 @@ export async function grantPlanToActiveAgents(
             agentId: agent.id,
             planId: plan.id,
             enabled: true,
+            // 开放只代表代理能卖，上不上店由代理自己在「售价与优惠」打开。
+            agentHidden: true,
             costOverrideCents: null,
             retailPriceCents: plan.globalCostPriceCents,
             updatedAt: now,
@@ -114,7 +116,7 @@ export async function grantPlanToActiveAgents(
         } else if (action === "enable" && existing) {
           await tx
             .update(agentPlanPrices)
-            .set({ enabled: true, updatedAt: now })
+            .set({ enabled: true, agentHidden: true, updatedAt: now })
             .where(eq(agentPlanPrices.id, existing.id));
           enabled += 1;
           granted = true;
