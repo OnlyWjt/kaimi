@@ -129,16 +129,19 @@ export async function PUT(
         costOverrideCents: cost,
         updatedAt: now,
       };
+      // 新开放（没有行，或之前关着）默认不上架，由代理自己在「售价与优惠」打开。
+      const newlyGranted = item.enabled && !existing?.enabled;
       if (existing) {
         await tx
           .update(agentPlanPrices)
-          .set(values)
+          .set(newlyGranted ? { ...values, agentHidden: true } : values)
           .where(eq(agentPlanPrices.id, existing.id));
       } else {
         await tx.insert(agentPlanPrices).values({
           agentId,
           planId: plan.id,
           retailPriceCents: cost ?? plan.globalCostPriceCents,
+          agentHidden: newlyGranted,
           ...values,
         });
       }

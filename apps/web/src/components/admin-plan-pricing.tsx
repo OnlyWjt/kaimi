@@ -209,7 +209,7 @@ export function AdminPlanPricing() {
       .join("、");
     const answer = await ask({
       title: "开放给全部代理",
-      message: `启用 ${names}，并让所有在营代理都能卖。已经在卖的零售价不动，新开的用默认成本当售价。${
+      message: `启用 ${names}，并开放给所有在营代理。新开的默认不在代理店里上架，由代理自己打开；已经在卖的不动，新开的用默认成本当售价。${
         skipped.length ? `未定价的地区会跳过：${skipped.join("、")}。` : ""
       }`,
       confirmLabel: "启用并开放",

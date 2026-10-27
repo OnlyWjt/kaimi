@@ -28,7 +28,7 @@ describe("grant toast", () => {
         grantedAgentCount: 3,
         alreadyAgentCount: 2,
       }),
-    ).toBe("已给 3 家店加上 月卡。2 家本来就能卖。");
+    ).toBe("已给 3 家店加上 月卡。2 家本来就能卖。新开的由代理自己上架。");
     expect(grantPlansLabel(["月卡"])).toBe("月卡");
     expect(grantPlansLabel(["月卡", "季卡", "年卡", "周卡"])).toBe("4 个套餐");
   });

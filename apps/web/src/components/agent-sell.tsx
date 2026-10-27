@@ -22,7 +22,7 @@ import { cardProductLabel } from "@/lib/cardplatform/product";
 
 function planStatus(plan: AgentPlanRow) {
   if (!plan.enabled) return { label: "未开放", tone: "mute" as const };
-  if (plan.agentHidden) return { label: "已下架", tone: "mute" as const };
+  if (plan.agentHidden) return { label: "未上架", tone: "mute" as const };
   if (!(plan.cardplatformSellable || isLocalAccountPlan(plan))) {
     return { label: "平台暂时缺货", tone: "warn" as const };
   }
@@ -214,9 +214,40 @@ export function AgentSell({
                   const product = group.primary.product || "gpt";
                   const multiProduct = groups.some((item) => (item.primary.product || "gpt") !== product);
                   if (multiProduct && (index === 0 || (groups[index - 1].primary.product || "gpt") !== product)) {
+                    const linePlans = groups
+                      .filter((item) => (item.primary.product || "gpt") === product)
+                      .flatMap((item) => item.plans);
+                    const lineSelling = linePlans.filter((plan) => planStatus(plan).tone === "ok").length;
+                    const lineToggleable = linePlans.filter((plan) => plan.enabled);
+                    const lineAllHidden =
+                      lineToggleable.length > 0 && lineToggleable.every((plan) => plan.agentHidden);
                     rows.push(
                       <tr key={`product-${product}`} className="km-sell-product">
-                        <td colSpan={6}>{cardProductLabel(product)}</td>
+                        <td colSpan={6}>
+                          <div className="km-sell-group-row">
+                            <span>
+                              <b>{cardProductLabel(product)}</b>
+                              <span className="km-sell-product-meta">
+                                {linePlans.length} 个套餐，{lineSelling} 个在售
+                              </span>
+                            </span>
+                            {lineToggleable.length > 1 ? (
+                              <button
+                                type="button"
+                                className="km-btn km-btn-ghost km-btn-sm"
+                                disabled={busy}
+                                onClick={() =>
+                                  void setHidden(
+                                    lineToggleable.filter((plan) => Boolean(plan.agentHidden) !== !lineAllHidden),
+                                    !lineAllHidden,
+                                  )
+                                }
+                              >
+                                {lineAllHidden ? `${cardProductLabel(product)} 全部上架` : `${cardProductLabel(product)} 全部下架`}
+                              </button>
+                            ) : null}
+                          </div>
+                        </td>
                       </tr>,
                     );
                   }
